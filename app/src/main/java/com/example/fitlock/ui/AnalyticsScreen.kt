@@ -1,0 +1,173 @@
+package com.example.fitlock.ui
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.fitlock.utils.AppUsageInfo
+import com.example.fitlock.utils.UsageUtils
+import java.util.concurrent.TimeUnit
+
+@Composable
+fun AnalyticsScreen() {
+    val context = LocalContext.current
+    var usageStats by remember { mutableStateOf<List<AppUsageInfo>>(emptyList()) }
+    val hasPermission = remember { UsageUtils.hasUsageStatsPermission(context) }
+    var selectedTab by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        if (hasPermission) {
+            usageStats = UsageUtils.getAppUsageStats(context)
+                .filter { it.totalTimeVisible > 0 }
+                .sortedByDescending { it.totalTimeVisible }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(16.dp)
+    ) {
+        Text(
+            "Analytic",
+            color = Color.White,
+            fontSize = 32.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(24.dp))
+
+        if (!hasPermission) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Usage Stats permission required", color = Color.Gray)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = {
+                        context.startActivity(android.content.Intent(android.provider.Settings.ACTION_USAGE_ACCESS_SETTINGS))
+                    }) {
+                        Text("Grant Permission")
+                    }
+                }
+            }
+        } else {
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = Color.Transparent,
+                contentColor = MaterialTheme.colorScheme.primary,
+                indicator = { tabPositions ->
+                    TabRowDefaults.SecondaryIndicator(
+                        modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                },
+                divider = {}
+            ) {
+                Tab(
+                    selected = selectedTab == 0,
+                    onClick = { selectedTab = 0 },
+                    text = { Text("Apps") },
+                    icon = { Icon(Icons.Default.PhoneAndroid, contentDescription = null) }
+                )
+                Tab(
+                    selected = selectedTab == 1,
+                    onClick = { selectedTab = 1 },
+                    text = { Text("Websites") },
+                    icon = { Icon(Icons.Default.Language, contentDescription = null) }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            when (selectedTab) {
+                0 -> AppUsageList(usageStats)
+                1 -> WebsiteUsageList()
+            }
+        }
+    }
+}
+
+@Composable
+fun AppUsageList(usageStats: List<AppUsageInfo>) {
+    val totalScreenTime = usageStats.sumOf { it.totalTimeVisible }
+    val totalHours = TimeUnit.MILLISECONDS.toHours(totalScreenTime)
+    val totalMinutes = TimeUnit.MILLISECONDS.toMinutes(totalScreenTime) % 60
+
+    Column {
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Total Screen Time Today", color = Color.Gray, fontSize = 12.sp)
+                Text("${totalHours}h ${totalMinutes}m", color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Text("Most Used Apps", color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 8.dp))
+
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+            items(usageStats) { app ->
+                AppUsageItem(app)
+            }
+        }
+    }
+}
+
+@Composable
+fun WebsiteUsageList() {
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(Icons.Default.Language, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(48.dp))
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            "Website tracking requires browser extensions or Accessibility Service deep inspection.",
+            color = Color.Gray,
+            fontSize = 14.sp,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 32.dp)
+        )
+    }
+}
+
+@Composable
+fun AppUsageItem(app: AppUsageInfo) {
+    val hours = TimeUnit.MILLISECONDS.toHours(app.totalTimeVisible)
+    val minutes = TimeUnit.MILLISECONDS.toMinutes(app.totalTimeVisible) % 60
+    val timeStr = if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val appName = remember { app.packageName.split(".").last().replaceFirstChar { it.uppercase() } }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(appName, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(app.packageName, color = Color.Gray, fontSize = 10.sp)
+            }
+            Text(timeStr, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}

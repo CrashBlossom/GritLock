@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">GritLock</string>
+    <string name="accessibility_service_description">GritLock uses this to detect when you open blocked apps or websites and enforces physical exercises to unlock them.</string>
+</resources>

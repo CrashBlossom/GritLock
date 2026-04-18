@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#E61C1C21"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <TextView
+        android:id="@+id/tv_countdown_message"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="GritLock: Exercise required in 30 seconds"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold" />
+
+    <ProgressBar
+        android:id="@+id/pb_countdown"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="4dp"
+        android:layout_marginTop="8dp"
+        android:max="30"
+        android:progress="30"
+        android:progressTint="#D0BCFF" />
+
+    <Button
+        android:id="@+id/btn_dismiss_countdown"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:text="Exit App"
+        android:textColor="#F44336"
+        android:background="?android:attr/selectableItemBackground" />
+
+</LinearLayout>

@@ -1,0 +1,72 @@
+package com.example.fitlock.exercise
+
+import com.google.mlkit.vision.pose.Pose
+import com.google.mlkit.vision.pose.PoseLandmark
+import com.example.fitlock.data.ExerciseCalibration
+import kotlin.math.abs
+import kotlin.math.atan2
+
+class SquatAnalyzer(
+    private val manager: ExerciseTrackerManager,
+    private val calibration: ExerciseCalibration? = null
+) {
+
+    private var isDown = false
+    private var lastRepTime = 0L
+    private val REP_COOLDOWN_MS = 1500L
+
+    private var downThresholdAngle = calibration?.bottomValue ?: 100.0
+    private var upThresholdAngle = calibration?.topValue ?: 160.0
+
+    fun analyzePose(pose: Pose, width: Int, height: Int) {
+        // Check for full body visibility (shoulders to ankles)
+        val leftShoulder = pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER)
+        val rightShoulder = pose.getPoseLandmark(PoseLandmark.RIGHT_SHOULDER)
+        val leftAnkle = pose.getPoseLandmark(PoseLandmark.LEFT_ANKLE)
+        val rightAnkle = pose.getPoseLandmark(PoseLandmark.RIGHT_ANKLE)
+
+        val bodyInShot = leftShoulder != null && rightShoulder != null && 
+                         leftAnkle != null && rightAnkle != null
+
+        if (!bodyInShot) {
+            manager.provideCorrection("Step back! Ensure full body (shoulders to feet) is in shot.")
+            return
+        }
+
+        val leftHip = pose.getPoseLandmark(PoseLandmark.LEFT_HIP) ?: return
+        val leftKnee = pose.getPoseLandmark(PoseLandmark.LEFT_KNEE) ?: return
+
+        val rightHip = pose.getPoseLandmark(PoseLandmark.RIGHT_HIP)
+        val rightKnee = pose.getPoseLandmark(PoseLandmark.RIGHT_KNEE)
+
+        val leftAngle = calculateAngle(leftHip, leftKnee, leftAnkle)
+        val rightAngle = if (rightHip != null && rightKnee != null && rightAnkle != null) {
+            calculateAngle(rightHip, rightKnee, rightAnkle)
+        } else {
+            leftAngle
+        }
+
+        val avgKneeAngle = (leftAngle + rightAngle) / 2.0
+
+        if (!isDown && avgKneeAngle <= downThresholdAngle) {
+            isDown = true
+        } else if (isDown && avgKneeAngle >= upThresholdAngle) {
+            val currentTime = System.currentTimeMillis()
+            if (currentTime - lastRepTime > REP_COOLDOWN_MS) {
+                isDown = false
+                lastRepTime = currentTime
+                manager.onRepDetected()
+            }
+        }
+    }
+
+    private fun calculateAngle(first: PoseLandmark, mid: PoseLandmark, last: PoseLandmark): Double {
+        var result = Math.toDegrees(
+            atan2(last.position.y - mid.position.y, last.position.x - mid.position.x).toDouble() -
+            atan2(first.position.y - mid.position.y, first.position.x - mid.position.x).toDouble()
+        )
+        result = abs(result)
+        if (result > 180) result = 360.0 - result
+        return result
+    }
+}
