@@ -16,6 +16,7 @@ import com.example.fitlock.data.WorkoutHistory
 import com.example.fitlock.data.LockStatusManager
 import com.example.fitlock.data.ExerciseRequirement
 import com.example.fitlock.exercise.*
+import com.example.fitlock.service.GritLockAccessibilityService
 import com.example.fitlock.ui.LockOverlayScreen
 import com.example.fitlock.ui.theme.GritLockTheme
 import kotlinx.coroutines.delay
@@ -81,10 +82,13 @@ class LockOverlayActivity : ComponentActivity() {
 
                     LaunchedEffect(currentExerciseIndex, trackingMode) {
                         repCountState = 0
-                        initializeAnalyzer(exerciseType, userStats)
-                        
-                        val cal = userStats?.calibrations?.get("${exerciseType.name}_${trackingMode.name}")
-                        exerciseManager.startTracking(exerciseType, trackingMode, currentReq.count, cal)
+                        if (exerciseType != ExerciseType.APP_USAGE) {
+                            initializeAnalyzer(exerciseType, userStats)
+                            val cal = userStats?.calibrations?.get("${exerciseType.name}_${trackingMode.name}")
+                            exerciseManager.startTracking(exerciseType, trackingMode, currentReq.count, cal)
+                        } else {
+                            exerciseManager.startTracking(ExerciseType.APP_USAGE, TrackingMode.POCKET, currentReq.count)
+                        }
                     }
 
                     LockOverlayScreen(
@@ -109,31 +113,24 @@ class LockOverlayActivity : ComponentActivity() {
                                 }
                             }
                         },
-                        onEmergencyBypass = { 
-                            // In a real scenario, you might want to log this or penalize the user stats
-                            finish() 
-                        },
+                        onEmergencyBypass = { finish() },
                         onNextExercise = {
                             lifecycleScope.launch {
-                                // 1. Save progress for XP regardless
                                 saveRepsToHistory(exerciseType, repCountState, groupId)
 
                                 val isLastExercise = currentExerciseIndex == exerciseRequirements.size - 1
                                 val isRequirementMet = repCountState >= currentReq.count
 
                                 if (isLastExercise && isRequirementMet) {
-                                    // 2. Perform actual unlock
                                     performUnlock(groupId)
                                     finish()
                                 } else if (isRequirementMet) {
-                                    // 3. Move to next exercise
                                     currentExerciseIndex++
                                 }
                             }
                         },
                         onStopExercise = {
                             lifecycleScope.launch {
-                                // Save reps done but do NOT unlock
                                 saveRepsToHistory(exerciseType, repCountState, groupId)
                                 finish()
                             }
@@ -141,6 +138,26 @@ class LockOverlayActivity : ComponentActivity() {
                         onUseBankedReps = { type, count ->
                             useBankedRep(type, count, repCountState) { newCount ->
                                 repCountState = newCount
+                            }
+                        },
+                        onLaunchRequiredApp = {
+                            val pkg = currentReq.targetPackageName
+                            if (!pkg.isNullOrBlank()) {
+                                val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                                if (launchIntent != null) {
+                                    // Start service tracking
+                                    val serviceIntent = Intent(this@LockOverlayActivity, GritLockAccessibilityService::class.java).apply {
+                                        action = "START_APP_USAGE_TRACKING"
+                                        putExtra("group_id", groupId)
+                                        putExtra("target_package", pkg)
+                                        putExtra("seconds", currentReq.count)
+                                    }
+                                    startService(serviceIntent)
+                                    startActivity(launchIntent)
+                                    finish() // Close overlay so they can use the app
+                                } else {
+                                    Toast.makeText(this@LockOverlayActivity, "Could not find app: $pkg", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         }
                     )
@@ -155,9 +172,7 @@ class LockOverlayActivity : ComponentActivity() {
             onRepCountChanged = { count ->
                 onRepCount(count)
             },
-            onWorkoutComplete = { reps -> 
-                // We handle completion via UI buttons
-            }
+            onWorkoutComplete = { reps -> }
         )
     }
 
@@ -192,7 +207,7 @@ class LockOverlayActivity : ComponentActivity() {
     }
 
     private suspend fun saveRepsToHistory(exerciseType: ExerciseType, reps: Int, groupId: Int) {
-        if (reps > 0) {
+        if (reps > 0 && exerciseType != ExerciseType.APP_USAGE) {
             val xpGained = reps * 5
             updateUserStats(xpGained, exerciseType.name, reps)
             

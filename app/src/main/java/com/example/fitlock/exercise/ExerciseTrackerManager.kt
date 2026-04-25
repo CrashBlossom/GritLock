@@ -5,7 +5,7 @@ import android.speech.tts.TextToSpeech
 import com.example.fitlock.data.ExerciseCalibration
 import java.util.*
 
-enum class ExerciseType { PUSHUP, SQUAT, PULLUP, DIP, SITUP, HINGE, ROW, PLANK, STEPS }
+enum class ExerciseType { PUSHUP, SQUAT, PULLUP, DIP, SITUP, HINGE, ROW, PLANK, STEPS, APP_USAGE }
 enum class TrackingMode { CAMERA, POCKET }
 
 class ExerciseTrackerManager(
@@ -44,7 +44,12 @@ class ExerciseTrackerManager(
         
         val modeStr = if (mode == TrackingMode.CAMERA) "Camera" else "Pocket"
         val calStr = if (calibration != null) "calibrated " else ""
-        speak("Starting ${calStr}${type.name.lowercase()} workout in $modeStr mode. Goal is $goal reps.")
+        
+        if (type == ExerciseType.APP_USAGE) {
+            speak("Starting app usage requirement. You need to spend ${goal} seconds in the required app.")
+        } else {
+            speak("Starting ${calStr}${type.name.lowercase()} workout in $modeStr mode. Goal is $goal reps.")
+        }
     }
 
     fun onRepDetected() {

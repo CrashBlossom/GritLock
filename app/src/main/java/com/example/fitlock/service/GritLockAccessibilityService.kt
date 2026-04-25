@@ -21,13 +21,13 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
-import androidx.room.Room
 import com.example.fitlock.LockOverlayActivity
 import com.example.fitlock.R
 import com.example.fitlock.data.GritLockDatabase
 import com.example.fitlock.data.AppGroup
 import com.example.fitlock.data.ScheduleInterval
 import com.example.fitlock.data.LockStatusManager
+import com.example.fitlock.exercise.ExerciseType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,15 +52,19 @@ class GritLockAccessibilityService : AccessibilityService() {
     
     private var persistentSecondsLeft: Int = -1
 
+    // For APP_USAGE tracking
+    private var activeAppUsageGroup: Int = -1
+    private var activeAppUsagePackage: String? = null
+    private var appUsageSecondsRemaining: Int = 0
+    private var lastUsageTick: Long = 0
+
     private val CHANNEL_ID = "gritlock_countdown_channel"
     private val NOTIFICATION_ID = 1001
 
     override fun onCreate() {
         super.onCreate()
-        db = Room.databaseBuilder(
-            applicationContext,
-            GritLockDatabase::class.java, "gritlock-db"
-        ).fallbackToDestructiveMigration().build()
+        Log.d("GritLockService", "Service Created")
+        db = GritLockDatabase.getDatabase(applicationContext)
         
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
@@ -105,29 +109,55 @@ class GritLockAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             db.dao().getAllGroups().collectLatest { groups ->
                 allGroups = groups
-                Log.d("GritLockService", "Groups updated in real-time: ${groups.size}")
+                Log.d("GritLockService", "Groups updated: ${groups.size}")
             }
         }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
+        val packageName = event.packageName?.toString() ?: ""
+        
+        if (packageName == this.packageName || 
+            packageName == "com.android.systemui" || 
+            packageName == "com.android.launcher" ||
+            packageName.contains("launcher") ||
+            packageName == "com.google.android.permissioncontroller") return
+
+        // Handle APP_USAGE tracking
+        if (activeAppUsagePackage != null && packageName == activeAppUsagePackage) {
+            val now = System.currentTimeMillis()
+            if (lastUsageTick > 0) {
+                val delta = ((now - lastUsageTick) / 1000).toInt()
+                if (delta >= 1) {
+                    appUsageSecondsRemaining -= delta
+                    lastUsageTick = now
+                    updateNotification("GritLock: App Usage Requirement", "Keep using this app! $appUsageSecondsRemaining seconds left.")
+                    
+                    if (appUsageSecondsRemaining <= 0) {
+                        completeAppUsageRequirement()
+                    }
+                }
+            } else {
+                lastUsageTick = now
+            }
+        } else if (activeAppUsagePackage != null) {
+            lastUsageTick = 0 // Pause timer if they leave the required app
+        }
+
         val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
         val strictMode = prefs.getBoolean("strict_mode", false)
 
-        if (strictMode) {
-            val packageName = event.packageName?.toString() ?: ""
-            if (packageName == "com.android.settings") {
-                val source = event.source
-                if (source != null) {
-                    val nodes = source.findAccessibilityNodeInfosByText("GritLock")
-                    val isUninstall = source.findAccessibilityNodeInfosByText("Uninstall").isNotEmpty() || 
-                                     source.findAccessibilityNodeInfosByText("Force stop").isNotEmpty()
-                    
-                    if (nodes.isNotEmpty() || isUninstall) {
-                        performGlobalAction(GLOBAL_ACTION_BACK)
-                        Toast.makeText(this, "Strict Mode: GritLock protection cannot be disabled!", Toast.LENGTH_SHORT).show()
-                        return
-                    }
+        if (strictMode && packageName == "com.android.settings") {
+            val source = event.source
+            if (source != null) {
+                val nodes = source.findAccessibilityNodeInfosByText("GritLock")
+                val isUninstall = source.findAccessibilityNodeInfosByText("Uninstall").isNotEmpty() || 
+                                 source.findAccessibilityNodeInfosByText("Force stop").isNotEmpty()
+                
+                if (nodes.isNotEmpty() || isUninstall) {
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                    Toast.makeText(this, "Strict Mode: GritLock protection cannot be disabled!", Toast.LENGTH_SHORT).show()
+                    return
                 }
             }
         }
@@ -136,20 +166,22 @@ class GritLockAccessibilityService : AccessibilityService() {
             event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             
-            val packageName = event.packageName?.toString() ?: return
-            
-            if (packageName == this.packageName || 
-                packageName == "com.android.systemui" || 
-                packageName == "com.android.launcher" ||
-                packageName.contains("launcher") ||
-                packageName == "com.google.android.permissioncontroller") return
-
             // Check Package Name blocking
             val matchingGroup = allGroups.find { it.packageNames.contains(packageName) && it.isEnabled }
             
-            if (matchingGroup != null && isScheduleActive(matchingGroup.schedule)) {
-                handleGroupMonitoring(packageName, matchingGroup)
-                return
+            if (matchingGroup != null) {
+                if (isScheduleActive(matchingGroup.schedule)) {
+                    // Check if this group is currently being unlocked via APP_USAGE
+                    if (activeAppUsageGroup == matchingGroup.id) {
+                        // Show overlay to remind them to go back to the required app
+                        triggerOverlay(packageName, 0, ExerciseType.APP_USAGE.name, matchingGroup.id)
+                        return
+                    }
+
+                    Log.d("GritLockService", "Blocking app: $packageName (Group: ${matchingGroup.name})")
+                    handleGroupMonitoring(packageName, matchingGroup)
+                    return
+                }
             }
 
             // Check Keyword/URL blocking
@@ -163,6 +195,10 @@ class GritLockAccessibilityService : AccessibilityService() {
                     if (foundKeyword != null) {
                         val keywordGroup = activeGroups.find { it.keywords.contains(foundKeyword) }
                         if (keywordGroup != null) {
+                            if (activeAppUsageGroup == keywordGroup.id) {
+                                triggerOverlay(packageName, 0, ExerciseType.APP_USAGE.name, keywordGroup.id)
+                                return
+                            }
                             Log.d("GritLockService", "Keyword detected: $foundKeyword in $packageName")
                             handleGroupMonitoring(packageName, keywordGroup)
                             return
@@ -171,12 +207,42 @@ class GritLockAccessibilityService : AccessibilityService() {
                 }
             }
             
-            // If the app is not blocked and we are currently showing a countdown/monitoring, remove it
-            // Special check: don't remove if we just detected a keyword in a browser
             if (currentCountdownApp != null && packageName != currentCountdownApp) {
                 removeCountdown()
             }
         }
+    }
+
+    private fun completeAppUsageRequirement() {
+        val groupId = activeAppUsageGroup
+        activeAppUsagePackage = null
+        activeAppUsageGroup = -1
+        appUsageSecondsRemaining = 0
+        lastUsageTick = 0
+        
+        serviceScope.launch {
+            val group = db.dao().getGroupById(groupId)
+            if (group != null) {
+                val now = System.currentTimeMillis()
+                db.dao().updateGroup(group.copy(lastUnlockedTimestamp = now))
+                LockStatusManager.updateUnlock(groupId, now)
+                handler.post {
+                    Toast.makeText(this@GritLockAccessibilityService, "App Usage Requirement Met! Unlocking ${group.name}", Toast.LENGTH_LONG).show()
+                }
+                cancelNotification()
+            }
+        }
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == "START_APP_USAGE_TRACKING") {
+            activeAppUsageGroup = intent.getIntExtra("group_id", -1)
+            activeAppUsagePackage = intent.getStringExtra("target_package")
+            appUsageSecondsRemaining = intent.getIntExtra("seconds", 60)
+            lastUsageTick = 0
+            Log.d("GritLockService", "Started APP_USAGE tracking for $activeAppUsagePackage ($appUsageSecondsRemaining s)")
+        }
+        return super.onStartCommand(intent, flags, startId)
     }
 
     private fun findKeywordInNode(node: AccessibilityNodeInfo, keywords: List<String>): String? {
@@ -184,7 +250,6 @@ class GritLockAccessibilityService : AccessibilityService() {
         val contentDesc = node.contentDescription?.toString()?.lowercase() ?: ""
         val hint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) node.hintText?.toString()?.lowercase() ?: "" else ""
         
-        // Also check resource ID for browser address bars specifically
         val viewId = node.viewIdResourceName ?: ""
         
         for (keyword in keywords) {
@@ -223,7 +288,6 @@ class GritLockAccessibilityService : AccessibilityService() {
                 startCountdown(packageName, group)
             }
         } else {
-            // App is allowed, but we show a notification about how long until relock
             val remainingMs = unlockDurationMs - timeSinceUnlock
             val remainingMin = (remainingMs / 60000).toInt()
             val remainingSec = ((remainingMs % 60000) / 1000).toInt()
@@ -234,7 +298,6 @@ class GritLockAccessibilityService : AccessibilityService() {
                 "Relocking in ${remainingMin}m ${remainingSec}s. Get moving soon!"
             )
             
-            // Periodically update the relock notification
             handler.removeCallbacksAndMessages(null)
             handler.postDelayed(object : Runnable {
                 override fun run() {
@@ -250,7 +313,7 @@ class GritLockAccessibilityService : AccessibilityService() {
                             )
                             handler.postDelayed(this, 1000)
                         } else {
-                            handleGroupMonitoring(packageName, group) // Trigger re-block logic
+                            handleGroupMonitoring(packageName, group)
                         }
                     }
                 }
@@ -278,7 +341,7 @@ class GritLockAccessibilityService : AccessibilityService() {
         val lockoutSeconds = prefs.getInt("lockout_seconds", 10)
         
         currentCountdownApp = packageName
-        persistentSecondsLeft = lockoutSeconds 
+        persistentSecondsLeft = if (lockoutSeconds > 0) lockoutSeconds else 0
 
         if (lockoutSeconds <= 0) {
             val firstReq = group.exercises.firstOrNull()

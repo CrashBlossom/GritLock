@@ -17,6 +17,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material3.*
@@ -57,7 +58,8 @@ fun LockOverlayScreen(
     onEmergencyBypass: () -> Unit,
     onNextExercise: () -> Unit,
     onStopExercise: () -> Unit,
-    onUseBankedReps: (String, Int) -> Unit
+    onUseBankedReps: (String, Int) -> Unit,
+    onLaunchRequiredApp: () -> Unit = {}
 ) {
     var currentPose by remember { mutableStateOf<Pose?>(null) }
     var imageWidth by remember { mutableIntStateOf(0) }
@@ -81,7 +83,7 @@ fun LockOverlayScreen(
             
             Spacer(modifier = Modifier.height(8.dp))
             
-            // Progress Indicator for multiple exercises
+            // Progress Indicator
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 exerciseRequirements.forEachIndexed { index, req ->
                     Box(
@@ -100,23 +102,25 @@ fun LockOverlayScreen(
             Spacer(modifier = Modifier.height(16.dp))
             
             Text(
-                text = "Exercise ${currentExerciseIndex + 1}/${exerciseRequirements.size}: ${currentReq.type}",
+                text = "Requirement ${currentExerciseIndex + 1}/${exerciseRequirements.size}: ${currentReq.type}",
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp
             )
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(8.dp)
-            ) {
-                Text("Pocket", color = Color.Gray, fontSize = 12.sp)
-                Switch(
-                    checked = trackingMode == TrackingMode.CAMERA,
-                    onCheckedChange = { onModeChange(if (it) TrackingMode.CAMERA else TrackingMode.POCKET) },
-                    modifier = Modifier.scale(0.8f)
-                )
-                Text("Camera", color = Color.Gray, fontSize = 12.sp)
+            if (currentReq.type != "APP_USAGE") {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(8.dp)
+                ) {
+                    Text("Pocket", color = Color.Gray, fontSize = 12.sp)
+                    Switch(
+                        checked = trackingMode == TrackingMode.CAMERA,
+                        onCheckedChange = { onModeChange(if (it) TrackingMode.CAMERA else TrackingMode.POCKET) },
+                        modifier = Modifier.scale(0.8f)
+                    )
+                    Text("Camera", color = Color.Gray, fontSize = 12.sp)
+                }
             }
 
             Box(
@@ -127,7 +131,30 @@ fun LockOverlayScreen(
                     .background(Color.Black),
                 contentAlignment = Alignment.Center
             ) {
-                if (trackingMode == TrackingMode.CAMERA) {
+                if (currentReq.type == "APP_USAGE") {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                        Icon(Icons.Default.Launch, contentDescription = null, tint = Color.White.copy(alpha = 0.3f), modifier = Modifier.size(64.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            "You must spend ${currentReq.count} seconds in the following app:",
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
+                        Text(
+                            currentReq.targetPackageName ?: "Unknown App",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = onLaunchRequiredApp,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Text("Launch App Now")
+                        }
+                    }
+                } else if (trackingMode == TrackingMode.CAMERA) {
                     CameraPreview(
                         modifier = Modifier.fillMaxSize(),
                         onPoseDetected = { pose, width, height ->
@@ -150,26 +177,28 @@ fun LockOverlayScreen(
                     }
                 }
                 
-                // Rep counter overlay
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(24.dp)
-                        .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
-                        .padding(horizontal = 24.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = "$repCount / ${currentReq.count}",
-                        style = MaterialTheme.typography.displayMedium,
-                        color = if (isComplete) Color.Green else Color.White
-                    )
+                if (currentReq.type != "APP_USAGE") {
+                    // Rep counter overlay
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(24.dp)
+                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
+                            .padding(horizontal = 24.dp, vertical = 8.dp)
+                    ) {
+                        Text(
+                            text = "$repCount / ${currentReq.count}",
+                            style = MaterialTheme.typography.displayMedium,
+                            color = if (isComplete) Color.Green else Color.White
+                        )
+                    }
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
             // Bank usage interaction
-            if (currentBanked > 0 && !isComplete) {
+            if (currentBanked > 0 && !isComplete && currentReq.type != "APP_USAGE") {
                 Button(
                     onClick = { onUseBankedReps(currentReq.type, 1) },
                     modifier = Modifier.fillMaxWidth().height(48.dp),
@@ -184,16 +213,18 @@ fun LockOverlayScreen(
             }
 
             // Action Buttons
-            AnimatedVisibility(visible = isComplete, enter = fadeIn() + expandVertically()) {
-                Button(
-                    onClick = onNextExercise,
-                    modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 8.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.Green, contentColor = Color.Black),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    val isLast = currentExerciseIndex == exerciseRequirements.size - 1
-                    Text(if (isLast) "Finish & Unlock" else "Next Exercise", fontWeight = FontWeight.Bold)
-                    Icon(if (isLast) Icons.Default.Check else Icons.Default.ChevronRight, contentDescription = null)
+            if (currentReq.type != "APP_USAGE") {
+                AnimatedVisibility(visible = isComplete, enter = fadeIn() + expandVertically()) {
+                    Button(
+                        onClick = onNextExercise,
+                        modifier = Modifier.fillMaxWidth().height(56.dp).padding(bottom = 8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.Green, contentColor = Color.Black),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        val isLast = currentExerciseIndex == exerciseRequirements.size - 1
+                        Text(if (isLast) "Finish & Unlock" else "Next Exercise", fontWeight = FontWeight.Bold)
+                        Icon(if (isLast) Icons.Default.Check else Icons.Default.ChevronRight, contentDescription = null)
+                    }
                 }
             }
 

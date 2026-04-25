@@ -391,6 +391,7 @@ fun DailyGoalsList(
                                 ExerciseType.ROW -> Icons.Default.LineWeight
                                 ExerciseType.PLANK -> Icons.Default.Timer
                                 ExerciseType.STEPS -> Icons.AutoMirrored.Filled.DirectionsWalk
+                                ExerciseType.APP_USAGE -> Icons.Default.Apps
                             }
                             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                         }
@@ -398,7 +399,7 @@ fun DailyGoalsList(
                         Column(modifier = Modifier.weight(1f)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(type.name.lowercase().replaceFirstChar { it.uppercase() }, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                                val progressText = if (type == ExerciseType.PLANK) {
+                                val progressText = if (type == ExerciseType.PLANK || type == ExerciseType.APP_USAGE) {
                                     "${progress}s / ${goal}s"
                                 } else if (type == ExerciseType.STEPS) {
                                     "${progress} / $goal"

@@ -497,10 +497,29 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
     private fun initChallenges() {
         lifecycleScope.launch {
+            val now = Calendar.getInstance()
+            val dayOfYear = now.get(Calendar.DAY_OF_YEAR)
+            
+            // Gradual OPM Scaling: Start at 10, add 3 every day, cap at 100
+            val opmBase = 10
+            val dailyIncrement = 3
+            val currentOpmGoal = (opmBase + (dayOfYear * dailyIncrement)).coerceAtMost(100)
+
             val challenges = listOf(
                 Challenge("1", "Morning Pushups", "Do 20 pushups to start your day", listOf(ExerciseRequirement(ExerciseType.PUSHUP.name, 20)), 100),
                 Challenge("2", "Squat Master", "Complete 50 squats", listOf(ExerciseRequirement(ExerciseType.SQUAT.name, 50)), 250),
-                Challenge("3", "Core Strength", "Hold a plank for 60 seconds", listOf(ExerciseRequirement(ExerciseType.PLANK.name, 60)), 150)
+                Challenge("3", "Core Strength", "Hold a plank for 60 seconds", listOf(ExerciseRequirement(ExerciseType.PLANK.name, 60)), 150),
+                Challenge("opm_gradual", "One Punch Man (Gradual)", "Saitama's Training: Pushups, Squats, Situps ($currentOpmGoal each).", listOf(
+                    ExerciseRequirement(ExerciseType.PUSHUP.name, currentOpmGoal),
+                    ExerciseRequirement(ExerciseType.SQUAT.name, currentOpmGoal),
+                    ExerciseRequirement(ExerciseType.SITUP.name, currentOpmGoal)
+                ), 500),
+                Challenge("solo_leveling", "Solo Leveling: Daily Quest", "Pushups (100), Squats (100), Situps (100), Pullups (20). Don't fail the penalty!", listOf(
+                    ExerciseRequirement(ExerciseType.PUSHUP.name, 100),
+                    ExerciseRequirement(ExerciseType.SQUAT.name, 100),
+                    ExerciseRequirement(ExerciseType.SITUP.name, 100),
+                    ExerciseRequirement(ExerciseType.PULLUP.name, 20)
+                ), 1000)
             )
             challenges.forEach { db.dao().upsertChallenge(it) }
         }
