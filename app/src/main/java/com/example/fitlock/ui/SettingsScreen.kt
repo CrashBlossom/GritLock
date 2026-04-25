@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -23,7 +24,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.fitlock.data.UserStats
@@ -135,6 +139,25 @@ fun SettingsScreen(
                     Icon(Icons.Default.Refresh, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Check All Status")
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Daily Goals Section
+        SectionHeader("Daily Goals")
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ExerciseType.values().forEach { type ->
+                    DailyGoalItem(type, prefs)
+                    if (type != ExerciseType.values().last()) {
+                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
+                    }
                 }
             }
         }
@@ -320,6 +343,55 @@ fun SettingsScreen(
 }
 
 @Composable
+fun DailyGoalItem(type: ExerciseType, prefs: android.content.SharedPreferences) {
+    var goalText by remember { mutableStateOf(prefs.getInt("goal_${type.name}", 10).toString()) }
+    val unit = if (type == ExerciseType.PLANK || type == ExerciseType.APP_USAGE) "s" else ""
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            type.name.lowercase().replaceFirstChar { it.uppercase() },
+            color = MaterialTheme.colorScheme.onSurface,
+            fontSize = 14.sp
+        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = goalText,
+                onValueChange = { newValue ->
+                    if (newValue.all { char -> char.isDigit() }) {
+                        goalText = newValue
+                        if (newValue.isNotEmpty()) {
+                            try {
+                                prefs.edit().putInt("goal_${type.name}", newValue.toInt()).apply()
+                            } catch (e: Exception) {}
+                        }
+                    }
+                },
+                modifier = Modifier.width(80.dp),
+                textStyle = TextStyle(
+                    fontSize = 14.sp, 
+                    textAlign = TextAlign.Center, 
+                    color = MaterialTheme.colorScheme.onSurface
+                ),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f)
+                )
+            )
+            if (unit.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(unit, color = Color.Gray, fontSize = 12.sp)
+            }
+        }
+    }
+}
+
+@Composable
 fun PermissionStatusRow(
     title: String,
     description: String,
@@ -428,9 +500,9 @@ fun ExerciseSettingsCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            ExerciseType.entries.forEach { type ->
+            ExerciseType.values().forEach { type ->
                 ExerciseTypeSettingsItem(type, prefs, userStats, onNavigateToCalibration)
-                if (type != ExerciseType.entries.last()) {
+                if (type != ExerciseType.values().last()) {
                     HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
                 }
             }
