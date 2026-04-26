@@ -1,3 +1,7 @@
+/**
+ * This file contains the main user interface for the "Groups" screen.
+ * It uses Jetpack Compose, which is Android's modern toolkit for building native UI.
+ */
 @file:OptIn(ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 
 package com.example.fitlock.ui
@@ -34,31 +38,41 @@ import com.example.fitlock.data.Challenge
 import com.example.fitlock.data.UserStats
 import com.example.fitlock.exercise.ExerciseType
 
+/**
+ * Main screen showing exercise groups, challenges, and daily goals.
+ */
 @Composable
 fun GroupsScreen(
-    groups: List<AppGroup>,
-    userStats: UserStats?,
-    challenges: List<Challenge>,
-    todayTotals: Map<String, Int>,
-    onAddGroupClick: () -> Unit,
-    onEditGroupClick: (AppGroup) -> Unit,
-    onDeleteGroupClick: (AppGroup) -> Unit,
-    onToggleGroupClick: (AppGroup) -> Unit,
-    onSettingsClick: () -> Unit,
-    onEmergencyBypassClick: () -> Unit,
-    onChallengeClick: (Challenge) -> Unit,
-    onExerciseClick: (ExerciseType, Int) -> Unit
+    groups: List<AppGroup>, // List of app groups created by the user
+    userStats: UserStats?,   // User's current statistics (XP, level, banked reps)
+    challenges: List<Challenge>, // List of active challenges
+    todayTotals: Map<String, Int>, // Exercise counts performed today
+    onAddGroupClick: () -> Unit,   // Callback for adding a new app group
+    onEditGroupClick: (AppGroup) -> Unit, // Callback for editing a group
+    onDeleteGroupClick: (AppGroup) -> Unit, // Callback for deleting a group
+    onToggleGroupClick: (AppGroup) -> Unit, // Callback for enabling/disabling a group
+    onSettingsClick: () -> Unit, // Callback to navigate to settings
+    onEmergencyBypassClick: () -> Unit, // Callback for the emergency bypass feature
+    onChallengeClick: (Challenge) -> Unit, // Callback when a challenge is clicked
+    onExerciseClick: (ExerciseType, Int) -> Unit // Callback when a daily goal is clicked
 ) {
     val context = LocalContext.current
+    // Accessing shared preferences to read app settings
     val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
+    
+    // Check if the user has locked editing to prevent impulsive changes
     val isEditingLocked = prefs.getBoolean("lock_editing", false)
     val customBankMessage = prefs.getString("custom_bank_msg", "No reps banked yet. Go sweat!") ?: "No reps banked yet. Go sweat!"
 
+    // UI state variables
     var showEditLockDialog by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    
     var selectedChallengeForDetails by remember { mutableStateOf<Challenge?>(null) }
 
+    /**
+     * Helper function to handle user actions (like edit/delete).
+     * If editing is locked, it shows a confirmation dialog first.
+     */
     val handleAction = { action: () -> Unit ->
         if (isEditingLocked) {
             pendingAction = action
@@ -68,6 +82,7 @@ fun GroupsScreen(
         }
     }
 
+    // Main layout container
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -75,24 +90,28 @@ fun GroupsScreen(
             .padding(horizontal = 16.dp)
     ) {
         Spacer(modifier = Modifier.height(16.dp))
+        
+        // App Header (Title and Settings icon)
         Header(onSettingsClick)
         
+        // LazyColumn is like a RecyclerView - it only renders items currently visible on screen
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(20.dp),
             contentPadding = PaddingValues(vertical = 16.dp)
         ) {
+            // 1. Rep Bank Card: Shows exercises saved for later use
             item {
                 RepBankCard(userStats?.bankedReps ?: emptyMap(), customBankMessage, onEmergencyBypassClick)
             }
 
-            // Daily Goals Section
+            // 2. Daily Goals Section: Progress bars for daily exercise targets
             item {
                 SectionTitle("Daily Goals")
                 DailyGoalsList(prefs, todayTotals, onExerciseClick)
             }
             
-            // Active Challenges Section
+            // 3. Active Challenges Section: Special tasks for extra XP
             item {
                 SectionTitle("Active Challenges")
                 if (challenges.isEmpty()) {
@@ -102,6 +121,7 @@ fun GroupsScreen(
                         challenges.forEach { challenge ->
                             ChallengeItem(
                                 challenge = challenge,
+                                todayTotals = todayTotals, // Pass today's data to show progress
                                 onClick = { onChallengeClick(challenge) },
                                 onLongClick = { selectedChallengeForDetails = challenge }
                             )
@@ -110,7 +130,7 @@ fun GroupsScreen(
                 }
             }
 
-            // App Groups Section
+            // 4. App Groups Section: List of apps that are restricted
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -124,6 +144,7 @@ fun GroupsScreen(
                 }
             }
 
+            // Render each app group item
             items(groups) { group ->
                 GroupItem(
                     group = group,
@@ -135,6 +156,7 @@ fun GroupsScreen(
         }
     }
 
+    // Dialog shown when editing is locked (requires typing a phrase to unlock)
     if (showEditLockDialog) {
         EditLockDialog(
             onDismiss = { showEditLockDialog = false },
@@ -145,6 +167,7 @@ fun GroupsScreen(
         )
     }
     
+    // Detailed view for a challenge showing specific requirements and progress
     selectedChallengeForDetails?.let { challenge ->
         ChallengeDetailsDialog(
             challenge = challenge,
@@ -158,6 +181,10 @@ fun GroupsScreen(
     }
 }
 
+/**
+ * A dialog that pops up when a user long-presses a challenge.
+ * Shows detailed progress bars for every requirement in that challenge.
+ */
 @Composable
 fun ChallengeDetailsDialog(
     challenge: Challenge,
@@ -176,6 +203,7 @@ fun ChallengeDetailsDialog(
                 
                 Text("Progress:", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 
+                // Show progress for each requirement (e.g. 50/100 Pushups)
                 challenge.requirements.forEach { req ->
                     val progress = todayTotals[req.type] ?: 0
                     val percent = (progress.toFloat() / req.count.toFloat()).coerceIn(0f, 1f)
@@ -186,6 +214,7 @@ fun ChallengeDetailsDialog(
                             Text("$progress / ${req.count}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                         Spacer(modifier = Modifier.height(4.dp))
+                        // Visual bar showing how close the user is to completing the requirement
                         LinearProgressIndicator(
                             progress = { percent },
                             modifier = Modifier.fillMaxWidth().height(8.dp).clip(CircleShape),
@@ -196,6 +225,7 @@ fun ChallengeDetailsDialog(
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
+                // The reward the user gets upon completion
                 Text("Reward: ${challenge.xpReward} XP", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
         },
@@ -214,16 +244,20 @@ fun ChallengeDetailsDialog(
     )
 }
 
+/**
+ * Card showing the "Rep Bank" - exercises the user did extra that can be used to unlock apps later.
+ */
 @Composable
 fun RepBankCard(bankedReps: Map<String, Int>, customMessage: String, onEmergencyBypassClick: () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onEmergencyBypassClick() },
+            .clickable { onEmergencyBypassClick() }, // Clicking the bank takes you to the bypass if needed
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Header for the bank
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
                     modifier = Modifier
@@ -242,9 +276,11 @@ fun RepBankCard(bankedReps: Map<String, Int>, customMessage: String, onEmergency
             
             Spacer(modifier = Modifier.height(12.dp))
             
+            // Show either the banked reps or a motivational message if the bank is empty
             if (bankedReps.isEmpty() || bankedReps.all { it.value == 0 }) {
                 Text(customMessage, color = Color.Gray, fontSize = 13.sp)
             } else {
+                // FlowRow wraps items to the next line if there isn't enough width
                 FlowRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -268,10 +304,14 @@ fun RepBankCard(bankedReps: Map<String, Int>, customMessage: String, onEmergency
     }
 }
 
+/**
+ * A security dialog that forces the user to type a long phrase to prove they really want to edit their goals.
+ */
 @Composable
 fun EditLockDialog(onDismiss: () -> Unit, onUnlockConfirmed: () -> Unit) {
     val targetPhrase = "I understand that editing these groups is a commitment to my future self. I am not changing them out of weakness or a desire to escape my goals. I am focused, disciplined, and in control of my time."
     var inputText by remember { mutableStateOf("") }
+    // Button is only enabled if the typed text matches perfectly
     val isCorrect = inputText.trim() == targetPhrase.trim()
 
     Dialog(
@@ -291,10 +331,12 @@ fun EditLockDialog(onDismiss: () -> Unit, onUnlockConfirmed: () -> Unit) {
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("Type the following paragraph to unlock group settings:", color = Color.Gray, fontSize = 14.sp, textAlign = TextAlign.Center)
                     Spacer(modifier = Modifier.height(16.dp))
+                    // The target text for the user to copy
                     Box(modifier = Modifier.background(MaterialTheme.colorScheme.background, RoundedCornerShape(12.dp)).padding(16.dp)) {
                         Text(targetPhrase, color = MaterialTheme.colorScheme.onSurface, fontSize = 13.sp, lineHeight = 20.sp)
                     }
                     Spacer(modifier = Modifier.height(16.dp))
+                    // Where the user types
                     OutlinedTextField(
                         value = inputText,
                         onValueChange = { inputText = it },
@@ -325,6 +367,9 @@ fun EditLockDialog(onDismiss: () -> Unit, onUnlockConfirmed: () -> Unit) {
     }
 }
 
+/**
+ * Standard title for sections in the screen.
+ */
 @Composable
 fun SectionTitle(title: String) {
     Text(
@@ -336,12 +381,16 @@ fun SectionTitle(title: String) {
     )
 }
 
+/**
+ * List of daily exercise goals with progress bars.
+ */
 @Composable
 fun DailyGoalsList(
     prefs: android.content.SharedPreferences, 
     todayTotals: Map<String, Int>,
     onExerciseClick: (ExerciseType, Int) -> Unit
 ) {
+    // Filter exercises that are marked as visible in settings
     val enabledExercises = ExerciseType.entries.filter { 
         prefs.getBoolean("visible_${it.name}", true) 
     }
@@ -362,8 +411,11 @@ fun DailyGoalsList(
     } else {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             enabledExercises.forEach { type ->
+                // Fetch the goal amount from settings (default to 10)
                 val goal = prefs.getInt("goal_${type.name}", 10)
+                // Fetch current progress from the todayTotals map
                 val progress = todayTotals[type.name] ?: 0
+                // Calculate percentage (0.0 to 1.0) for the progress bar
                 val percent = (progress.toFloat() / goal.toFloat()).coerceIn(0f, 1f)
                 
                 Card(
@@ -375,12 +427,14 @@ fun DailyGoalsList(
                         modifier = Modifier.padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Icon Circle
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
                                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape),
                             contentAlignment = Alignment.Center
                         ) {
+                            // Choose the right icon based on exercise type
                             val icon = when(type) {
                                 ExerciseType.PUSHUP -> Icons.Default.FitnessCenter
                                 ExerciseType.SQUAT -> Icons.Default.AccessibilityNew
@@ -396,19 +450,20 @@ fun DailyGoalsList(
                             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                         }
                         Spacer(modifier = Modifier.width(12.dp))
+                        // Progress Info
                         Column(modifier = Modifier.weight(1f)) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 Text(type.name.lowercase().replaceFirstChar { it.uppercase() }, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                // Format text (e.g. 5s / 30s or 10 / 20)
                                 val progressText = if (type == ExerciseType.PLANK || type == ExerciseType.APP_USAGE) {
                                     "${progress}s / ${goal}s"
-                                } else if (type == ExerciseType.STEPS) {
-                                    "${progress} / $goal"
                                 } else {
                                     "$progress / $goal"
                                 }
                                 Text(progressText, color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                             Spacer(modifier = Modifier.height(8.dp))
+                            // Visual progress bar
                             LinearProgressIndicator(
                                 progress = { percent },
                                 modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
@@ -423,6 +478,9 @@ fun DailyGoalsList(
     }
 }
 
+/**
+ * Top portion of the screen with the app name.
+ */
 @Composable
 fun Header(onSettingsClick: () -> Unit) {
     Row(
@@ -440,6 +498,9 @@ fun Header(onSettingsClick: () -> Unit) {
     }
 }
 
+/**
+ * UI shown when there are no challenges available.
+ */
 @Composable
 fun ChallengePlaceholder() {
     Card(
@@ -455,12 +516,23 @@ fun ChallengePlaceholder() {
     }
 }
 
+/**
+ * A single challenge row item. Now shows a summary progress bar.
+ */
 @Composable
 fun ChallengeItem(
     challenge: Challenge,
+    todayTotals: Map<String, Int>, // Today's totals to calculate progress
     onClick: () -> Unit,
     onLongClick: () -> Unit
 ) {
+    // Calculate overall progress for the challenge
+    val totalGoal = challenge.requirements.sumOf { it.count }
+    val currentProgress = challenge.requirements.sumOf { req -> 
+        (todayTotals[req.type] ?: 0).coerceAtMost(req.count)
+    }
+    val overallPercent = (currentProgress.toFloat() / totalGoal.toFloat()).coerceIn(0f, 1f)
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -471,23 +543,39 @@ fun ChallengeItem(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp)
     ) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(Icons.Default.FlashOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier.size(32.dp).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.FlashOn, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(challenge.title, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    val status = if (challenge.isCompletedToday || overallPercent >= 1f) "Completed!" else "${challenge.requirements.size} requirements"
+                    Text(status, color = if (challenge.isCompletedToday || overallPercent >= 1f) Color.Green else Color.Gray, fontSize = 11.sp)
+                }
+                Text("+${challenge.xpReward} XP", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             }
-            Spacer(modifier = Modifier.width(12.dp))
-            Column {
-                Text(challenge.title, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                val status = if (challenge.isCompletedToday) "Completed!" else "${challenge.requirements.size} requirements"
-                Text(status, color = if (challenge.isCompletedToday) MaterialTheme.colorScheme.primary else Color.Gray, fontSize = 11.sp)
-            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Overall challenge progress bar
+            LinearProgressIndicator(
+                progress = { overallPercent },
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(CircleShape),
+                color = if (overallPercent >= 1f) Color.Green else MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+            )
         }
     }
 }
 
+/**
+ * A single row representing an app group (a collection of apps that are currently blocked).
+ */
 @Composable
 fun GroupItem(
     group: AppGroup,
@@ -499,8 +587,8 @@ fun GroupItem(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = {},
-                onLongClick = onLongClick
+                onClick = {}, // Normal click does nothing
+                onLongClick = onLongClick // Long click to edit
             ),
         colors = CardDefaults.cardColors(
             containerColor = if (group.isEnabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
@@ -508,6 +596,7 @@ fun GroupItem(
         shape = RoundedCornerShape(16.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Top row with Icon, Name, and Toggle Switch
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -547,6 +636,7 @@ fun GroupItem(
                     IconButton(onClick = onDelete) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray, modifier = Modifier.size(20.dp))
                     }
+                    // Switch to enable/disable the blocking rules for this group
                     Switch(
                         checked = group.isEnabled,
                         onCheckedChange = { onToggle() },
@@ -558,11 +648,13 @@ fun GroupItem(
                 }
             }
             
+            // Show summary of blocked keywords if any
             if (group.keywords.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text("${group.keywords.size} Keywords/URLs Blocked", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp)
             }
 
+            // Show requirement chips (e.g. "10 pushups")
             if (group.exercises.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))

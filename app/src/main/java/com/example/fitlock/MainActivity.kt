@@ -1,3 +1,8 @@
+/**
+ * MainActivity is the "Entry Point" of the application.
+ * When the user taps the app icon, this is the first class that runs.
+ * It inherits from ComponentActivity, which provides the foundation for using Jetpack Compose.
+ */
 package com.example.fitlock
 
 import android.Manifest
@@ -46,8 +51,15 @@ import java.util.Calendar
 
 class MainActivity : ComponentActivity(), SensorEventListener {
 
-    private lateinit var db: GritLockDatabase
-    private lateinit var exerciseManager: ExerciseTrackerManager
+    /** 
+     * Properties: These are variables that belong to the class.
+     * 'private' means they can't be accessed from outside this class.
+     * 'lateinit' tells Kotlin "I'll initialize this later before I use it".
+     */
+    private lateinit var db: GritLockDatabase // Our local database (Room)
+    private lateinit var exerciseManager: ExerciseTrackerManager // Handles exercise logic
+    
+    // Analyzers for different exercise types (initialized when needed)
     private var pushupAnalyzer: PushupAnalyzer? = null
     private var squatAnalyzer: SquatAnalyzer? = null
     private var situpAnalyzer: SitupAnalyzer? = null
@@ -57,13 +69,20 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var rowAnalyzer: RowAnalyzer? = null
     private var plankAnalyzer: PlankAnalyzer? = null
     
-    private lateinit var healthConnectManager: HealthConnectManager
+    private lateinit var healthConnectManager: HealthConnectManager // Manages Google Health Connect
     
+    // Hardware sensor variables for step counting
     private var sensorManager: SensorManager? = null
     private var stepSensor: Sensor? = null
     private var initialStepCount = -1f
+    
+    // State variables: When these change, the UI automatically updates (Recomposition)
     private val _stepCount = mutableIntStateOf(0)
 
+    /**
+     * Launchers for requesting system permissions.
+     * If the user grants permission, we run specific setup code.
+     */
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -89,33 +108,46 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    /**
+     * onCreate is a "Lifecycle Method".
+     * It's called by Android when the Activity is first created.
+     */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Makes the app draw behind the status bar and navigation bar (full screen look)
         enableEdgeToEdge()
 
+        // Initialize our database connection
         db = Room.databaseBuilder(
             applicationContext,
             GritLockDatabase::class.java, "gritlock-db"
         ).fallbackToDestructiveMigration().build()
 
         healthConnectManager = HealthConnectManager(this)
+        
+        // Initial setup routines
         initChallenges()
         handleGoalProgression()
         handleBankReset()
 
+        // State variables for the active workout session
         val repCountState = mutableIntStateOf(0)
         var currentExerciseType by mutableStateOf(ExerciseType.PUSHUP)
         var currentGoal by mutableIntStateOf(10)
 
+        // Initialize the exercise manager with callbacks
         exerciseManager = ExerciseTrackerManager(
             context = this,
             onRepCountChanged = { count ->
                 repCountState.intValue = count
             },
             onWorkoutComplete = { reps ->
+                // lifecycleScope.launch starts a "Coroutine" (background task)
                 lifecycleScope.launch {
                     val xpGained = reps * 5
                     
+                    // Save workout to database
                     db.dao().insertWorkout(
                         WorkoutHistory(
                             exerciseType = currentExerciseType.name,
@@ -124,8 +156,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             xpGained = xpGained
                         )
                     )
+                    // Update user's overall stats (XP and Level)
                     updateUserStats(xpGained, currentExerciseType.name, reps)
                     
+                    // Sync this workout to Android's Health Connect system
                     val now = java.time.Instant.now()
                     healthConnectManager.writeExerciseSession(
                         currentExerciseType.name,
@@ -139,17 +173,24 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             }
         )
 
+        // Setup the built-in step counter sensor
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         stepSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
 
+        // Initial checks for permissions
         checkPermissions()
         checkHealthPermissions()
 
+        /**
+         * setContent defines the UI of the app using Composable functions.
+         * Everything inside here is written in declarative Compose syntax.
+         */
         setContent {
+            // remember {} caches values so they aren't reset when the UI refreshes
             val prefs = remember { getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
             var appTheme by remember { mutableStateOf(prefs.getString("app_theme", "Default") ?: "Default") }
             
-            // Listen for theme changes from settings
+            // A side effect that periodically checks if the theme setting changed
             LaunchedEffect(Unit) {
                 while(true) {
                     val currentTheme = prefs.getString("app_theme", "Default") ?: "Default"
@@ -160,12 +201,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
             }
 
+            // Wrap the whole UI in our custom Theme
             GritLockTheme(themeName = appTheme) {
+                // collectAsState converts a Database "Flow" into a Compose "State"
                 val groups by db.dao().getAllGroups().collectAsState(initial = emptyList())
                 val history by db.dao().getHistory().collectAsState(initial = emptyList())
                 val userStats by db.dao().getUserStats().collectAsState(initial = null)
                 val challenges by db.dao().getChallenges().collectAsState(initial = emptyList())
                 
+                // Calculate today's workout totals for the progress bars
                 val todayTotals = remember(history, _stepCount.intValue) {
                     val cal = Calendar.getInstance()
                     cal.set(Calendar.HOUR_OF_DAY, 0)
@@ -173,6 +217,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     cal.set(Calendar.SECOND, 0)
                     val startOfDay = cal.timeInMillis
                     
+                    // Filter history to only include items from today and group them by type
                     val totalsMap = history.filter { it.timestamp >= startOfDay }
                         .groupBy { it.exerciseType }
                         .mapValues { entry -> entry.value.sumOf { it.repsCompleted } }
@@ -182,13 +227,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     mutableTotals
                 }
 
+                // Internal navigation state (which screen are we on?)
                 var currentScreen by remember { mutableStateOf("groups") }
                 var trackingMode by remember { mutableStateOf(TrackingMode.CAMERA) }
                 var editingGroup by remember { mutableStateOf<AppGroup?>(null) }
                 var calibrationExercise by remember { mutableStateOf<ExerciseType?>(null) }
                 
+                /**
+                 * Scaffold is a layout helper that provides slots for common UI parts
+                 * like a TopBar, BottomBar, or FloatingActionButton.
+                 */
                 Scaffold(
                     bottomBar = {
+                        // Hide the bottom bar on specific screens
                         if (currentScreen != "track" && currentScreen != "create" && currentScreen != "calibrate") {
                             NavigationBar(
                                 containerColor = MaterialTheme.colorScheme.surface,
@@ -203,7 +254,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         }
                     }
                 ) { innerPadding ->
+                    // Padding is provided by Scaffold to avoid overlapping with bars
                     Box(modifier = Modifier.padding(innerPadding)) {
+                        /**
+                         * This 'when' block acts as our app's Router.
+                         * It decides which Composable to show based on 'currentScreen'.
+                         */
                         when (currentScreen) {
                             "groups" -> {
                                 GroupsScreen(
@@ -230,8 +286,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         }
                                     },
                                     onSettingsClick = { currentScreen = "settings" },
-                                    onEmergencyBypassClick = { /* Handle elsewhere if needed */ },
+                                    onEmergencyBypassClick = { /* Logic */ },
                                     onChallengeClick = { challenge ->
+                                        // When a challenge is clicked, start the first exercise in it
                                         val req = challenge.requirements.firstOrNull()
                                         if (req != null) {
                                             currentExerciseType = try { ExerciseType.valueOf(req.type) } catch(_: Exception) { ExerciseType.PUSHUP }
@@ -244,6 +301,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         }
                                     },
                                     onExerciseClick = { type, goal ->
+                                        // Manual workout start from the daily goals list
                                         currentExerciseType = type
                                         currentGoal = goal
                                         repCountState.intValue = 0
@@ -427,6 +485,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    /**
+     * Logic for leveling up goals automatically based on progression settings.
+     */
     private fun handleGoalProgression() {
         val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
         val lastSync = prefs.getLong("last_goal_sync", 0L)
@@ -463,6 +524,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         prefs.edit().putLong("last_goal_sync", now.timeInMillis).apply()
     }
 
+    /**
+     * Logic for clearing banked reps based on reset frequency (Daily, Weekly, etc.)
+     */
     private fun handleBankReset() {
         lifecycleScope.launch {
             val stats = db.dao().getUserStats().first() ?: return@launch
@@ -495,6 +559,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    /**
+     * Seed initial challenges if database is empty.
+     */
     private fun initChallenges() {
         lifecycleScope.launch {
             val now = Calendar.getInstance()
@@ -525,6 +592,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    /**
+     * Sets up the ML Kit analyzers for camera-based tracking.
+     */
     private fun initializeAnalyzers(type: ExerciseType, stats: UserStats?) {
         val cal = stats?.calibrations?.get(type.name)
         when (type) {
@@ -540,6 +610,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    /**
+     * Updates the user's XP and Level in the local database.
+     */
     private suspend fun updateUserStats(xpGained: Int, exerciseType: String, repsToBank: Int) {
         val currentStats = db.dao().getUserStats().first() ?: UserStats()
         
@@ -565,6 +638,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         )
     }
 
+    /**
+     * Requests necessary system permissions like Camera and Activity Recognition.
+     */
     private fun checkPermissions() {
         val permissions = mutableListOf(Manifest.permission.CAMERA)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -582,6 +658,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    /**
+     * Checks if we have permissions to read/write from Google Health Connect.
+     */
     private fun checkHealthPermissions() {
         lifecycleScope.launch {
             if (!healthConnectManager.hasPermissions()) {
@@ -598,6 +677,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    /**
+     * Fetches today's total steps from the Health Connect database.
+     */
     private fun refreshStepsFromHealth() {
         lifecycleScope.launch {
             val steps = healthConnectManager.readTodaySteps()
@@ -605,25 +687,32 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    /**
+     * Registers a listener to listen for step counter hardware events.
+     */
     private fun setupStepSensor() {
         stepSensor?.let {
             sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
     }
 
+    /**
+     * Called by the system when a sensor (like the step counter) detects a change.
+     */
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
             if (initialStepCount == -1f) {
                 initialStepCount = event.values[0]
             }
             // Use this as a fallback if Health Connect is not available
-            // val currentSteps = (event.values[0] - initialStepCount).toInt()
-            // _stepCount.intValue = currentSteps
         }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
+    /**
+     * A helper Composable for the bottom navigation menu items.
+     */
     @Composable
     fun RowScope.NavigationItem(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
         NavigationBarItem(
