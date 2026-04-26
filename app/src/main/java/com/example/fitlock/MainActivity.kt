@@ -1,7 +1,6 @@
 /**
  * MainActivity is the "Entry Point" of the application.
- * When the user taps the app icon, this is the first class that runs.
- * It inherits from ComponentActivity, which provides the foundation for using Jetpack Compose.
+ * It manages navigation, database state, and core RPG logic.
  */
 package com.example.fitlock
 
@@ -25,10 +24,9 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
-import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -38,6 +36,7 @@ import androidx.core.content.ContextCompat
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.StepsRecord
+import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.lifecycle.lifecycleScope
 import androidx.room.Room
 import com.example.fitlock.data.*
@@ -51,15 +50,9 @@ import java.util.Calendar
 
 class MainActivity : ComponentActivity(), SensorEventListener {
 
-    /** 
-     * Properties: These are variables that belong to the class.
-     * 'private' means they can't be accessed from outside this class.
-     * 'lateinit' tells Kotlin "I'll initialize this later before I use it".
-     */
-    private lateinit var db: GritLockDatabase // Our local database (Room)
-    private lateinit var exerciseManager: ExerciseTrackerManager // Handles exercise logic
+    private lateinit var db: GritLockDatabase
+    private lateinit var exerciseManager: ExerciseTrackerManager
     
-    // Analyzers for different exercise types (initialized when needed)
     private var pushupAnalyzer: PushupAnalyzer? = null
     private var squatAnalyzer: SquatAnalyzer? = null
     private var situpAnalyzer: SitupAnalyzer? = null
@@ -69,31 +62,23 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var rowAnalyzer: RowAnalyzer? = null
     private var plankAnalyzer: PlankAnalyzer? = null
     
-    private lateinit var healthConnectManager: HealthConnectManager // Manages Google Health Connect
+    private lateinit var healthConnectManager: HealthConnectManager
     
-    // Hardware sensor variables for step counting
     private var sensorManager: SensorManager? = null
     private var stepSensor: Sensor? = null
     private var initialStepCount = -1f
-    
-    // State variables: When these change, the UI automatically updates (Recomposition)
     private val _stepCount = mutableIntStateOf(0)
 
     /**
      * Launchers for requesting system permissions.
-     * If the user grants permission, we run specific setup code.
      */
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
         val activityGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             permissions[Manifest.permission.ACTIVITY_RECOGNITION] ?: false
         } else true
-        
-        if (!cameraGranted) {
-            Toast.makeText(this, "Camera permission is required for tracking", Toast.LENGTH_LONG).show()
-        }
+
         if (activityGranted) {
             setupStepSensor()
         }
@@ -103,22 +88,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions.all { it.value }) {
-            Toast.makeText(this, "Health Connect permissions granted!", Toast.LENGTH_SHORT).show()
             refreshStepsFromHealth()
+            syncRpgFromHealth()
         }
     }
 
-    /**
-     * onCreate is a "Lifecycle Method".
-     * It's called by Android when the Activity is first created.
-     */
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // Makes the app draw behind the status bar and navigation bar (full screen look)
         enableEdgeToEdge()
 
-        // Initialize our database connection
+        // Database setup
         db = Room.databaseBuilder(
             applicationContext,
             GritLockDatabase::class.java, "gritlock-db"
@@ -131,23 +110,20 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         handleGoalProgression()
         handleBankReset()
 
-        // State variables for the active workout session
+        // State for active workout tracking
         val repCountState = mutableIntStateOf(0)
         var currentExerciseType by mutableStateOf(ExerciseType.PUSHUP)
         var currentGoal by mutableIntStateOf(10)
 
-        // Initialize the exercise manager with callbacks
+        // Exercise manager initialization
         exerciseManager = ExerciseTrackerManager(
             context = this,
             onRepCountChanged = { count ->
                 repCountState.intValue = count
             },
             onWorkoutComplete = { reps ->
-                // lifecycleScope.launch starts a "Coroutine" (background task)
                 lifecycleScope.launch {
                     val xpGained = reps * 5
-                    
-                    // Save workout to database
                     db.dao().insertWorkout(
                         WorkoutHistory(
                             exerciseType = currentExerciseType.name,
@@ -156,10 +132,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             xpGained = xpGained
                         )
                     )
-                    // Update user's overall stats (XP and Level)
                     updateUserStats(xpGained, currentExerciseType.name, reps)
                     
-                    // Sync this workout to Android's Health Connect system
                     val now = java.time.Instant.now()
                     healthConnectManager.writeExerciseSession(
                         currentExerciseType.name,
@@ -167,30 +141,20 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         now.minusSeconds(300),
                         now
                     )
-                    
-                    Toast.makeText(this@MainActivity, "Workout Saved! +$xpGained XP, Banked $reps reps", Toast.LENGTH_SHORT).show()
                 }
             }
         )
 
-        // Setup the built-in step counter sensor
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         stepSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_STEP_COUNTER)
 
-        // Initial checks for permissions
         checkPermissions()
         checkHealthPermissions()
 
-        /**
-         * setContent defines the UI of the app using Composable functions.
-         * Everything inside here is written in declarative Compose syntax.
-         */
         setContent {
-            // remember {} caches values so they aren't reset when the UI refreshes
             val prefs = remember { getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
             var appTheme by remember { mutableStateOf(prefs.getString("app_theme", "Default") ?: "Default") }
             
-            // A side effect that periodically checks if the theme setting changed
             LaunchedEffect(Unit) {
                 while(true) {
                     val currentTheme = prefs.getString("app_theme", "Default") ?: "Default"
@@ -201,65 +165,50 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
             }
 
-            // Wrap the whole UI in our custom Theme
             GritLockTheme(themeName = appTheme) {
-                // collectAsState converts a Database "Flow" into a Compose "State"
                 val groups by db.dao().getAllGroups().collectAsState(initial = emptyList())
                 val history by db.dao().getHistory().collectAsState(initial = emptyList())
                 val userStats by db.dao().getUserStats().collectAsState(initial = null)
                 val challenges by db.dao().getChallenges().collectAsState(initial = emptyList())
-                
-                // Calculate today's workout totals for the progress bars
+                val tasks by db.dao().getAllTasks().collectAsState(initial = emptyList())
+
                 val todayTotals = remember(history, _stepCount.intValue) {
                     val cal = Calendar.getInstance()
                     cal.set(Calendar.HOUR_OF_DAY, 0)
                     cal.set(Calendar.MINUTE, 0)
                     cal.set(Calendar.SECOND, 0)
                     val startOfDay = cal.timeInMillis
-                    
-                    // Filter history to only include items from today and group them by type
+
                     val totalsMap = history.filter { it.timestamp >= startOfDay }
                         .groupBy { it.exerciseType }
                         .mapValues { entry -> entry.value.sumOf { it.repsCompleted } }
-                    
+
                     val mutableTotals = totalsMap.toMutableMap()
                     mutableTotals[ExerciseType.STEPS.name] = _stepCount.intValue
                     mutableTotals
                 }
 
-                // Internal navigation state (which screen are we on?)
                 var currentScreen by remember { mutableStateOf("groups") }
                 var trackingMode by remember { mutableStateOf(TrackingMode.CAMERA) }
                 var editingGroup by remember { mutableStateOf<AppGroup?>(null) }
                 var calibrationExercise by remember { mutableStateOf<ExerciseType?>(null) }
                 
-                /**
-                 * Scaffold is a layout helper that provides slots for common UI parts
-                 * like a TopBar, BottomBar, or FloatingActionButton.
-                 */
                 Scaffold(
                     bottomBar = {
-                        // Hide the bottom bar on specific screens
                         if (currentScreen != "track" && currentScreen != "create" && currentScreen != "calibrate") {
                             NavigationBar(
                                 containerColor = MaterialTheme.colorScheme.surface,
                                 contentColor = MaterialTheme.colorScheme.onSurface
                             ) {
                                 NavigationItem("Groups", Icons.Default.Home, currentScreen == "groups") { currentScreen = "groups" }
-                                NavigationItem("Analytic", Icons.Default.Analytics, currentScreen == "analytics") { currentScreen = "analytics" }
+                                NavigationItem("Quests", Icons.Default.Assignment, currentScreen == "quests") { currentScreen = "quests" }
                                 NavigationItem("Stats", Icons.AutoMirrored.Filled.ShowChart, currentScreen == "stats") { currentScreen = "stats" }
                                 NavigationItem("Profile", Icons.Default.Person, currentScreen == "profile") { currentScreen = "profile" }
-                                NavigationItem("Setting", Icons.Default.Settings, currentScreen == "settings") { currentScreen = "settings" }
                             }
                         }
                     }
                 ) { innerPadding ->
-                    // Padding is provided by Scaffold to avoid overlapping with bars
                     Box(modifier = Modifier.padding(innerPadding)) {
-                        /**
-                         * This 'when' block acts as our app's Router.
-                         * It decides which Composable to show based on 'currentScreen'.
-                         */
                         when (currentScreen) {
                             "groups" -> {
                                 GroupsScreen(
@@ -267,9 +216,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     userStats = userStats,
                                     challenges = challenges,
                                     todayTotals = todayTotals,
-                                    onAddGroupClick = { 
+                                    onAddGroupClick = {
                                         editingGroup = null
-                                        currentScreen = "create" 
+                                        currentScreen = "create"
                                     },
                                     onEditGroupClick = { group ->
                                         editingGroup = group
@@ -285,39 +234,66 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             db.dao().updateGroup(group.copy(isEnabled = !group.isEnabled))
                                         }
                                     },
-                                    onSettingsClick = { currentScreen = "settings" },
+                                    onSettingsClick = { currentScreen = "profile" },
                                     onEmergencyBypassClick = { /* Logic */ },
                                     onChallengeClick = { challenge ->
-                                        // When a challenge is clicked, start the first exercise in it
                                         val req = challenge.requirements.firstOrNull()
                                         if (req != null) {
                                             currentExerciseType = try { ExerciseType.valueOf(req.type) } catch(_: Exception) { ExerciseType.PUSHUP }
                                             currentGoal = req.count
                                             repCountState.intValue = 0
-                                            
+
                                             initializeAnalyzers(currentExerciseType, userStats)
                                             exerciseManager.startTracking(currentExerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${currentExerciseType.name}_${trackingMode.name}"))
                                             currentScreen = "track"
                                         }
                                     },
                                     onExerciseClick = { type, goal ->
-                                        // Manual workout start from the daily goals list
                                         currentExerciseType = type
                                         currentGoal = goal
                                         repCountState.intValue = 0
-                                        
+
                                         initializeAnalyzers(type, userStats)
                                         exerciseManager.startTracking(type, trackingMode, goal, userStats?.calibrations?.get("${type.name}_${trackingMode.name}"))
                                         currentScreen = "track"
                                     }
                                 )
                             }
-                            "analytics" -> {
-                                AnalyticsScreen()
+                            "quests" -> {
+                                TodoScreen(
+                                    tasks = tasks,
+                                    onAddTask = { task ->
+                                        lifecycleScope.launch {
+                                            db.dao().insertTask(task)
+                                        }
+                                    },
+                                    onToggleTask = { task ->
+                                        lifecycleScope.launch {
+                                            val updated = task.copy(isCompleted = !task.isCompleted)
+                                            db.dao().updateTask(updated)
+                                            if (updated.isCompleted) {
+                                                val intGain = 50L * task.predictedPomodoros
+                                                grantStatXp(StatType.INT, intGain)
+                                                Toast.makeText(this@MainActivity, "Quest Complete! +$intGain INT XP", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    onDeleteTask = { task ->
+                                        lifecycleScope.launch {
+                                            db.dao().deleteTask(task)
+                                        }
+                                    },
+                                    onPomodoroComplete = { task ->
+                                        lifecycleScope.launch {
+                                            db.dao().updateTask(task.copy(actualPomodoros = task.actualPomodoros + 1))
+                                        }
+                                    }
+                                )
                             }
                             "stats" -> {
                                 StatsScreen(
-                                    history = history
+                                    history = history,
+                                    tasks = tasks
                                 )
                             }
                             "profile" -> {
@@ -328,23 +304,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         lifecycleScope.launch {
                                             db.dao().upsertChallenge(challenge)
                                         }
-                                    }
-                                )
-                            }
-                            "settings" -> {
-                                SettingsScreen(
-                                    onBack = { currentScreen = "groups" },
-                                    trackingMode = trackingMode,
-                                    onTrackingModeChange = { trackingMode = it },
-                                    userStats = userStats,
-                                    onUpdateUserStats = { stats ->
-                                        lifecycleScope.launch {
-                                            db.dao().updateUserStats(stats)
-                                        }
-                                    },
-                                    onNavigateToCalibration = { exercise ->
-                                        calibrationExercise = exercise
-                                        currentScreen = "calibrate"
                                     }
                                 )
                             }
@@ -364,30 +323,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     onBack = { currentScreen = "groups" }
                                 )
                             }
-                            "calibrate" -> {
-                                calibrationExercise?.let { type ->
-                                    CalibrationScreen(
-                                        exerciseType = type,
-                                        mode = trackingMode,
-                                        onCalibrationComplete = { cal ->
-                                            lifecycleScope.launch {
-                                                val stats = userStats ?: UserStats()
-                                                val newCalibrations = stats.calibrations.toMutableMap()
-                                                newCalibrations[cal.exerciseType] = cal
-                                                db.dao().updateUserStats(stats.copy(calibrations = newCalibrations))
-                                                currentScreen = "settings"
-                                            }
-                                        },
-                                        onBack = { currentScreen = "settings" }
-                                    )
-                                }
-                            }
                             "track" -> {
                                 val exerciseRequirements = remember(currentExerciseType, currentGoal) {
                                     listOf(ExerciseRequirement(currentExerciseType.name, currentGoal))
                                 }
                                 LockOverlayScreen(
-                                    targetApp = "Workout Mode",
+                                    targetApp = "Manual Workout",
                                     repCount = repCountState.intValue,
                                     exerciseRequirements = exerciseRequirements,
                                     currentExerciseIndex = 0,
@@ -409,73 +350,44 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             }
                                         }
                                     },
-                                    onEmergencyBypass = { currentScreen = "groups" },
+                                    onEmergencyBypass = {
+                                        currentScreen = "groups"
+                                    },
                                     onNextExercise = {
-                                        lifecycleScope.launch {
-                                            val reps = repCountState.intValue
-                                            if (reps > 0) {
-                                                val xpGained = reps * 2
-                                                
-                                                db.dao().insertWorkout(
-                                                    WorkoutHistory(
-                                                        exerciseType = currentExerciseType.name,
-                                                        repsCompleted = reps,
-                                                        appGroupId = 0,
-                                                        xpGained = xpGained
-                                                    )
-                                                )
-                                                updateUserStats(xpGained, currentExerciseType.name, reps)
-                                                
-                                                val now = java.time.Instant.now()
-                                                healthConnectManager.writeExerciseSession(
-                                                    currentExerciseType.name,
-                                                    reps,
-                                                    now.minusSeconds(120),
-                                                    now
-                                                )
-                                            }
-                                            currentScreen = "groups"
-                                        }
+                                        currentScreen = "groups"
                                     },
                                     onStopExercise = {
-                                        lifecycleScope.launch {
-                                            val reps = repCountState.intValue
-                                            if (reps > 0) {
-                                                val xpGained = reps * 2
-                                                
-                                                db.dao().insertWorkout(
-                                                    WorkoutHistory(
-                                                        exerciseType = currentExerciseType.name,
-                                                        repsCompleted = reps,
-                                                        appGroupId = 0,
-                                                        xpGained = xpGained
-                                                    )
-                                                )
-                                                updateUserStats(xpGained, currentExerciseType.name, reps)
-                                                
-                                                val now = java.time.Instant.now()
-                                                healthConnectManager.writeExerciseSession(
-                                                    currentExerciseType.name,
-                                                    reps,
-                                                    now.minusSeconds(120),
-                                                    now
-                                                )
-                                            }
-                                            currentScreen = "groups"
-                                        }
+                                        currentScreen = "groups"
                                     },
                                     onUseBankedReps = { type, count ->
                                         lifecycleScope.launch {
                                             val stats = userStats ?: return@launch
                                             val currentBanked = stats.bankedReps[type] ?: 0
                                             if (currentBanked >= count) {
-                                                val newBanked = stats.bankedReps.toMutableMap()
-                                                newBanked[type] = currentBanked - count
-                                                db.dao().updateUserStats(stats.copy(bankedReps = newBanked))
+                                                val newBank = stats.bankedReps.toMutableMap()
+                                                newBank[type] = currentBanked - count
+                                                db.dao().updateUserStats(stats.copy(bankedReps = newBank))
                                                 repCountState.intValue += count
                                             }
                                         }
-                                    }
+                                    },
+                                    userStats = userStats
+                                )
+                            }
+                            "calibrate" -> {
+                                CalibrationScreen(
+                                    exerciseType = calibrationExercise ?: ExerciseType.PUSHUP,
+                                    mode = trackingMode,
+                                    onCalibrationComplete = { calibration ->
+                                        lifecycleScope.launch {
+                                            val currentStats = userStats ?: UserStats()
+                                            val updatedCalibrations = currentStats.calibrations.toMutableMap()
+                                            updatedCalibrations["${calibrationExercise?.name}_${trackingMode.name}"] = calibration
+                                            db.dao().updateUserStats(currentStats.copy(calibrations = updatedCalibrations))
+                                            currentScreen = "profile"
+                                        }
+                                    },
+                                    onBack = { currentScreen = "profile" }
                                 )
                             }
                         }
@@ -485,124 +397,141 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
-    /**
-     * Logic for leveling up goals automatically based on progression settings.
-     */
-    private fun handleGoalProgression() {
-        val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
-        val lastSync = prefs.getLong("last_goal_sync", 0L)
-        val now = Calendar.getInstance()
-        
-        val lastSyncCal = Calendar.getInstance().apply { timeInMillis = lastSync }
-        
-        if (lastSync == 0L) {
-            prefs.edit().putLong("last_goal_sync", now.timeInMillis).apply()
-            return
-        }
-
-        ExerciseType.entries.forEach { type ->
-            val enabled = prefs.getBoolean("prog_enabled_${type.name}", false)
-            if (enabled) {
-                val lastUpdate = prefs.getLong("last_prog_update_${type.name}", 0L)
-                val lastUpdateCal = Calendar.getInstance().apply { timeInMillis = lastUpdate }
-                
-                // If it's a new day, increment the goal
-                if (now.get(Calendar.DAY_OF_YEAR) != lastUpdateCal.get(Calendar.DAY_OF_YEAR) ||
-                    now.get(Calendar.YEAR) != lastUpdateCal.get(Calendar.YEAR)) {
-                    
-                    val currentGoal = prefs.getInt("goal_${type.name}", 10)
-                    val increment = prefs.getInt("prog_increment_${type.name}", 1)
-                    
-                    prefs.edit()
-                        .putInt("goal_${type.name}", currentGoal + increment)
-                        .putLong("last_prog_update_${type.name}", now.timeInMillis)
-                        .apply()
-                }
-            }
+    private fun checkPermissions() {
+        val permissions = mutableListOf(Manifest.permission.CAMERA)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            permissions.add(Manifest.permission.ACTIVITY_RECOGNITION)
         }
         
-        prefs.edit().putLong("last_goal_sync", now.timeInMillis).apply()
-    }
+        val toRequest = permissions.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
 
-    /**
-     * Logic for clearing banked reps based on reset frequency (Daily, Weekly, etc.)
-     */
-    private fun handleBankReset() {
-        lifecycleScope.launch {
-            val stats = db.dao().getUserStats().first() ?: return@launch
-            val now = System.currentTimeMillis()
-            val lastReset = stats.lastBankReset
-            val frequency = stats.bankResetFrequency
-            
-            val calendar = Calendar.getInstance()
-            val currentDay = calendar.get(Calendar.DAY_OF_YEAR)
-            val currentWeek = calendar.get(Calendar.WEEK_OF_YEAR)
-            val currentMonth = calendar.get(Calendar.MONTH)
-            val currentYear = calendar.get(Calendar.YEAR)
-            
-            calendar.timeInMillis = lastReset
-            val lastDay = calendar.get(Calendar.DAY_OF_YEAR)
-            val lastWeek = calendar.get(Calendar.WEEK_OF_YEAR)
-            val lastMonth = calendar.get(Calendar.MONTH)
-            val lastYear = calendar.get(Calendar.YEAR)
-            
-            val shouldReset = when (frequency) {
-                "Daily" -> currentDay != lastDay || currentYear != lastYear
-                "Weekly" -> currentWeek != lastWeek || currentYear != lastYear
-                "Monthly" -> currentMonth != lastMonth || currentYear != lastYear
-                else -> false
-            }
-            
-            if (shouldReset) {
-                db.dao().updateUserStats(stats.copy(bankedReps = emptyMap(), lastBankReset = now))
-            }
+        if (toRequest.isNotEmpty()) {
+            requestPermissionLauncher.launch(toRequest.toTypedArray())
+        } else {
+            setupStepSensor()
         }
     }
 
-    /**
-     * Seed initial challenges if database is empty.
-     */
-    private fun initChallenges() {
+    private fun checkHealthPermissions() {
         lifecycleScope.launch {
-            val now = Calendar.getInstance()
-            val dayOfYear = now.get(Calendar.DAY_OF_YEAR)
-            
-            // Gradual OPM Scaling: Start at 10, add 3 every day, cap at 100
-            val opmBase = 10
-            val dailyIncrement = 3
-            val currentOpmGoal = (opmBase + (dayOfYear * dailyIncrement)).coerceAtMost(100)
-
-            val challenges = listOf(
-                Challenge("1", "Morning Pushups", "Do 20 pushups to start your day", listOf(ExerciseRequirement(ExerciseType.PUSHUP.name, 20)), 100),
-                Challenge("2", "Squat Master", "Complete 50 squats", listOf(ExerciseRequirement(ExerciseType.SQUAT.name, 50)), 250),
-                Challenge("3", "Core Strength", "Hold a plank for 60 seconds", listOf(ExerciseRequirement(ExerciseType.PLANK.name, 60)), 150),
-                Challenge("opm_gradual", "One Punch Man (Gradual)", "Saitama's Training: Pushups, Squats, Situps ($currentOpmGoal each).", listOf(
-                    ExerciseRequirement(ExerciseType.PUSHUP.name, currentOpmGoal),
-                    ExerciseRequirement(ExerciseType.SQUAT.name, currentOpmGoal),
-                    ExerciseRequirement(ExerciseType.SITUP.name, currentOpmGoal)
-                ), 500),
-                Challenge("solo_leveling", "Solo Leveling: Daily Quest", "Pushups (100), Squats (100), Situps (100), Pullups (20). Don't fail the penalty!", listOf(
-                    ExerciseRequirement(ExerciseType.PUSHUP.name, 100),
-                    ExerciseRequirement(ExerciseType.SQUAT.name, 100),
-                    ExerciseRequirement(ExerciseType.SITUP.name, 100),
-                    ExerciseRequirement(ExerciseType.PULLUP.name, 20)
-                ), 1000)
+            val permissions = setOf(
+                HealthPermission.getReadPermission(StepsRecord::class),
+                HealthPermission.getWritePermission(StepsRecord::class),
+                HealthPermission.getReadPermission(ExerciseSessionRecord::class),
+                HealthPermission.getWritePermission(ExerciseSessionRecord::class),
+                HealthPermission.getReadPermission(SleepSessionRecord::class)
             )
-            challenges.forEach { db.dao().upsertChallenge(it) }
+            val granted = healthConnectManager.hasPermissions()
+            if (!granted) {
+                requestHealthPermissionLauncher.launch(permissions.toTypedArray())
+            } else {
+                refreshStepsFromHealth()
+                syncRpgFromHealth()
+            }
         }
     }
 
-    /**
-     * Sets up the ML Kit analyzers for camera-based tracking.
-     */
-    private fun initializeAnalyzers(type: ExerciseType, stats: UserStats?) {
-        val cal = stats?.calibrations?.get(type.name)
+    private fun setupStepSensor() {
+        stepSensor?.let {
+            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        }
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
+            if (initialStepCount < 0) {
+                initialStepCount = event.values[0]
+            }
+            _stepCount.intValue = (event.values[0] - initialStepCount).toInt()
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private fun refreshStepsFromHealth() {
+        lifecycleScope.launch {
+            val steps = healthConnectManager.readTodaySteps()
+            if (steps > _stepCount.intValue) {
+                _stepCount.intValue = steps.toInt()
+            }
+        }
+    }
+
+    private fun syncRpgFromHealth() {
+        lifecycleScope.launch {
+            val sleepMinutes = healthConnectManager.readLastNightSleepDurationMinutes()
+            if (sleepMinutes >= 420) { // 7 hours
+                grantStatXp(StatType.VIT, 100)
+                Log.d("RPG", "Sleep goal met! +100 VIT XP")
+            }
+        }
+    }
+
+    private fun updateUserStats(xp: Int, exerciseType: String, reps: Int) {
+        lifecycleScope.launch {
+            val currentStats = db.dao().getUserStats().first() ?: UserStats()
+            
+            // 1. Update XP and Level
+            var newTotalXp = currentStats.totalXp + xp
+            var newLevel = currentStats.level
+            while (newTotalXp >= newLevel * 1000) {
+                newTotalXp -= newLevel * 1000
+                newLevel++
+            }
+
+            // 2. Update Banked Reps
+            val newBankedReps = currentStats.bankedReps.toMutableMap()
+            val currentBanked = newBankedReps[exerciseType] ?: 0
+            newBankedReps[exerciseType] = currentBanked + reps
+
+            // 3. Update primary stats based on exercise
+            val newStats = currentStats.copy(
+                totalXp = newTotalXp,
+                level = newLevel,
+                bankedReps = newBankedReps
+            )
+            
+            db.dao().updateUserStats(newStats)
+            
+            // Specific stat gains
+            when(exerciseType) {
+                ExerciseType.PUSHUP.name, ExerciseType.PULLUP.name, ExerciseType.DIP.name -> grantStatXp(StatType.STR, xp.toLong())
+                ExerciseType.SQUAT.name, ExerciseType.HINGE.name -> grantStatXp(StatType.STR, xp.toLong())
+                ExerciseType.STEPS.name -> grantStatXp(StatType.AGI, (reps / 10).toLong())
+            }
+        }
+    }
+
+    private fun grantStatXp(type: StatType, amount: Long) {
+        lifecycleScope.launch {
+            val currentStats = db.dao().getUserStats().first() ?: UserStats()
+            val updated = when(type) {
+                StatType.STR -> currentStats.copy(strXp = currentStats.strXp + amount)
+                StatType.AGI -> currentStats.copy(agiXp = currentStats.agiXp + amount)
+                StatType.VIT -> currentStats.copy(vitXp = currentStats.vitXp + amount)
+                StatType.INT -> currentStats.copy(intXp = currentStats.intXp + amount)
+                StatType.SEN -> currentStats.copy(senXp = currentStats.senXp + amount)
+                StatType.CHA -> currentStats.copy(chaXp = currentStats.chaXp + amount)
+            }
+            db.dao().updateUserStats(updated)
+        }
+    }
+
+    private fun initializeAnalyzers(type: ExerciseType, userStats: UserStats?) {
         when (type) {
-            ExerciseType.PUSHUP -> pushupAnalyzer = PushupAnalyzer(exerciseManager, cal)
-            ExerciseType.SQUAT -> squatAnalyzer = SquatAnalyzer(exerciseManager, cal)
-            ExerciseType.SITUP -> situpAnalyzer = SitupAnalyzer(exerciseManager, cal)
-            ExerciseType.PULLUP -> pullupAnalyzer = PullupAnalyzer(exerciseManager, cal)
-            ExerciseType.DIP -> dipAnalyzer = DipAnalyzer(exerciseManager, cal)
+            ExerciseType.PUSHUP -> pushupAnalyzer = PushupAnalyzer(
+                exerciseManager,
+                userStats?.calibrations?.get("${type.name}_${TrackingMode.CAMERA.name}")
+            )
+            ExerciseType.SQUAT -> squatAnalyzer = SquatAnalyzer(
+                exerciseManager,
+                userStats?.calibrations?.get("${type.name}_${TrackingMode.CAMERA.name}")
+            )
+            ExerciseType.SITUP -> situpAnalyzer = SitupAnalyzer(exerciseManager)
+            ExerciseType.PULLUP -> pullupAnalyzer = PullupAnalyzer(exerciseManager)
+            ExerciseType.DIP -> dipAnalyzer = DipAnalyzer(exerciseManager)
             ExerciseType.HINGE -> hingeAnalyzer = HingeAnalyzer(exerciseManager)
             ExerciseType.ROW -> rowAnalyzer = RowAnalyzer(exerciseManager)
             ExerciseType.PLANK -> plankAnalyzer = PlankAnalyzer(exerciseManager)
@@ -610,122 +539,61 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
-    /**
-     * Updates the user's XP and Level in the local database.
-     */
-    private suspend fun updateUserStats(xpGained: Int, exerciseType: String, repsToBank: Int) {
-        val currentStats = db.dao().getUserStats().first() ?: UserStats()
-        
-        var newXp = currentStats.totalXp + xpGained
-        var newLevel = currentStats.level
-        val xpNeeded = newLevel * 100
-        
-        while (newXp >= xpNeeded) {
-            newXp -= xpNeeded
-            newLevel++
-        }
-
-        val newBankedReps = currentStats.bankedReps.toMutableMap()
-        newBankedReps[exerciseType] = (newBankedReps[exerciseType] ?: 0) + repsToBank
-        
-        db.dao().updateUserStats(
-            currentStats.copy(
-                totalXp = newXp,
-                level = newLevel,
-                bankedReps = newBankedReps,
-                lastWorkoutDate = System.currentTimeMillis()
-            )
-        )
-    }
-
-    /**
-     * Requests necessary system permissions like Camera and Activity Recognition.
-     */
-    private fun checkPermissions() {
-        val permissions = mutableListOf(Manifest.permission.CAMERA)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            permissions.add(Manifest.permission.ACTIVITY_RECOGNITION)
-        }
-        
-        val missing = permissions.filter { 
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED 
-        }
-        
-        if (missing.isNotEmpty()) {
-            requestPermissionLauncher.launch(missing.toTypedArray())
-        } else {
-            setupStepSensor()
-        }
-    }
-
-    /**
-     * Checks if we have permissions to read/write from Google Health Connect.
-     */
-    private fun checkHealthPermissions() {
+    private fun initChallenges() {
         lifecycleScope.launch {
-            if (!healthConnectManager.hasPermissions()) {
-                val permissions = setOf(
-                    HealthPermission.getReadPermission(StepsRecord::class),
-                    HealthPermission.getWritePermission(StepsRecord::class),
-                    HealthPermission.getReadPermission(ExerciseSessionRecord::class),
-                    HealthPermission.getWritePermission(ExerciseSessionRecord::class)
-                )
-                requestHealthPermissionLauncher.launch(permissions.toTypedArray())
-            } else {
-                refreshStepsFromHealth()
+            val existing = db.dao().getChallenges().first()
+            if (existing.isEmpty()) {
+                db.dao().upsertChallenge(Challenge(
+                    id = "morning_warrior",
+                    title = "Morning Warrior",
+                    description = "Do 20 pushups before 10 AM",
+                    requirements = listOf(ExerciseRequirement(ExerciseType.PUSHUP.name, 20)),
+                    xpReward = 100
+                ))
             }
         }
     }
 
-    /**
-     * Fetches today's total steps from the Health Connect database.
-     */
-    private fun refreshStepsFromHealth() {
+    private fun handleGoalProgression() {
+        // Future logic for dynamic goal scaling
+    }
+
+    private fun handleBankReset() {
         lifecycleScope.launch {
-            val steps = healthConnectManager.readTodaySteps()
-            _stepCount.intValue = steps.toInt()
-        }
-    }
+            val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
+            val lastReset = prefs.getLong("last_bank_reset", 0)
+            val now = System.currentTimeMillis()
+            
+            val cal = Calendar.getInstance()
+            cal.timeInMillis = lastReset
+            val lastResetDay = cal.get(Calendar.DAY_OF_YEAR)
+            
+            cal.timeInMillis = now
+            val currentDay = cal.get(Calendar.DAY_OF_YEAR)
 
-    /**
-     * Registers a listener to listen for step counter hardware events.
-     */
-    private fun setupStepSensor() {
-        stepSensor?.let {
-            sensorManager?.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
-        }
-    }
-
-    /**
-     * Called by the system when a sensor (like the step counter) detects a change.
-     */
-    override fun onSensorChanged(event: SensorEvent?) {
-        if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
-            if (initialStepCount == -1f) {
-                initialStepCount = event.values[0]
+            if (currentDay != lastResetDay) {
+                val stats = db.dao().getUserStats().first()
+                stats?.let {
+                    db.dao().updateUserStats(it.copy(bankedReps = emptyMap()))
+                }
+                prefs.edit().putLong("last_bank_reset", now).apply()
             }
-            // Use this as a fallback if Health Connect is not available
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-
-    /**
-     * A helper Composable for the bottom navigation menu items.
-     */
     @Composable
     fun RowScope.NavigationItem(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
         NavigationBarItem(
-            icon = { Icon(icon, contentDescription = label) },
-            label = { Text(label) },
             selected = selected,
             onClick = onClick,
+            label = { Text(label) },
+            icon = { Icon(icon, contentDescription = label) },
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = MaterialTheme.colorScheme.primary,
                 unselectedIconColor = Color.Gray,
                 selectedTextColor = MaterialTheme.colorScheme.primary,
                 unselectedTextColor = Color.Gray,
-                indicatorColor = MaterialTheme.colorScheme.primaryContainer
+                indicatorColor = MaterialTheme.colorScheme.surfaceVariant
             )
         )
     }

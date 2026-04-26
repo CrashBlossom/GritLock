@@ -39,6 +39,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import com.example.fitlock.data.ExerciseRequirement
+import com.example.fitlock.data.UserStats
 import com.example.fitlock.exercise.PoseAnalyzer
 import com.example.fitlock.exercise.TrackingMode
 import com.google.mlkit.vision.pose.Pose
@@ -59,7 +60,8 @@ fun LockOverlayScreen(
     onNextExercise: () -> Unit,
     onStopExercise: () -> Unit,
     onUseBankedReps: (String, Int) -> Unit,
-    onLaunchRequiredApp: () -> Unit = {}
+    onLaunchRequiredApp: () -> Unit = {},
+    userStats: UserStats? = null // NEW: Pass userStats to calculate buffs
 ) {
     var currentPose by remember { mutableStateOf<Pose?>(null) }
     var imageWidth by remember { mutableIntStateOf(0) }
@@ -255,6 +257,7 @@ fun LockOverlayScreen(
 
     if (showBypassDialog) {
         EmergencyBypassDialog(
+            userStats = userStats,
             onDismiss = { showBypassDialog = false },
             onBypassConfirmed = {
                 showBypassDialog = false
@@ -264,11 +267,25 @@ fun LockOverlayScreen(
     }
 }
 
+/**
+ * The Emergency Bypass now uses the Agility (AGI) stat to reduce the difficulty.
+ */
 @Composable
-fun EmergencyBypassDialog(onDismiss: () -> Unit, onBypassConfirmed: () -> Unit) {
-    val targetPhrase = "I am bypassing my fitness goals because I lack discipline today. I acknowledge that skipping this session makes me weaker, yet I desperately need to scroll..."
-    var inputText by remember { mutableStateOf("") }
+fun EmergencyBypassDialog(
+    userStats: UserStats?,
+    onDismiss: () -> Unit,
+    onBypassConfirmed: () -> Unit
+) {
+    // 1. Logic Tie-in: Agility Buff
+    // The base phrase is long. Agility level reduces how much of it you have to type.
+    val agilityLevel = ((userStats?.agiXp ?: 0) / 100) + 1
+    val fullPhrase = "I am bypassing my fitness goals because I lack discipline today. I acknowledge that skipping this session makes me weaker, yet I desperately need to scroll..."
     
+    // Reduce phrase length by 5 characters for every level of Agility, but keep at least 20 chars
+    val targetLength = (fullPhrase.length - (agilityLevel * 5)).toInt().coerceAtLeast(20)
+    val targetPhrase = fullPhrase.substring(0, targetLength.coerceAtMost(fullPhrase.length))
+
+    var inputText by remember { mutableStateOf("") }
     val progress = if (targetPhrase.isEmpty()) 0f else (inputText.length.toFloat() / targetPhrase.length.toFloat()).coerceIn(0f, 1f)
     val isCorrect = inputText == targetPhrase
 
@@ -298,9 +315,27 @@ fun EmergencyBypassDialog(onDismiss: () -> Unit, onBypassConfirmed: () -> Unit) 
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold
                     )
+                    
+                    // Show active buff info
+                    if (agilityLevel > 1) {
+                        Surface(
+                            color = Color(0xFF4BFFAB).copy(alpha = 0.1f),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(top = 8.dp)
+                        ) {
+                            Text(
+                                "AGILITY BUFF ACTIVE: Phrase shortened by ${agilityLevel * 5} chars",
+                                color = Color(0xFF4BFFAB),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        "You chose not to sweat. To unlock this app, you must type the text below PERFECTLY.\nNo copy-pasting.",
+                        "You chose not to sweat. Type the text below PERFECTLY to unlock.",
                         color = Color.Gray,
                         fontSize = 14.sp,
                         textAlign = TextAlign.Center
@@ -322,7 +357,6 @@ fun EmergencyBypassDialog(onDismiss: () -> Unit, onBypassConfirmed: () -> Unit) 
                     }
                     
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Type here:", color = Color.Gray, fontSize = 12.sp, modifier = Modifier.align(Alignment.Start))
                     
                     OutlinedTextField(
                         value = inputText,
@@ -345,7 +379,6 @@ fun EmergencyBypassDialog(onDismiss: () -> Unit, onBypassConfirmed: () -> Unit) 
                     
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text("Progress: ${(progress * 100).toInt()}%", color = Color.Gray, fontSize = 12.sp)
-                        Text("Errors allowed: 0", color = Color.Gray, fontSize = 12.sp)
                     }
                     
                     Spacer(modifier = Modifier.height(24.dp))

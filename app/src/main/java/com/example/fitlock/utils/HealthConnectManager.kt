@@ -5,64 +5,122 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.StepsRecord
-import androidx.health.connect.client.request.AggregateRequest
+import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.request.ReadRecordsRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.health.connect.client.records.metadata.Metadata as HealthMetadata
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.ZonedDateTime
-import java.time.LocalTime
 import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 
+/**
+ * HealthConnectManager handles all interactions with Android's Health Connect system.
+ */
 class HealthConnectManager(private val context: Context) {
     private val healthConnectClient by lazy { HealthConnectClient.getOrCreate(context) }
 
+    // List of permissions required for the app's RPG features
+    val permissions = setOf(
+        HealthPermission.getReadPermission(StepsRecord::class),
+        HealthPermission.getWritePermission(StepsRecord::class),
+        HealthPermission.getReadPermission(ExerciseSessionRecord::class),
+        HealthPermission.getWritePermission(ExerciseSessionRecord::class),
+        HealthPermission.getReadPermission(SleepSessionRecord::class) // NEW: Required for Vitality (VIT)
+    )
+
     suspend fun hasPermissions(): Boolean {
-        val permissions = setOf(
-            HealthPermission.getReadPermission(StepsRecord::class),
-            HealthPermission.getWritePermission(StepsRecord::class),
-            HealthPermission.getReadPermission(ExerciseSessionRecord::class),
-            HealthPermission.getWritePermission(ExerciseSessionRecord::class)
-        )
-        return healthConnectClient.permissionController.getGrantedPermissions().containsAll(permissions)
+        return try {
+            val granted = healthConnectClient.permissionController.getGrantedPermissions()
+            granted.containsAll(permissions)
+        } catch (e: Exception) {
+            false
+        }
     }
 
+    /**
+     * Reads today's total steps.
+     */
     suspend fun readTodaySteps(): Long {
-        val zoneId = ZoneId.systemDefault()
-        val startTime = LocalDateTime.now(zoneId).with(LocalTime.MIN)
-        val endTime = LocalDateTime.now(zoneId)
-        
-        val response = healthConnectClient.aggregate(
-            AggregateRequest(
-                metrics = setOf(StepsRecord.COUNT_TOTAL),
-                timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
+        return try {
+            val zoneId = ZoneId.systemDefault()
+            val startOfDay = LocalDateTime.now(zoneId).toLocalDate().atStartOfDay(zoneId).toInstant()
+            val now = Instant.now()
+            
+            val response = healthConnectClient.readRecords(
+                ReadRecordsRequest(
+                    recordType = StepsRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(startOfDay, now)
+                )
             )
-        )
-        return response[StepsRecord.COUNT_TOTAL] ?: 0L
+            response.records.sumOf { it.count }
+        } catch (e: Exception) {
+            0L
+        }
     }
 
-    suspend fun writeSteps(count: Long, startTime: Instant, endTime: Instant) {
-        val stepsRecord = StepsRecord(
-            count = count,
-            startTime = startTime,
-            endTime = endTime,
-            startZoneOffset = ZonedDateTime.now().offset,
-            endZoneOffset = ZonedDateTime.now().offset,
-            metadata = HealthMetadata.manualEntry()
-        )
-        healthConnectClient.insertRecords(listOf(stepsRecord))
+    /**
+     * Reads running distance from the last 24 hours to grant Agility (AGI) XP.
+     */
+    suspend fun readRecentRunDistance(): Double {
+        return try {
+            val now = Instant.now()
+            val yesterday = now.minus(24, ChronoUnit.HOURS)
+            
+            val response = healthConnectClient.readRecords(
+                ReadRecordsRequest(
+                    recordType = ExerciseSessionRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(yesterday, now)
+                )
+            )
+            // Filter only for running exercises
+            response.records
+                .filter { it.exerciseType == ExerciseSessionRecord.EXERCISE_TYPE_RUNNING }
+                .size.toDouble() // Using session count for now as a simple metric
+        } catch (e: Exception) {
+            0.0
+        }
+    }
+
+    /**
+     * Reads sleep duration from the last night to grant Vitality (VIT) XP.
+     */
+    suspend fun readLastNightSleepDurationMinutes(): Long {
+        return try {
+            val now = Instant.now()
+            val yesterday = now.minus(24, ChronoUnit.HOURS)
+            
+            val response = healthConnectClient.readRecords(
+                ReadRecordsRequest(
+                    recordType = SleepSessionRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(yesterday, now)
+                )
+            )
+            
+            // Sum up duration of all sleep sessions found in the last 24h
+            response.records.sumOf { 
+                ChronoUnit.MINUTES.between(it.startTime, it.endTime)
+            }
+        } catch (e: Exception) {
+            0L
+        }
     }
 
     suspend fun writeExerciseSession(type: String, reps: Int, startTime: Instant, endTime: Instant) {
-        val session = ExerciseSessionRecord(
-            startTime = startTime,
-            endTime = endTime,
-            startZoneOffset = ZonedDateTime.now().offset,
-            endZoneOffset = ZonedDateTime.now().offset,
-            exerciseType = ExerciseSessionRecord.EXERCISE_TYPE_OTHER_WORKOUT,
-            title = "$reps $type Reps",
-            metadata = HealthMetadata.manualEntry()
-        )
-        healthConnectClient.insertRecords(listOf(session))
+        try {
+            val session = ExerciseSessionRecord(
+                startTime = startTime,
+                endTime = endTime,
+                startZoneOffset = ZonedDateTime.now().offset,
+                endZoneOffset = ZonedDateTime.now().offset,
+                exerciseType = ExerciseSessionRecord.EXERCISE_TYPE_OTHER_WORKOUT,
+                title = "$reps $type Reps",
+                metadata = HealthMetadata.manualEntry()
+            )
+            healthConnectClient.insertRecords(listOf(session))
+        } catch (e: Exception) {
+            // Log error
+        }
     }
 }
