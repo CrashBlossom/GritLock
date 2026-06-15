@@ -23,6 +23,7 @@ import com.example.fitlock.exercise.*
 import com.example.fitlock.service.GritLockAccessibilityService
 import com.example.fitlock.ui.LockOverlayScreen
 import com.example.fitlock.ui.theme.GritLockTheme
+import com.example.fitlock.utils.HealthConnectManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -264,6 +265,18 @@ class LockOverlayActivity : ComponentActivity() {
                     xpGained = xpGained
                 )
             )
+
+            // Push to Health Connect so other fitness apps can see this activity
+            val healthConnectManager = HealthConnectManager(this)
+            if (healthConnectManager.hasPermissions()) {
+                val now = java.time.Instant.now()
+                healthConnectManager.writeExerciseSession(
+                    exerciseType.name,
+                    reps,
+                    now.minusSeconds(300),
+                    now
+                )
+            }
         }
     }
 

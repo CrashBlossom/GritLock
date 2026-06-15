@@ -658,19 +658,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Refresh data whenever the user returns to the app
+        refreshStepsFromHealth()
+    }
+
     /**
      * Checks if we have permissions to read/write from Google Health Connect.
      */
     private fun checkHealthPermissions() {
         lifecycleScope.launch {
             if (!healthConnectManager.hasPermissions()) {
-                val permissions = setOf(
-                    HealthPermission.getReadPermission(StepsRecord::class),
-                    HealthPermission.getWritePermission(StepsRecord::class),
-                    HealthPermission.getReadPermission(ExerciseSessionRecord::class),
-                    HealthPermission.getWritePermission(ExerciseSessionRecord::class)
-                )
-                requestHealthPermissionLauncher.launch(permissions.toTypedArray())
+                requestHealthPermissionLauncher.launch(healthConnectManager.requiredPermissions.toTypedArray())
             } else {
                 refreshStepsFromHealth()
             }
