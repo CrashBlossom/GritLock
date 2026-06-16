@@ -54,12 +54,12 @@ class LockOverlayActivity : ComponentActivity() {
         setContent {
             GritLockTheme {
                 // UI State variables
+                val userStats by db.dao().getUserStats().collectAsState(initial = null)
                 var currentExerciseIndex by remember { mutableIntStateOf(0) }
                 var repCountState by remember { mutableIntStateOf(0) }
-                var bankedRepsState by remember { mutableStateOf<Map<String, Int>>(emptyMap()) }
+                var bankedRepsUsedInSession by remember { mutableIntStateOf(0) }
                 var trackingMode by remember { mutableStateOf(TrackingMode.CAMERA) }
                 var exerciseRequirements by remember { mutableStateOf<List<ExerciseRequirement>>(emptyList()) }
-                var userStats by remember { mutableStateOf<UserStats?>(null) }
                 var isInitialized by remember { mutableStateOf(false) }
 
                 /**
@@ -67,10 +67,6 @@ class LockOverlayActivity : ComponentActivity() {
                  * We use it to load data from the database.
                  */
                 LaunchedEffect(Unit) {
-                    val stats = db.dao().getUserStats().first()
-                    userStats = stats
-                    bankedRepsState = stats?.bankedReps ?: emptyMap()
-                    
                     // If we have a group ID, load the specific exercises for that group
                     if (groupId != -1) {
                         val group = db.dao().getGroupById(groupId)
@@ -105,6 +101,7 @@ class LockOverlayActivity : ComponentActivity() {
                      */
                     LaunchedEffect(currentExerciseIndex, trackingMode) {
                         repCountState = 0
+                        bankedRepsUsedInSession = 0
                         if (exerciseType != ExerciseType.APP_USAGE) {
                             initializeAnalyzer(exerciseType, userStats)
                             val cal = userStats?.calibrations?.get("${exerciseType.name}_${trackingMode.name}")
@@ -123,7 +120,7 @@ class LockOverlayActivity : ComponentActivity() {
                         exerciseRequirements = exerciseRequirements,
                         currentExerciseIndex = currentExerciseIndex,
                         trackingMode = trackingMode,
-                        bankedReps = bankedRepsState,
+                        bankedReps = userStats?.bankedReps ?: emptyMap(),
                         onModeChange = { trackingMode = it },
                         onPoseDetected = { pose, width, height ->
                             // This callback is triggered for every camera frame
@@ -145,7 +142,7 @@ class LockOverlayActivity : ComponentActivity() {
                         onNextExercise = {
                             lifecycleScope.launch {
                                 // Save what we've done so far to history
-                                saveRepsToHistory(exerciseType, repCountState, groupId)
+                                saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId)
 
                                 val isLastExercise = currentExerciseIndex == exerciseRequirements.size - 1
                                 val isRequirementMet = repCountState >= currentReq.count
@@ -162,14 +159,16 @@ class LockOverlayActivity : ComponentActivity() {
                         },
                         onStopExercise = {
                             lifecycleScope.launch {
-                                saveRepsToHistory(exerciseType, repCountState, groupId)
+                                saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId)
                                 finish() // Just close without unlocking
                             }
                         },
                         onUseBankedReps = { type, count ->
                             // User "paid" using previously stored reps
-                            useBankedRep(type, count, repCountState) { newCount ->
-                                repCountState = newCount
+                            useBankedRep(type, count) { 
+                                bankedRepsUsedInSession += count
+                                // Sync the manual addition with the tracker manager
+                                exerciseManager.addManualReps(count)
                             }
                         },
                         onLaunchRequiredApp = {
@@ -233,7 +232,7 @@ class LockOverlayActivity : ComponentActivity() {
     /**
      * Deducts stored reps from the user's "bank" to satisfy the current lock.
      */
-    private fun useBankedRep(exerciseType: String, count: Int, currentReps: Int, onUpdate: (Int) -> Unit) {
+    private fun useBankedRep(exerciseType: String, count: Int, onComplete: () -> Unit) {
         lifecycleScope.launch {
             val stats = db.dao().getUserStats().first() ?: return@launch
             val currentBanked = stats.bankedReps[exerciseType] ?: 0
@@ -243,8 +242,8 @@ class LockOverlayActivity : ComponentActivity() {
                 newBanked[exerciseType] = currentBanked - count
                 // Update the database with the new balance
                 db.dao().updateUserStats(stats.copy(bankedReps = newBanked))
-                onUpdate(currentReps + count)
-                Toast.makeText(this@LockOverlayActivity, "Used banked rep!", Toast.LENGTH_SHORT).show()
+                onComplete()
+                Toast.makeText(this@LockOverlayActivity, "Used 1 banked rep", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -252,15 +251,22 @@ class LockOverlayActivity : ComponentActivity() {
     /**
      * Saves the reps the user just performed into their workout history.
      */
-    private suspend fun saveRepsToHistory(exerciseType: ExerciseType, reps: Int, groupId: Int) {
-        if (reps > 0 && exerciseType != ExerciseType.APP_USAGE) {
-            val xpGained = reps * 5
-            updateUserStats(xpGained, exerciseType.name, reps)
-            
+    private suspend fun saveRepsToHistory(exerciseType: ExerciseType, totalReps: Int, bankedUsed: Int, requirement: Int, groupId: Int) {
+        val physicalReps = (totalReps - bankedUsed).coerceAtLeast(0)
+        
+        // Calculate extras based on total progress (Physical + Banked) vs requirement
+        val extraReps = (totalReps - requirement).coerceAtLeast(0)
+        
+        // Update user stats (XP and Banking)
+        // We only grant XP for physical reps, but we bank based on total excess
+        val xpGained = physicalReps * 5
+        updateUserStats(xpGained, exerciseType.name, extraReps)
+
+        if (physicalReps > 0 && exerciseType != ExerciseType.APP_USAGE) {
             db.dao().insertWorkout(
                 WorkoutHistory(
                     exerciseType = exerciseType.name,
-                    repsCompleted = reps,
+                    repsCompleted = physicalReps,
                     appGroupId = groupId,
                     xpGained = xpGained
                 )
@@ -272,7 +278,7 @@ class LockOverlayActivity : ComponentActivity() {
                 val now = java.time.Instant.now()
                 healthConnectManager.writeExerciseSession(
                     exerciseType.name,
-                    reps,
+                    physicalReps,
                     now.minusSeconds(300),
                     now
                 )
@@ -300,7 +306,7 @@ class LockOverlayActivity : ComponentActivity() {
     /**
      * Updates the user's XP and checks if they've leveled up.
      */
-    private suspend fun updateUserStats(xpGained: Int, exerciseType: String, repsDone: Int) {
+    private suspend fun updateUserStats(xpGained: Int, exerciseType: String, extraReps: Int) {
         val currentStats = db.dao().getUserStats().first() ?: UserStats()
         
         var newXp = currentStats.totalXp + xpGained
@@ -312,11 +318,17 @@ class LockOverlayActivity : ComponentActivity() {
             newXp -= xpNeeded
             newLevel++
         }
+
+        val newBankedReps = currentStats.bankedReps.toMutableMap()
+        if (extraReps > 0) {
+            newBankedReps[exerciseType] = (newBankedReps[exerciseType] ?: 0) + extraReps
+        }
         
         db.dao().updateUserStats(
             currentStats.copy(
                 totalXp = newXp,
                 level = newLevel,
+                bankedReps = newBankedReps,
                 lastWorkoutDate = System.currentTimeMillis()
             )
         )

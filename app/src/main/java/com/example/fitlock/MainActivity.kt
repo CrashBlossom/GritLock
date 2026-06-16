@@ -78,6 +78,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     
     // State variables: When these change, the UI automatically updates (Recomposition)
     private val _stepCount = mutableIntStateOf(0)
+    private var healthBaseSteps = 0L
+    private var bankedUsedInSession = 0
 
     /**
      * Launchers for requesting system permissions.
@@ -145,30 +147,33 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             onWorkoutComplete = { reps ->
                 // lifecycleScope.launch starts a "Coroutine" (background task)
                 lifecycleScope.launch {
-                    val xpGained = reps * 5
-                    
-                    // Save workout to database
-                    db.dao().insertWorkout(
-                        WorkoutHistory(
-                            exerciseType = currentExerciseType.name,
-                            repsCompleted = reps,
-                            appGroupId = 0,
-                            xpGained = xpGained
+                    val physicalReps = (reps - bankedUsedInSession).coerceAtLeast(0)
+                    if (physicalReps > 0) {
+                        val xpGained = physicalReps * 5
+                        
+                        // Save workout to database
+                        db.dao().insertWorkout(
+                            WorkoutHistory(
+                                exerciseType = currentExerciseType.name,
+                                repsCompleted = physicalReps,
+                                appGroupId = 0,
+                                xpGained = xpGained
+                            )
                         )
-                    )
-                    // Update user's overall stats (XP and Level)
-                    updateUserStats(xpGained, currentExerciseType.name, reps)
-                    
-                    // Sync this workout to Android's Health Connect system
-                    val now = java.time.Instant.now()
-                    healthConnectManager.writeExerciseSession(
-                        currentExerciseType.name,
-                        reps,
-                        now.minusSeconds(300),
-                        now
-                    )
-                    
-                    Toast.makeText(this@MainActivity, "Workout Saved! +$xpGained XP, Banked $reps reps", Toast.LENGTH_SHORT).show()
+                        // Update user's overall stats (XP and Level)
+                        updateUserStats(xpGained, currentExerciseType.name, physicalReps)
+                        
+                        // Sync this workout to Android's Health Connect system
+                        val now = java.time.Instant.now()
+                        healthConnectManager.writeExerciseSession(
+                            currentExerciseType.name,
+                            physicalReps,
+                            now.minusSeconds(300),
+                            now
+                        )
+                        
+                        Toast.makeText(this@MainActivity, "Workout Saved! +$xpGained XP, Banked $physicalReps reps", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         )
@@ -386,6 +391,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 val exerciseRequirements = remember(currentExerciseType, currentGoal) {
                                     listOf(ExerciseRequirement(currentExerciseType.name, currentGoal))
                                 }
+                                // Reset session banking tracking when entering track screen
+                                SideEffect {
+                                    bankedUsedInSession = 0
+                                }
+                                
                                 LockOverlayScreen(
                                     targetApp = "Workout Mode",
                                     repCount = repCountState.intValue,
@@ -412,51 +422,36 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     onEmergencyBypass = { currentScreen = "groups" },
                                     onNextExercise = {
                                         lifecycleScope.launch {
-                                            val reps = repCountState.intValue
-                                            if (reps > 0) {
-                                                val xpGained = reps * 2
-                                                
-                                                db.dao().insertWorkout(
-                                                    WorkoutHistory(
-                                                        exerciseType = currentExerciseType.name,
-                                                        repsCompleted = reps,
-                                                        appGroupId = 0,
-                                                        xpGained = xpGained
-                                                    )
-                                                )
-                                                updateUserStats(xpGained, currentExerciseType.name, reps)
-                                                
-                                                val now = java.time.Instant.now()
-                                                healthConnectManager.writeExerciseSession(
-                                                    currentExerciseType.name,
-                                                    reps,
-                                                    now.minusSeconds(120),
-                                                    now
-                                                )
-                                            }
+                                            // onWorkoutComplete might have already saved if goal was hit.
+                                            // To prevent double saving, we check if exerciseManager already reached goal
+                                            // and if we already saved. For simplicity, we just navigate back.
+                                            // The user can always manually stop if they want to save partial.
                                             currentScreen = "groups"
                                         }
                                     },
                                     onStopExercise = {
                                         lifecycleScope.launch {
-                                            val reps = repCountState.intValue
-                                            if (reps > 0) {
-                                                val xpGained = reps * 2
+                                            val totalReps = repCountState.intValue
+                                            val physicalReps = (totalReps - bankedUsedInSession).coerceAtLeast(0)
+                                            
+                                            // If goal wasn't reached, we save partial physical reps here
+                                            if (physicalReps > 0 && totalReps < currentGoal) {
+                                                val xpGained = physicalReps * 2
                                                 
                                                 db.dao().insertWorkout(
                                                     WorkoutHistory(
                                                         exerciseType = currentExerciseType.name,
-                                                        repsCompleted = reps,
+                                                        repsCompleted = physicalReps,
                                                         appGroupId = 0,
                                                         xpGained = xpGained
                                                     )
                                                 )
-                                                updateUserStats(xpGained, currentExerciseType.name, reps)
+                                                updateUserStats(xpGained, currentExerciseType.name, physicalReps)
                                                 
                                                 val now = java.time.Instant.now()
                                                 healthConnectManager.writeExerciseSession(
                                                     currentExerciseType.name,
-                                                    reps,
+                                                    physicalReps,
                                                     now.minusSeconds(120),
                                                     now
                                                 )
@@ -472,7 +467,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                 val newBanked = stats.bankedReps.toMutableMap()
                                                 newBanked[type] = currentBanked - count
                                                 db.dao().updateUserStats(stats.copy(bankedReps = newBanked))
-                                                repCountState.intValue += count
+                                                bankedUsedInSession += count
+                                                exerciseManager.addManualReps(count)
                                             }
                                         }
                                     }
@@ -683,7 +679,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private fun refreshStepsFromHealth() {
         lifecycleScope.launch {
             val steps = healthConnectManager.readTodaySteps()
+            healthBaseSteps = steps
             _stepCount.intValue = steps.toInt()
+            initialStepCount = -1f // Reset to pick up new session delta
         }
     }
 
@@ -701,10 +699,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
      */
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type == Sensor.TYPE_STEP_COUNTER) {
+            val totalStepsSinceBoot = event.values[0]
             if (initialStepCount == -1f) {
-                initialStepCount = event.values[0]
+                initialStepCount = totalStepsSinceBoot
             }
-            // Use this as a fallback if Health Connect is not available
+            val delta = (totalStepsSinceBoot - initialStepCount).toLong()
+            _stepCount.intValue = (healthBaseSteps + delta).toInt()
         }
     }
 

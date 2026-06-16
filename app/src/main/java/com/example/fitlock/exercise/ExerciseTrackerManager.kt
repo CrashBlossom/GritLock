@@ -69,6 +69,16 @@ class ExerciseTrackerManager(
         }
     }
 
+    fun addManualReps(count: Int) {
+        currentReps += count
+        onRepCountChanged(currentReps)
+        if (currentReps >= targetReps && !goalReachedSpoken) {
+            speak("Goal reached via banked reps!")
+            goalReachedSpoken = true
+            onWorkoutComplete(currentReps)
+        }
+    }
+
     fun provideCorrection(message: String) {
         speak(message)
     }
