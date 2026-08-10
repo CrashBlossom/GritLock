@@ -136,16 +136,20 @@ fun LockOverlayScreen(
                         Icon(Icons.Default.Launch, contentDescription = null, tint = Color.White.copy(alpha = 0.3f), modifier = Modifier.size(64.dp))
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            "You must spend ${currentReq.count} seconds in the following app:",
+                            "You must spend ${currentReq.count} seconds in any of the following apps:",
                             color = Color.White,
                             textAlign = TextAlign.Center
                         )
-                        Text(
-                            currentReq.targetPackageName ?: "Unknown App",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        currentReq.targetPackageNames.forEach { pkg ->
+                            Text(
+                                pkg,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                textAlign = TextAlign.Center
+                            )
+                        }
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(
                             onClick = onLaunchRequiredApp,

@@ -6,7 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
-@Database(entities = [AppGroup::class, WorkoutHistory::class, UserStats::class, Challenge::class, AppRule::class], version = 12, exportSchema = false)
+@Database(entities = [AppGroup::class, WorkoutHistory::class, UserStats::class, Challenge::class, AppRule::class, VaultItem::class], version = 13, exportSchema = false)
 @TypeConverters(Converters::class)
 abstract class GritLockDatabase : RoomDatabase() {
     abstract fun dao(): GritLockDao
@@ -22,7 +22,6 @@ abstract class GritLockDatabase : RoomDatabase() {
                     GritLockDatabase::class.java,
                     "gritlock-db"
                 )
-                .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
                 instance

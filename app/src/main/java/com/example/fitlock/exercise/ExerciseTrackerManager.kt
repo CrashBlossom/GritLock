@@ -22,6 +22,7 @@ class ExerciseTrackerManager(
     private var currentCalibration: ExerciseCalibration? = null
     private var sensorTracker: SensorTracker? = null
     private var goalReachedSpoken = false
+    private var workoutStartTime: Long = 0
 
     fun startTracking(type: ExerciseType, mode: TrackingMode, goal: Int, calibration: ExerciseCalibration? = null) {
         this.targetReps = goal
@@ -29,6 +30,7 @@ class ExerciseTrackerManager(
         this.currentExerciseType = type
         this.currentCalibration = calibration
         this.goalReachedSpoken = false
+        this.workoutStartTime = System.currentTimeMillis()
         
         if (mode == TrackingMode.POCKET) {
             sensorTracker?.stop()
@@ -50,6 +52,10 @@ class ExerciseTrackerManager(
         } else {
             speak("Starting ${calStr}${type.name.lowercase()} workout in $modeStr mode. Goal is $goal reps.")
         }
+    }
+
+    fun getDurationSeconds(): Long {
+        return (System.currentTimeMillis() - workoutStartTime) / 1000
     }
 
     fun onRepDetected() {

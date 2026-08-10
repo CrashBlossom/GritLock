@@ -48,4 +48,17 @@ interface GritLockDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertChallenge(challenge: Challenge)
+
+    // Vault
+    @Query("SELECT * FROM vault_items")
+    fun getAllVaultItems(): Flow<List<VaultItem>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertVaultItem(item: VaultItem)
+
+    @Delete
+    suspend fun deleteVaultItem(item: VaultItem)
+
+    @Query("SELECT * FROM vault_items WHERE id = :id")
+    suspend fun getVaultItemById(id: Int): VaultItem?
 }

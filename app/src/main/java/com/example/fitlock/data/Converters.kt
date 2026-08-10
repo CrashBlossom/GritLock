@@ -11,7 +11,9 @@ class Converters {
 
     @TypeConverter
     fun fromExerciseList(list: List<ExerciseRequirement>): String {
-        return list.joinToString(";") { "${it.type}:${it.count}:${it.isExtra}:${it.targetPackageName ?: ""}" }
+        return list.joinToString(";") { 
+            "${it.type}:${it.count}:${it.isExtra}:${it.targetPackageNames.joinToString(",")}" 
+        }
     }
 
     @TypeConverter
@@ -23,7 +25,7 @@ class Converters {
                 type = parts[0],
                 count = parts[1].toInt(),
                 isExtra = parts.getOrNull(2)?.toBoolean() ?: false,
-                targetPackageName = parts.getOrNull(3).takeIf { pkg -> pkg?.isNotBlank() == true }
+                targetPackageNames = parts.getOrNull(3)?.split(",")?.filter { pkg -> pkg.isNotBlank() } ?: emptyList()
             )
         }
     }

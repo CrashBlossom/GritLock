@@ -55,6 +55,8 @@ class LockOverlayActivity : ComponentActivity() {
             GritLockTheme {
                 // UI State variables
                 val userStats by db.dao().getUserStats().collectAsState(initial = null)
+                val allGroups by db.dao().getAllGroups().collectAsState(initial = emptyList())
+                
                 var currentExerciseIndex by remember { mutableIntStateOf(0) }
                 var repCountState by remember { mutableIntStateOf(0) }
                 var bankedRepsUsedInSession by remember { mutableIntStateOf(0) }
@@ -88,6 +90,20 @@ class LockOverlayActivity : ComponentActivity() {
                     }
                     
                     isInitialized = true
+                }
+
+                // Close the overlay if the group is disabled or the app is removed from the group
+                LaunchedEffect(allGroups, groupId, targetApp) {
+                    if (groupId != -1) {
+                        val group = allGroups.find { it.id == groupId }
+                        if (group != null) {
+                            val isStillBlocked = group.isEnabled && (group.packageNames.contains(targetApp) || group.keywords.any { targetApp.contains(it, ignoreCase = true) })
+                            if (!isStillBlocked) {
+                                Log.d("LockOverlay", "Group disabled or app removed. Closing overlay.")
+                                finish()
+                            }
+                        }
+                    }
                 }
 
                 // If loading is finished and we have exercises to do:
@@ -173,22 +189,32 @@ class LockOverlayActivity : ComponentActivity() {
                         },
                         onLaunchRequiredApp = {
                             // Specialized logic for "APP_USAGE" requirements
-                            val pkg = currentReq.targetPackageName
-                            if (!pkg.isNullOrBlank()) {
-                                val launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                            val pkgs = currentReq.targetPackageNames
+                            if (pkgs.isNotEmpty()) {
+                                // Try to launch the first app in the list that exists
+                                var launchIntent: Intent? = null
+                                var pkgToLaunch = ""
+                                for (pkg in pkgs) {
+                                    launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                                    if (launchIntent != null) {
+                                        pkgToLaunch = pkg
+                                        break
+                                    }
+                                }
+
                                 if (launchIntent != null) {
                                     // Start a background tracking service to count seconds
                                     val serviceIntent = Intent(this@LockOverlayActivity, GritLockAccessibilityService::class.java).apply {
                                         action = "START_APP_USAGE_TRACKING"
                                         putExtra("group_id", groupId)
-                                        putExtra("target_package", pkg)
+                                        putExtra("target_packages", pkgs.toTypedArray())
                                         putExtra("seconds", currentReq.count)
                                     }
                                     startService(serviceIntent)
                                     startActivity(launchIntent)
                                     finish() // Close overlay so they can use the required app
                                 } else {
-                                    Toast.makeText(this@LockOverlayActivity, "Could not find app: $pkg", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(this@LockOverlayActivity, "Could not find any of the required apps", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -276,10 +302,11 @@ class LockOverlayActivity : ComponentActivity() {
             val healthConnectManager = HealthConnectManager(this)
             if (healthConnectManager.hasPermissions()) {
                 val now = java.time.Instant.now()
+                val duration = exerciseManager.getDurationSeconds()
                 healthConnectManager.writeExerciseSession(
                     exerciseType.name,
                     physicalReps,
-                    now.minusSeconds(300),
+                    now.minusSeconds(duration),
                     now
                 )
             }

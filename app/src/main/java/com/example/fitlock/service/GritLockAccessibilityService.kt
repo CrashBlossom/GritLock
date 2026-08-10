@@ -54,9 +54,12 @@ class GritLockAccessibilityService : AccessibilityService() {
 
     // For APP_USAGE tracking
     private var activeAppUsageGroup: Int = -1
-    private var activeAppUsagePackage: String? = null
+    private var activeAppUsageVaultItem: Int = -1
+    private var activeAppUsagePackages: List<String> = emptyList()
+    private var appUsageTotalSeconds: Int = 0
     private var appUsageSecondsRemaining: Int = 0
     private var lastUsageTick: Long = 0
+    private var appUsageTimerRunnable: Runnable? = null
 
     private val CHANNEL_ID = "gritlock_countdown_channel"
     private val NOTIFICATION_ID = 1001
@@ -110,8 +113,29 @@ class GritLockAccessibilityService : AccessibilityService() {
             db.dao().getAllGroups().collectLatest { groups ->
                 allGroups = groups
                 Log.d("GritLockService", "Groups updated: ${groups.size}")
+                
+                // If a group was disabled or the current app was removed from its package list, 
+                // stop any active monitoring immediately.
+                val activeApp = currentCountdownApp
+                if (activeApp != null) {
+                    val isStillBlocked = groups.any { group ->
+                        group.isEnabled && (group.packageNames.contains(activeApp) || isKeywordBlocked(activeApp, group))
+                    }
+                    if (!isStillBlocked) {
+                        handler.post { 
+                            Log.d("GritLockService", "Group disabled or app removed while active. Cleaning up.")
+                            removeCountdown() 
+                        }
+                    }
+                }
             }
         }
+    }
+
+    private fun isKeywordBlocked(packageName: String, group: AppGroup): Boolean {
+        // This is a simplified check for the background observer
+        // The real deep check happens in onAccessibilityEvent using the rootNode
+        return group.keywords.any { packageName.contains(it, ignoreCase = true) }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -123,25 +147,20 @@ class GritLockAccessibilityService : AccessibilityService() {
             packageName.contains("launcher") ||
             packageName == "com.google.android.permissioncontroller") return
 
-        // Handle APP_USAGE tracking
-        if (activeAppUsagePackage != null && packageName == activeAppUsagePackage) {
-            val now = System.currentTimeMillis()
-            if (lastUsageTick > 0) {
-                val delta = ((now - lastUsageTick) / 1000).toInt()
-                if (delta >= 1) {
-                    appUsageSecondsRemaining -= delta
-                    lastUsageTick = now
-                    updateNotification("GritLock: App Usage Requirement", "Keep using this app! $appUsageSecondsRemaining seconds left.")
-                    
-                    if (appUsageSecondsRemaining <= 0) {
-                        completeAppUsageRequirement()
-                    }
+        // Update tracking state when entering/leaving apps
+        if (activeAppUsagePackages.isNotEmpty()) {
+            if (activeAppUsagePackages.contains(packageName)) {
+                if (lastUsageTick == 0L) {
+                    lastUsageTick = System.currentTimeMillis()
+                    startAppUsageTimer()
                 }
             } else {
-                lastUsageTick = now
+                if (lastUsageTick != 0L) {
+                    lastUsageTick = 0L
+                    stopAppUsageTimer()
+                    updateNotification("GritLock: App Usage Paused", "Return to the required app to continue tracking.")
+                }
             }
-        } else if (activeAppUsagePackage != null) {
-            lastUsageTick = 0 // Pause timer if they leave the required app
         }
 
         val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
@@ -182,6 +201,11 @@ class GritLockAccessibilityService : AccessibilityService() {
                     handleGroupMonitoring(packageName, matchingGroup)
                     return
                 }
+            } else {
+                // If no group matches or is enabled, but we were showing a countdown for this app, remove it
+                if (currentCountdownApp == packageName) {
+                    removeCountdown()
+                }
             }
 
             // Check Keyword/URL blocking
@@ -203,7 +227,12 @@ class GritLockAccessibilityService : AccessibilityService() {
                             handleGroupMonitoring(packageName, keywordGroup)
                             return
                         }
+                    } else if (currentCountdownApp == packageName) {
+                        // Keyword no longer present but countdown was showing
+                        removeCountdown()
                     }
+                } else if (currentCountdownApp == packageName) {
+                    removeCountdown()
                 }
             }
             
@@ -214,33 +243,94 @@ class GritLockAccessibilityService : AccessibilityService() {
     }
 
     private fun completeAppUsageRequirement() {
+        stopAppUsageTimer()
         val groupId = activeAppUsageGroup
-        activeAppUsagePackage = null
+        val vaultId = activeAppUsageVaultItem
+        
+        activeAppUsagePackages = emptyList()
         activeAppUsageGroup = -1
+        activeAppUsageVaultItem = -1
         appUsageSecondsRemaining = 0
         lastUsageTick = 0
         
         serviceScope.launch {
-            val group = db.dao().getGroupById(groupId)
-            if (group != null) {
-                val now = System.currentTimeMillis()
-                db.dao().updateGroup(group.copy(lastUnlockedTimestamp = now))
-                LockStatusManager.updateUnlock(groupId, now)
-                handler.post {
-                    Toast.makeText(this@GritLockAccessibilityService, "App Usage Requirement Met! Unlocking ${group.name}", Toast.LENGTH_LONG).show()
+            if (groupId != -1) {
+                val group = db.dao().getGroupById(groupId)
+                if (group != null) {
+                    val now = System.currentTimeMillis()
+                    db.dao().updateGroup(group.copy(lastUnlockedTimestamp = now))
+                    LockStatusManager.updateUnlock(groupId, now)
+                    handler.post {
+                        Toast.makeText(this@GritLockAccessibilityService, "Requirement Met! Unlocking ${group.name}", Toast.LENGTH_LONG).show()
+                    }
                 }
-                cancelNotification()
+            } else if (vaultId != -1) {
+                val item = db.dao().getVaultItemById(vaultId)
+                if (item != null) {
+                    val now = System.currentTimeMillis()
+                    db.dao().upsertVaultItem(item.copy(lastUnlockedTimestamp = now))
+                    handler.post {
+                        Toast.makeText(this@GritLockAccessibilityService, "Requirement Met! Secret Unlocked.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            cancelNotification()
+        }
+    }
+
+    private fun startAppUsageTimer() {
+        stopAppUsageTimer()
+        appUsageTimerRunnable = object : Runnable {
+            override fun run() {
+                if (lastUsageTick == 0L) return
+                
+                val now = System.currentTimeMillis()
+                val delta = ((now - lastUsageTick) / 1000).toInt()
+                
+                if (delta >= 1) {
+                    appUsageSecondsRemaining -= delta
+                    lastUsageTick = now
+                    
+                    if (appUsageSecondsRemaining <= 0) {
+                        completeAppUsageRequirement()
+                    } else {
+                        val spent = appUsageTotalSeconds - appUsageSecondsRemaining
+                        updateNotification(
+                            "GritLock: App Usage Requirement",
+                            "Progress: ${formatTime(spent)} / ${formatTime(appUsageTotalSeconds)} ($appUsageSecondsRemaining s left)"
+                        )
+                        handler.postDelayed(this, 1000)
+                    }
+                } else {
+                    handler.postDelayed(this, 1000)
+                }
             }
         }
+        handler.post(appUsageTimerRunnable!!)
+    }
+
+    private fun formatTime(seconds: Int): String {
+        val m = seconds / 60
+        val s = seconds % 60
+        return if (m > 0) "${m}m ${s}s" else "${s}s"
+    }
+
+    private fun stopAppUsageTimer() {
+        appUsageTimerRunnable?.let { handler.removeCallbacks(it) }
+        appUsageTimerRunnable = null
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == "START_APP_USAGE_TRACKING") {
+            stopAppUsageTimer()
             activeAppUsageGroup = intent.getIntExtra("group_id", -1)
-            activeAppUsagePackage = intent.getStringExtra("target_package")
-            appUsageSecondsRemaining = intent.getIntExtra("seconds", 60)
+            activeAppUsageVaultItem = intent.getIntExtra("vault_id", -1)
+            activeAppUsagePackages = intent.getStringArrayExtra("target_packages")?.toList() ?: emptyList()
+            appUsageTotalSeconds = intent.getIntExtra("seconds", 60)
+            appUsageSecondsRemaining = appUsageTotalSeconds
             lastUsageTick = 0
-            Log.d("GritLockService", "Started APP_USAGE tracking for $activeAppUsagePackage ($appUsageSecondsRemaining s)")
+            Log.d("GritLockService", "Started APP_USAGE tracking for $activeAppUsagePackages ($appUsageSecondsRemaining s)")
+            updateNotification("GritLock: Usage Required", "Open any of: ${activeAppUsagePackages.take(2).joinToString(", ")} to start tracking.")
         }
         return super.onStartCommand(intent, flags, startId)
     }

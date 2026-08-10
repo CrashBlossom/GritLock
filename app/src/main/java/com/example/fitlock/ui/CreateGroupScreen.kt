@@ -36,19 +36,19 @@ fun CreateGroupScreen(
     onSave: (AppGroup) -> Unit
 ) {
     val context = LocalContext.current
-    var groupName by remember { mutableStateOf(editingGroup?.name ?: "") }
+    var groupName by remember(editingGroup) { mutableStateOf(editingGroup?.name ?: "") }
     var searchQuery by remember { mutableStateOf("") }
-    var selectedApps by remember { mutableStateOf(editingGroup?.packageNames?.toSet() ?: setOf()) }
-    var exerciseRequirements by remember { 
+    var selectedApps by remember(editingGroup) { mutableStateOf(editingGroup?.packageNames?.toSet() ?: setOf()) }
+    var exerciseRequirements by remember(editingGroup) { 
         mutableStateOf(editingGroup?.exercises ?: listOf(ExerciseRequirement("PUSHUP", 10))) 
     }
-    var unlockDuration by remember { mutableStateOf(editingGroup?.unlockDurationMinutes?.toString() ?: "30") }
+    var unlockDuration by remember(editingGroup) { mutableStateOf(editingGroup?.unlockDurationMinutes?.toString() ?: "30") }
     
     // Schedule state
-    var schedule by remember { mutableStateOf(editingGroup?.schedule ?: emptyList()) }
+    var schedule by remember(editingGroup) { mutableStateOf(editingGroup?.schedule ?: emptyList()) }
     
     // Keywords state
-    var keywords by remember { mutableStateOf(editingGroup?.keywords ?: emptyList()) }
+    var keywords by remember(editingGroup) { mutableStateOf(editingGroup?.keywords ?: emptyList()) }
     var newKeyword by remember { mutableStateOf("") }
 
     val allApps = remember { AppInfoFetcher.getInstalledApps(context) }
@@ -363,114 +363,4 @@ fun TimeInput(minutes: Int, label: String, modifier: Modifier, onValueChange: (I
         textStyle = LocalTextStyle.current.copy(fontSize = 10.sp),
         colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
     )
-}
-
-@Composable
-fun RequirementRow(index: Int, req: ExerciseRequirement, onUpdate: (ExerciseRequirement) -> Unit, onDelete: () -> Unit) {
-    val context = LocalContext.current
-    var showAppPicker by remember { mutableStateOf(false) }
-    val allApps = remember { AppInfoFetcher.getInstalledApps(context) }
-
-    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            var expanded by remember { mutableStateOf(false) }
-            
-            Box(modifier = Modifier.weight(1.5f)) {
-                OutlinedButton(
-                    onClick = { expanded = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = PaddingValues(horizontal = 8.dp)
-                ) {
-                    Text(req.type, color = Color.White, fontSize = 11.sp)
-                }
-                DropdownMenu(
-                    expanded = expanded, 
-                    onDismissRequest = { expanded = false },
-                    modifier = Modifier.background(Color(0xFF1C1C21))
-                ) {
-                    ExerciseType.entries.forEach { ex ->
-                        DropdownMenuItem(
-                            text = { Text(ex.name, color = Color.White) },
-                            onClick = {
-                                onUpdate(req.copy(type = ex.name))
-                                expanded = false
-                            }
-                        )
-                    }
-                }
-            }
-            
-            Spacer(modifier = Modifier.width(8.dp))
-            
-            OutlinedTextField(
-                value = req.count.toString(),
-                onValueChange = { onUpdate(req.copy(count = it.toIntOrNull() ?: 0)) },
-                modifier = Modifier.weight(1f),
-                colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
-                textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
-                label = { Text(if (req.type == "APP_USAGE") "Seconds" else "Reps", fontSize = 8.sp) }
-            )
-
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Remove", tint = Color.Red, modifier = Modifier.size(20.dp))
-            }
-        }
-
-        if (req.type == "APP_USAGE") {
-            Spacer(modifier = Modifier.height(4.dp))
-            OutlinedButton(
-                onClick = { showAppPicker = true },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(
-                    text = if (req.targetPackageName.isNullOrBlank()) "Select App to Use" else "App: ${req.targetPackageName}",
-                    color = Color.White,
-                    fontSize = 11.sp
-                )
-            }
-        }
-    }
-
-    if (showAppPicker) {
-        AlertDialog(
-            onDismissRequest = { showAppPicker = false },
-            title = { Text("Select App", color = Color.White) },
-            text = {
-                var appSearch by remember { mutableStateOf("") }
-                val filtered = allApps.filter { it.name.contains(appSearch, ignoreCase = true) }
-                
-                Column {
-                    OutlinedTextField(
-                        value = appSearch,
-                        onValueChange = { appSearch = it },
-                        placeholder = { Text("Search...") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    LazyColumn(modifier = Modifier.height(300.dp)) {
-                        items(filtered) { app ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable {
-                                        onUpdate(req.copy(targetPackageName = app.packageName))
-                                        showAppPicker = false
-                                    }
-                                    .padding(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(app.name, color = Color.White)
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(app.packageName, color = Color.Gray, fontSize = 10.sp)
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {},
-            containerColor = Color(0xFF1C1C21)
-        )
-    }
 }

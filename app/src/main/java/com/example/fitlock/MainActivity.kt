@@ -7,6 +7,7 @@ package com.example.fitlock
 
 import android.Manifest
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
@@ -42,6 +44,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.room.Room
 import com.example.fitlock.data.*
 import com.example.fitlock.exercise.*
+import com.example.fitlock.service.GritLockAccessibilityService
 import com.example.fitlock.ui.*
 import com.example.fitlock.ui.theme.GritLockTheme
 import com.example.fitlock.utils.HealthConnectManager
@@ -165,10 +168,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         
                         // Sync this workout to Android's Health Connect system
                         val now = java.time.Instant.now()
+                        val duration = exerciseManager.getDurationSeconds()
                         healthConnectManager.writeExerciseSession(
                             currentExerciseType.name,
                             physicalReps,
-                            now.minusSeconds(300),
+                            now.minusSeconds(duration),
                             now
                         )
                         
@@ -213,6 +217,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 val history by db.dao().getHistory().collectAsState(initial = emptyList())
                 val userStats by db.dao().getUserStats().collectAsState(initial = null)
                 val challenges by db.dao().getChallenges().collectAsState(initial = emptyList())
+                val vaultItems by db.dao().getAllVaultItems().collectAsState(initial = emptyList())
                 
                 // Calculate today's workout totals for the progress bars
                 val todayTotals = remember(history, _stepCount.intValue) {
@@ -237,6 +242,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 var trackingMode by remember { mutableStateOf(TrackingMode.CAMERA) }
                 var editingGroup by remember { mutableStateOf<AppGroup?>(null) }
                 var calibrationExercise by remember { mutableStateOf<ExerciseType?>(null) }
+                var unlockingVaultItem by remember { mutableStateOf<VaultItem?>(null) }
+                var activeRequirements by remember { mutableStateOf<List<ExerciseRequirement>>(emptyList()) }
+                var currentRequirementIndex by remember { mutableIntStateOf(0) }
                 
                 /**
                  * Scaffold is a layout helper that provides slots for common UI parts
@@ -251,6 +259,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 contentColor = MaterialTheme.colorScheme.onSurface
                             ) {
                                 NavigationItem("Groups", Icons.Default.Home, currentScreen == "groups") { currentScreen = "groups" }
+                                NavigationItem("Vault", Icons.Default.Lock, currentScreen == "vault") { currentScreen = "vault" }
                                 NavigationItem("Analytic", Icons.Default.Analytics, currentScreen == "analytics") { currentScreen = "analytics" }
                                 NavigationItem("Stats", Icons.AutoMirrored.Filled.ShowChart, currentScreen == "stats") { currentScreen = "stats" }
                                 NavigationItem("Profile", Icons.Default.Person, currentScreen == "profile") { currentScreen = "profile" }
@@ -294,14 +303,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     onEmergencyBypassClick = { /* Logic */ },
                                     onChallengeClick = { challenge ->
                                         // When a challenge is clicked, start the first exercise in it
-                                        val req = challenge.requirements.firstOrNull()
-                                        if (req != null) {
+                                        if (challenge.requirements.isNotEmpty()) {
+                                            val req = challenge.requirements.first()
                                             currentExerciseType = try { ExerciseType.valueOf(req.type) } catch(_: Exception) { ExerciseType.PUSHUP }
                                             currentGoal = req.count
                                             repCountState.intValue = 0
                                             
                                             initializeAnalyzers(currentExerciseType, userStats)
                                             exerciseManager.startTracking(currentExerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${currentExerciseType.name}_${trackingMode.name}"))
+                                            
+                                            activeRequirements = challenge.requirements
+                                            currentRequirementIndex = 0
+                                            unlockingVaultItem = null
                                             currentScreen = "track"
                                         }
                                     },
@@ -313,7 +326,38 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         
                                         initializeAnalyzers(type, userStats)
                                         exerciseManager.startTracking(type, trackingMode, goal, userStats?.calibrations?.get("${type.name}_${trackingMode.name}"))
+                                        
+                                        activeRequirements = listOf(ExerciseRequirement(type.name, goal))
+                                        currentRequirementIndex = 0
+                                        unlockingVaultItem = null
                                         currentScreen = "track"
+                                    }
+                                )
+                            }
+                            "vault" -> {
+                                VaultScreen(
+                                    vaultItems = vaultItems,
+                                    onAddItem = { item ->
+                                        lifecycleScope.launch { db.dao().upsertVaultItem(item) }
+                                    },
+                                    onDeleteItem = { item ->
+                                        lifecycleScope.launch { db.dao().deleteVaultItem(item) }
+                                    },
+                                    onUnlockItem = { item ->
+                                        if (item.requirements.isNotEmpty()) {
+                                            val req = item.requirements.first()
+                                            currentExerciseType = try { ExerciseType.valueOf(req.type) } catch(_: Exception) { ExerciseType.PUSHUP }
+                                            currentGoal = req.count
+                                            repCountState.intValue = 0
+                                            
+                                            initializeAnalyzers(currentExerciseType, userStats)
+                                            exerciseManager.startTracking(currentExerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${currentExerciseType.name}_${trackingMode.name}"))
+                                            
+                                            activeRequirements = item.requirements
+                                            currentRequirementIndex = 0
+                                            unlockingVaultItem = item
+                                            currentScreen = "track"
+                                        }
                                     }
                                 )
                             }
@@ -388,91 +432,167 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 }
                             }
                             "track" -> {
-                                val exerciseRequirements = remember(currentExerciseType, currentGoal) {
-                                    listOf(ExerciseRequirement(currentExerciseType.name, currentGoal))
-                                }
-                                // Reset session banking tracking when entering track screen
-                                SideEffect {
-                                    bankedUsedInSession = 0
-                                }
-                                
-                                LockOverlayScreen(
-                                    targetApp = "Workout Mode",
-                                    repCount = repCountState.intValue,
-                                    exerciseRequirements = exerciseRequirements,
-                                    currentExerciseIndex = 0,
-                                    trackingMode = trackingMode,
-                                    bankedReps = userStats?.bankedReps ?: emptyMap(),
-                                    onModeChange = { trackingMode = it },
-                                    onPoseDetected = { pose, width, height ->
-                                        if (trackingMode == TrackingMode.CAMERA) {
-                                            when (currentExerciseType) {
-                                                ExerciseType.PUSHUP -> pushupAnalyzer?.analyzePose(pose, width, height)
-                                                ExerciseType.SQUAT -> squatAnalyzer?.analyzePose(pose, width, height)
-                                                ExerciseType.SITUP -> situpAnalyzer?.analyzePose(pose, width, height)
-                                                ExerciseType.PULLUP -> pullupAnalyzer?.analyzePose(pose, width, height)
-                                                ExerciseType.DIP -> dipAnalyzer?.analyzePose(pose, width, height)
-                                                ExerciseType.HINGE -> hingeAnalyzer?.analyzePose(pose, width, height)
-                                                ExerciseType.ROW -> rowAnalyzer?.analyzePose(pose, width, height)
-                                                ExerciseType.PLANK -> plankAnalyzer?.analyzePose(pose, width, height)
-                                                else -> {}
-                                            }
-                                        }
-                                    },
-                                    onEmergencyBypass = { currentScreen = "groups" },
-                                    onNextExercise = {
-                                        lifecycleScope.launch {
-                                            // onWorkoutComplete might have already saved if goal was hit.
-                                            // To prevent double saving, we check if exerciseManager already reached goal
-                                            // and if we already saved. For simplicity, we just navigate back.
-                                            // The user can always manually stop if they want to save partial.
-                                            currentScreen = "groups"
-                                        }
-                                    },
-                                    onStopExercise = {
-                                        lifecycleScope.launch {
-                                            val totalReps = repCountState.intValue
-                                            val physicalReps = (totalReps - bankedUsedInSession).coerceAtLeast(0)
-                                            
-                                            // If goal wasn't reached, we save partial physical reps here
-                                            if (physicalReps > 0 && totalReps < currentGoal) {
-                                                val xpGained = physicalReps * 2
-                                                
-                                                db.dao().insertWorkout(
-                                                    WorkoutHistory(
-                                                        exerciseType = currentExerciseType.name,
-                                                        repsCompleted = physicalReps,
-                                                        appGroupId = 0,
-                                                        xpGained = xpGained
-                                                    )
-                                                )
-                                                updateUserStats(xpGained, currentExerciseType.name, physicalReps)
-                                                
-                                                val now = java.time.Instant.now()
-                                                healthConnectManager.writeExerciseSession(
-                                                    currentExerciseType.name,
-                                                    physicalReps,
-                                                    now.minusSeconds(120),
-                                                    now
-                                                )
-                                            }
-                                            currentScreen = "groups"
-                                        }
-                                    },
-                                    onUseBankedReps = { type, count ->
-                                        lifecycleScope.launch {
-                                            val stats = userStats ?: return@launch
-                                            val currentBanked = stats.bankedReps[type] ?: 0
-                                            if (currentBanked >= count) {
-                                                val newBanked = stats.bankedReps.toMutableMap()
-                                                newBanked[type] = currentBanked - count
-                                                db.dao().updateUserStats(stats.copy(bankedReps = newBanked))
-                                                bankedUsedInSession += count
-                                                exerciseManager.addManualReps(count)
-                                            }
+                                val currentReq = activeRequirements.getOrNull(currentRequirementIndex)
+                                if (currentReq != null) {
+                                    // Update local tracking state for current requirement
+                                    LaunchedEffect(currentRequirementIndex) {
+                                        val req = activeRequirements[currentRequirementIndex]
+                                        currentExerciseType = try { ExerciseType.valueOf(req.type) } catch(e: Exception) { ExerciseType.PUSHUP }
+                                        currentGoal = req.count
+                                        repCountState.intValue = 0
+                                        bankedUsedInSession = 0
+                                        
+                                        if (currentExerciseType != ExerciseType.APP_USAGE) {
+                                            initializeAnalyzers(currentExerciseType, userStats)
+                                            exerciseManager.startTracking(currentExerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${currentExerciseType.name}_${trackingMode.name}"))
+                                        } else {
+                                            exerciseManager.startTracking(ExerciseType.APP_USAGE, TrackingMode.POCKET, currentGoal)
                                         }
                                     }
-                                )
+
+                                    LockOverlayScreen(
+                                        targetApp = unlockingVaultItem?.title ?: "Workout Mode",
+                                        repCount = repCountState.intValue,
+                                        exerciseRequirements = activeRequirements,
+                                        currentExerciseIndex = currentRequirementIndex,
+                                        trackingMode = trackingMode,
+                                        bankedReps = userStats?.bankedReps ?: emptyMap(),
+                                        onModeChange = { trackingMode = it },
+                                        onPoseDetected = { pose, width, height ->
+                                            if (trackingMode == TrackingMode.CAMERA) {
+                                                when (currentExerciseType) {
+                                                    ExerciseType.PUSHUP -> pushupAnalyzer?.analyzePose(pose, width, height)
+                                                    ExerciseType.SQUAT -> squatAnalyzer?.analyzePose(pose, width, height)
+                                                    ExerciseType.SITUP -> situpAnalyzer?.analyzePose(pose, width, height)
+                                                    ExerciseType.PULLUP -> pullupAnalyzer?.analyzePose(pose, width, height)
+                                                    ExerciseType.DIP -> dipAnalyzer?.analyzePose(pose, width, height)
+                                                    ExerciseType.HINGE -> hingeAnalyzer?.analyzePose(pose, width, height)
+                                                    ExerciseType.ROW -> rowAnalyzer?.analyzePose(pose, width, height)
+                                                    ExerciseType.PLANK -> plankAnalyzer?.analyzePose(pose, width, height)
+                                                    else -> {}
+                                                }
+                                            }
+                                        },
+                                        onEmergencyBypass = { 
+                                            currentScreen = if (unlockingVaultItem != null) "vault" else "groups"
+                                            unlockingVaultItem = null
+                                        },
+                                        onNextExercise = {
+                                            lifecycleScope.launch {
+                                                val totalReps = repCountState.intValue
+                                                val physicalReps = (totalReps - bankedUsedInSession).coerceAtLeast(0)
+                                                
+                                                if (physicalReps > 0) {
+                                                    val xpGained = physicalReps * 2
+                                                    
+                                                    db.dao().insertWorkout(
+                                                        WorkoutHistory(
+                                                            exerciseType = currentExerciseType.name,
+                                                            repsCompleted = physicalReps,
+                                                            appGroupId = 0,
+                                                            xpGained = xpGained
+                                                        )
+                                                    )
+                                                    updateUserStats(xpGained, currentExerciseType.name, physicalReps)
+                                                    
+                                                    val now = java.time.Instant.now()
+                                                    val duration = exerciseManager.getDurationSeconds()
+                                                    healthConnectManager.writeExerciseSession(
+                                                        currentExerciseType.name,
+                                                        physicalReps,
+                                                        now.minusSeconds(duration),
+                                                        now
+                                                    )
+                                                }
+
+                                                if (currentRequirementIndex < activeRequirements.size - 1) {
+                                                    currentRequirementIndex++
+                                                } else {
+                                                    // Finished all requirements
+                                                    unlockingVaultItem?.let { item ->
+                                                        db.dao().upsertVaultItem(item.copy(lastUnlockedTimestamp = System.currentTimeMillis()))
+                                                        currentScreen = "vault"
+                                                    } ?: run {
+                                                        currentScreen = "groups"
+                                                    }
+                                                    unlockingVaultItem = null
+                                                }
+                                            }
+                                        },
+                                        onStopExercise = {
+                                            lifecycleScope.launch {
+                                                val totalReps = repCountState.intValue
+                                                val physicalReps = (totalReps - bankedUsedInSession).coerceAtLeast(0)
+                                                
+                                                if (physicalReps > 0 && totalReps < currentGoal) {
+                                                    val xpGained = physicalReps * 2
+                                                    
+                                                    db.dao().insertWorkout(
+                                                        WorkoutHistory(
+                                                            exerciseType = currentExerciseType.name,
+                                                            repsCompleted = physicalReps,
+                                                            appGroupId = 0,
+                                                            xpGained = xpGained
+                                                        )
+                                                    )
+                                                    updateUserStats(xpGained, currentExerciseType.name, physicalReps)
+                                                    
+                                                    val now = java.time.Instant.now()
+                                                    val duration = exerciseManager.getDurationSeconds()
+                                                    healthConnectManager.writeExerciseSession(
+                                                        currentExerciseType.name,
+                                                        physicalReps,
+                                                        now.minusSeconds(duration),
+                                                        now
+                                                    )
+                                                }
+                                                if (unlockingVaultItem != null) {
+                                                    currentScreen = "vault"
+                                                } else {
+                                                    currentScreen = "groups"
+                                                }
+                                                unlockingVaultItem = null
+                                            }
+                                        },
+                                        onUseBankedReps = { type, count ->
+                                            lifecycleScope.launch {
+                                                val stats = userStats ?: return@launch
+                                                val currentBanked = stats.bankedReps[type] ?: 0
+                                                if (currentBanked >= count) {
+                                                    val newBanked = stats.bankedReps.toMutableMap()
+                                                    newBanked[type] = currentBanked - count
+                                                    db.dao().updateUserStats(stats.copy(bankedReps = newBanked))
+                                                    bankedUsedInSession += count
+                                                    exerciseManager.addManualReps(count)
+                                                }
+                                            }
+                                        },
+                                        onLaunchRequiredApp = {
+                                            val pkgs = currentReq.targetPackageNames
+                                            if (pkgs.isNotEmpty()) {
+                                                var launchIntent: Intent? = null
+                                                for (pkg in pkgs) {
+                                                    launchIntent = packageManager.getLaunchIntentForPackage(pkg)
+                                                    if (launchIntent != null) break
+                                                }
+
+                                                if (launchIntent != null) {
+                                                    val serviceIntent = Intent(this@MainActivity, GritLockAccessibilityService::class.java).apply {
+                                                        action = "START_APP_USAGE_TRACKING"
+                                                        putExtra("vault_id", unlockingVaultItem?.id ?: -1)
+                                                        putExtra("target_packages", pkgs.toTypedArray())
+                                                        putExtra("seconds", currentReq.count)
+                                                    }
+                                                    startService(serviceIntent)
+                                                    startActivity(launchIntent)
+                                                    // For vault, we might want to stay in main activity or close it?
+                                                    // Usually we stay, but service will track.
+                                                    // If we're in track screen, maybe we stay here.
+                                                }
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
@@ -641,6 +761,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         val permissions = mutableListOf(Manifest.permission.CAMERA)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             permissions.add(Manifest.permission.ACTIVITY_RECOGNITION)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         
         val missing = permissions.filter { 

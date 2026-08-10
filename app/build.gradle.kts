@@ -67,7 +67,7 @@ dependencies {
     // ML Kit
     implementation(libs.mlkit.pose.detection)
     implementation(libs.mlkit.pose.detection.accurate)
-    implementation("com.google.mlkit:face-detection:16.1.6")
+    implementation(libs.mlkit.face.detection)
 
     // CameraX
     implementation(libs.androidx.camera.core)

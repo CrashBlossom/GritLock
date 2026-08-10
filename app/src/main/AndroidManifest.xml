@@ -94,7 +94,8 @@
         <receiver
             android:name=".widgets.HabitWidgetReceiver"
             android:enabled="true"
-            android:exported="false">
+            android:exported="false"
+            android:label="FitLock: Habit Tracker">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -106,7 +107,8 @@
         <receiver
             android:name=".widgets.ChallengeWidgetReceiver"
             android:enabled="true"
-            android:exported="false">
+            android:exported="false"
+            android:label="FitLock: Active Challenge">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
@@ -118,7 +120,8 @@
         <receiver
             android:name=".widgets.LockTimerWidgetReceiver"
             android:enabled="true"
-            android:exported="false">
+            android:exported="false"
+            android:label="FitLock: Lock Timer">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

@@ -39,7 +39,18 @@ data class ExerciseRequirement(
     val type: String,
     val count: Int,
     val isExtra: Boolean = false,
-    val targetPackageName: String? = null // New field for app-usage requirements
+    val targetPackageNames: List<String> = emptyList() // Supports multiple apps for usage tracking
+)
+
+@Entity(tableName = "vault_items")
+data class VaultItem(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val content: String,
+    val imageUri: String? = null,
+    val requirements: List<ExerciseRequirement>,
+    val unlockDurationMinutes: Int = 5,
+    val lastUnlockedTimestamp: Long = 0L
 )
 
 data class ExerciseCalibration(
