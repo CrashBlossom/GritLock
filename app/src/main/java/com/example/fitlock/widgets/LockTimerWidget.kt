@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.first
 class LockTimerWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val db = Room.databaseBuilder(context, GritLockDatabase::class.java, "gritlock-db").build()
+        val db = GritLockDatabase.getDatabase(context)
         val stats = db.dao().getUserStats().first()
         val totalBanked = stats?.bankedReps?.values?.sum() ?: 0
 

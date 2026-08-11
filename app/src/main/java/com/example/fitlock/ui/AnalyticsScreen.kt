@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material3.*
@@ -18,12 +19,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.fitlock.data.WorkoutHistory
 import com.example.fitlock.utils.AppUsageInfo
 import com.example.fitlock.utils.UsageUtils
+import java.text.SimpleDateFormat
+import java.util.*
 import java.util.concurrent.TimeUnit
 
 @Composable
-fun AnalyticsScreen() {
+fun AnalyticsScreen(history: List<WorkoutHistory>) {
     val context = LocalContext.current
     var usageStats by remember { mutableStateOf<List<AppUsageInfo>>(emptyList()) }
     val hasPermission = remember { UsageUtils.hasUsageStatsPermission(context) }
@@ -85,6 +89,12 @@ fun AnalyticsScreen() {
                 Tab(
                     selected = selectedTab == 1,
                     onClick = { selectedTab = 1 },
+                    text = { Text("Exercises") },
+                    icon = { Icon(Icons.Default.FitnessCenter, contentDescription = null) }
+                )
+                Tab(
+                    selected = selectedTab == 2,
+                    onClick = { selectedTab = 2 },
                     text = { Text("Websites") },
                     icon = { Icon(Icons.Default.Language, contentDescription = null) }
                 )
@@ -94,7 +104,50 @@ fun AnalyticsScreen() {
 
             when (selectedTab) {
                 0 -> AppUsageList(usageStats)
-                1 -> WebsiteUsageList()
+                1 -> ExerciseHistoryList(history)
+                2 -> WebsiteUsageList()
+            }
+        }
+    }
+}
+
+@Composable
+fun ExerciseHistoryList(history: List<WorkoutHistory>) {
+    if (history.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No exercise history yet.", color = Color.Gray)
+        }
+    } else {
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(history) { workout ->
+                AnalyticsWorkoutHistoryItem(workout)
+            }
+        }
+    }
+}
+
+@Composable
+fun AnalyticsWorkoutHistoryItem(workout: WorkoutHistory) {
+    val date = remember(workout.timestamp) {
+        SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(workout.timestamp))
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(workout.exerciseType, color = Color.White, fontWeight = FontWeight.Bold)
+                Text(date, color = Color.Gray, fontSize = 12.sp)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("${workout.repsCompleted} Reps", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text("+${workout.xpGained} XP", color = Color.Green, fontSize = 12.sp)
             }
         }
     }

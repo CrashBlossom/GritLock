@@ -24,7 +24,7 @@ import java.util.*
 class ChallengeWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val db = Room.databaseBuilder(context, GritLockDatabase::class.java, "gritlock-db").build()
+        val db = GritLockDatabase.getDatabase(context)
         val challenges = db.dao().getChallenges().first()
         val history = db.dao().getHistory().first()
         

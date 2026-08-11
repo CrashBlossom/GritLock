@@ -24,7 +24,7 @@ import java.util.*
 class HabitWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        val db = Room.databaseBuilder(context, GritLockDatabase::class.java, "gritlock-db").build()
+        val db = GritLockDatabase.getDatabase(context)
         val history = db.dao().getHistory().first()
         val prefs = context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
 
