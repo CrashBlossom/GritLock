@@ -66,20 +66,29 @@ private val LightOcean = lightColorScheme(
 @Composable
 fun GritLockTheme(
     themeName: String = "Default",
-    isDarkMode: Boolean = isSystemInDarkTheme(),
-    dynamicColor: Boolean = false,
+    darkModeSetting: String = "System", // "System", "Light", "Dark"
+    dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
+    val isDarkMode = when (darkModeSetting) {
+        "Light" -> false
+        "Dark" -> true
+        else -> isSystemInDarkTheme()
+    }
+
     val colorScheme = when (themeName) {
         "Emerald" -> if (isDarkMode) DarkEmerald else LightEmerald
         "Crimson" -> if (isDarkMode) DarkCrimson else LightCrimson
         "Ocean" -> if (isDarkMode) DarkOcean else LightOcean
-        else -> {
-            if (dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        "Material" -> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val context = LocalContext.current
                 if (isDarkMode) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            } else if (isDarkMode) DarkColorScheme else LightColorScheme
+            } else {
+                if (isDarkMode) DarkColorScheme else LightColorScheme
+            }
         }
+        else -> if (isDarkMode) DarkColorScheme else LightColorScheme
     }
 
     MaterialTheme(

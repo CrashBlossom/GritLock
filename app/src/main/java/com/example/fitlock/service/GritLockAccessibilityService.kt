@@ -51,6 +51,7 @@ class GritLockAccessibilityService : AccessibilityService() {
     private var countdownRunnable: Runnable? = null
     
     private var persistentSecondsLeft: Int = -1
+    private var currentAppStartTime: Long = 0
 
     // For APP_USAGE tracking
     private var activeAppUsageGroup: Int = -1
@@ -78,7 +79,7 @@ class GritLockAccessibilityService : AccessibilityService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val name = "GritLock Countdown"
             val descriptionText = "Shows countdown before app is blocked or relocked"
-            val importance = NotificationManager.IMPORTANCE_LOW
+            val importance = NotificationManager.IMPORTANCE_DEFAULT
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
                 description = descriptionText
                 setSound(null, null)
@@ -113,29 +114,50 @@ class GritLockAccessibilityService : AccessibilityService() {
             db.dao().getAllGroups().collectLatest { groups ->
                 allGroups = groups
                 Log.d("GritLockService", "Groups updated: ${groups.size}")
-                
-                // If a group was disabled or the current app was removed from its package list, 
-                // stop any active monitoring immediately.
-                val activeApp = currentCountdownApp
-                if (activeApp != null) {
-                    val isStillBlocked = groups.any { group ->
-                        group.isEnabled && (group.packageNames.contains(activeApp) || isKeywordBlocked(activeApp, group))
-                    }
-                    if (!isStillBlocked) {
-                        handler.post { 
-                            Log.d("GritLockService", "Group disabled or app removed while active. Cleaning up.")
-                            removeCountdown() 
-                        }
-                    }
-                }
+                handler.post { checkCurrentAppStatus() }
             }
         }
     }
 
-    private fun isKeywordBlocked(packageName: String, group: AppGroup): Boolean {
-        // This is a simplified check for the background observer
-        // The real deep check happens in onAccessibilityEvent using the rootNode
-        return group.keywords.any { packageName.contains(it, ignoreCase = true) }
+    private fun checkCurrentAppStatus() {
+        val rootNode = rootInActiveWindow
+        val activeApp = currentCountdownApp ?: rootNode?.packageName?.toString()
+        
+        if (activeApp != null) {
+            if (activeApp == this.packageName || activeApp == "com.android.systemui" || activeApp.contains("launcher")) {
+                if (currentCountdownApp != null) removeCountdown()
+                return
+            }
+
+            val enabledGroups = allGroups.filter { it.isEnabled }
+            val matchingGroup = enabledGroups.find { it.packageNames.contains(activeApp) }
+            
+            if (matchingGroup != null) {
+                if (isScheduleActive(matchingGroup.schedule)) {
+                    if (currentCountdownApp == null) handleGroupMonitoring(activeApp, matchingGroup)
+                } else if (currentCountdownApp != null) {
+                    removeCountdown()
+                }
+            } else {
+                var keywordBlockedGroup: AppGroup? = null
+                if (rootNode != null) {
+                    val activeKeywordGroups = enabledGroups.filter { isScheduleActive(it.schedule) && it.keywords.isNotEmpty() }
+                    val keywordsToBlock = activeKeywordGroups.flatMap { it.keywords }
+                    if (keywordsToBlock.isNotEmpty()) {
+                        val foundKeyword = findKeywordInNode(rootNode, keywordsToBlock)
+                        if (foundKeyword != null) {
+                            keywordBlockedGroup = activeKeywordGroups.find { it.keywords.contains(foundKeyword) }
+                        }
+                    }
+                }
+                
+                if (keywordBlockedGroup != null) {
+                    if (currentCountdownApp == null) handleGroupMonitoring(activeApp, keywordBlockedGroup)
+                } else if (currentCountdownApp != null) {
+                    removeCountdown()
+                }
+            }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
@@ -147,7 +169,6 @@ class GritLockAccessibilityService : AccessibilityService() {
             packageName.contains("launcher") ||
             packageName == "com.google.android.permissioncontroller") return
 
-        // Update tracking state when entering/leaving apps
         if (activeAppUsagePackages.isNotEmpty()) {
             if (activeAppUsagePackages.contains(packageName)) {
                 if (lastUsageTick == 0L) {
@@ -163,59 +184,30 @@ class GritLockAccessibilityService : AccessibilityService() {
             }
         }
 
-        val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
-        val strictMode = prefs.getBoolean("strict_mode", false)
-
-        if (strictMode && packageName == "com.android.settings") {
-            val source = event.source
-            if (source != null) {
-                val nodes = source.findAccessibilityNodeInfosByText("GritLock")
-                val isUninstall = source.findAccessibilityNodeInfosByText("Uninstall").isNotEmpty() || 
-                                 source.findAccessibilityNodeInfosByText("Force stop").isNotEmpty()
-                
-                if (nodes.isNotEmpty() || isUninstall) {
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-                    Toast.makeText(this, "Strict Mode: GritLock protection cannot be disabled!", Toast.LENGTH_SHORT).show()
-                    return
-                }
-            }
-        }
-
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED || 
             event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             
-            // Check Package Name blocking
             val matchingGroup = allGroups.find { it.packageNames.contains(packageName) && it.isEnabled }
             
             if (matchingGroup != null) {
                 if (isScheduleActive(matchingGroup.schedule)) {
-                    // Check if this group is currently being unlocked via APP_USAGE
                     if (activeAppUsageGroup == matchingGroup.id) {
-                        // Show overlay to remind them to go back to the required app
                         triggerOverlay(packageName, 0, ExerciseType.APP_USAGE.name, matchingGroup.id)
                         return
                     }
-
-                    Log.d("GritLockService", "Blocking app: $packageName (Group: ${matchingGroup.name})")
                     handleGroupMonitoring(packageName, matchingGroup)
                     return
                 }
-            } else {
-                // If no group matches or is enabled, but we were showing a countdown for this app, remove it
-                if (currentCountdownApp == packageName) {
-                    removeCountdown()
-                }
             }
 
-            // Check Keyword/URL blocking
-            val rootNode = rootInActiveWindow
-            if (rootNode != null) {
+            val nodeToSearch = rootInActiveWindow ?: event.source
+            if (nodeToSearch != null) {
                 val activeGroups = allGroups.filter { it.isEnabled && isScheduleActive(it.schedule) }
                 val keywordsToBlock = activeGroups.flatMap { it.keywords }
                 
                 if (keywordsToBlock.isNotEmpty()) {
-                    val foundKeyword = findKeywordInNode(rootNode, keywordsToBlock)
+                    val foundKeyword = findKeywordInNode(nodeToSearch, keywordsToBlock)
                     if (foundKeyword != null) {
                         val keywordGroup = activeGroups.find { it.keywords.contains(foundKeyword) }
                         if (keywordGroup != null) {
@@ -223,17 +215,17 @@ class GritLockAccessibilityService : AccessibilityService() {
                                 triggerOverlay(packageName, 0, ExerciseType.APP_USAGE.name, keywordGroup.id)
                                 return
                             }
-                            Log.d("GritLockService", "Keyword detected: $foundKeyword in $packageName")
                             handleGroupMonitoring(packageName, keywordGroup)
                             return
                         }
-                    } else if (currentCountdownApp == packageName) {
-                        // Keyword no longer present but countdown was showing
+                    } else if (currentCountdownApp == packageName && matchingGroup == null) {
                         removeCountdown()
                     }
-                } else if (currentCountdownApp == packageName) {
+                } else if (currentCountdownApp == packageName && matchingGroup == null) {
                     removeCountdown()
                 }
+            } else if (currentCountdownApp == packageName && matchingGroup == null) {
+                // If we can't see nodes, we can't verify keywords, so we might need to remove countdown
             }
             
             if (currentCountdownApp != null && packageName != currentCountdownApp) {
@@ -246,7 +238,6 @@ class GritLockAccessibilityService : AccessibilityService() {
         stopAppUsageTimer()
         val groupId = activeAppUsageGroup
         val vaultId = activeAppUsageVaultItem
-        
         activeAppUsagePackages = emptyList()
         activeAppUsageGroup = -1
         activeAppUsageVaultItem = -1
@@ -260,18 +251,11 @@ class GritLockAccessibilityService : AccessibilityService() {
                     val now = System.currentTimeMillis()
                     db.dao().updateGroup(group.copy(lastUnlockedTimestamp = now))
                     LockStatusManager.updateUnlock(groupId, now)
-                    handler.post {
-                        Toast.makeText(this@GritLockAccessibilityService, "Requirement Met! Unlocking ${group.name}", Toast.LENGTH_LONG).show()
-                    }
                 }
             } else if (vaultId != -1) {
                 val item = db.dao().getVaultItemById(vaultId)
                 if (item != null) {
-                    val now = System.currentTimeMillis()
-                    db.dao().upsertVaultItem(item.copy(lastUnlockedTimestamp = now))
-                    handler.post {
-                        Toast.makeText(this@GritLockAccessibilityService, "Requirement Met! Secret Unlocked.", Toast.LENGTH_LONG).show()
-                    }
+                    db.dao().upsertVaultItem(item.copy(lastUnlockedTimestamp = System.currentTimeMillis()))
                 }
             }
             cancelNotification()
@@ -283,22 +267,16 @@ class GritLockAccessibilityService : AccessibilityService() {
         appUsageTimerRunnable = object : Runnable {
             override fun run() {
                 if (lastUsageTick == 0L) return
-                
                 val now = System.currentTimeMillis()
                 val delta = ((now - lastUsageTick) / 1000).toInt()
-                
                 if (delta >= 1) {
                     appUsageSecondsRemaining -= delta
                     lastUsageTick = now
-                    
                     if (appUsageSecondsRemaining <= 0) {
                         completeAppUsageRequirement()
                     } else {
                         val spent = appUsageTotalSeconds - appUsageSecondsRemaining
-                        updateNotification(
-                            "GritLock: App Usage Requirement",
-                            "Progress: ${formatTime(spent)} / ${formatTime(appUsageTotalSeconds)} ($appUsageSecondsRemaining s left)"
-                        )
+                        updateNotification("GritLock: App Usage Progress", "Progress: ${formatTime(spent)} / ${formatTime(appUsageTotalSeconds)} ($appUsageSecondsRemaining s left)")
                         handler.postDelayed(this, 1000)
                     }
                 } else {
@@ -329,7 +307,6 @@ class GritLockAccessibilityService : AccessibilityService() {
             appUsageTotalSeconds = intent.getIntExtra("seconds", 60)
             appUsageSecondsRemaining = appUsageTotalSeconds
             lastUsageTick = 0
-            Log.d("GritLockService", "Started APP_USAGE tracking for $activeAppUsagePackages ($appUsageSecondsRemaining s)")
             updateNotification("GritLock: Usage Required", "Open any of: ${activeAppUsagePackages.take(2).joinToString(", ")} to start tracking.")
         }
         return super.onStartCommand(intent, flags, startId)
@@ -338,26 +315,17 @@ class GritLockAccessibilityService : AccessibilityService() {
     private fun findKeywordInNode(node: AccessibilityNodeInfo, keywords: List<String>): String? {
         val text = node.text?.toString()?.lowercase() ?: ""
         val contentDesc = node.contentDescription?.toString()?.lowercase() ?: ""
-        val hint = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) node.hintText?.toString()?.lowercase() ?: "" else ""
-        
         val viewId = node.viewIdResourceName ?: ""
-        
         for (keyword in keywords) {
             val kw = keyword.lowercase()
-            if (text.contains(kw) || contentDesc.contains(kw) || hint.contains(kw) || viewId.contains(kw)) {
-                return keyword
-            }
+            if (text.contains(kw) || contentDesc.contains(kw) || viewId.contains(kw)) return keyword
         }
-        
         for (i in 0 until node.childCount) {
             val child = node.getChild(i)
             if (child != null) {
                 val found = findKeywordInNode(child, keywords)
-                if (found != null) {
-                    child.recycle()
-                    return found
-                }
                 child.recycle()
+                if (found != null) return found
             }
         }
         return null
@@ -371,22 +339,16 @@ class GritLockAccessibilityService : AccessibilityService() {
         val isUnlocked = timeSinceUnlock < unlockDurationMs
 
         if (!isUnlocked) {
+            currentAppStartTime = 0
             if (packageName != currentCountdownApp) {
-                if (isCountdownShowing) {
-                    removeCountdown()
-                }
+                if (isCountdownShowing) removeCountdown()
                 startCountdown(packageName, group)
             }
         } else {
+            if (currentAppStartTime == 0L) currentAppStartTime = now
             val remainingMs = unlockDurationMs - timeSinceUnlock
-            val remainingMin = (remainingMs / 60000).toInt()
-            val remainingSec = ((remainingMs % 60000) / 1000).toInt()
-            
-            currentCountdownApp = packageName
-            updateNotification(
-                "GritLock: App Unlocked",
-                "Relocking in ${remainingMin}m ${remainingSec}s. Get moving soon!"
-            )
+            val sMs = now - currentAppStartTime
+            updateNotification("GritLock: App Unlocked", "Spent: ${formatTime((sMs/1000).toInt())} | Relocking in ${formatTime((remainingMs/1000).toInt())}")
             
             handler.removeCallbacksAndMessages(null)
             handler.postDelayed(object : Runnable {
@@ -395,14 +357,11 @@ class GritLockAccessibilityService : AccessibilityService() {
                         val updatedNow = System.currentTimeMillis()
                         val updatedRemainingMs = unlockDurationMs - (updatedNow - lastUnlocked)
                         if (updatedRemainingMs > 0) {
-                            val m = (updatedRemainingMs / 60000).toInt()
-                            val s = ((updatedRemainingMs % 60000) / 1000).toInt()
-                            updateNotification(
-                                "GritLock: App Unlocked",
-                                "Relocking in ${m}m ${s}s. Get moving soon!"
-                            )
+                            val spent = (updatedNow - currentAppStartTime) / 1000
+                            updateNotification("GritLock: App Unlocked", "Spent: ${formatTime(spent.toInt())} | Relocking in ${formatTime((updatedRemainingMs/1000).toInt())}")
                             handler.postDelayed(this, 1000)
                         } else {
+                            currentAppStartTime = 0
                             handleGroupMonitoring(packageName, group)
                         }
                     }
@@ -413,41 +372,26 @@ class GritLockAccessibilityService : AccessibilityService() {
 
     private fun isScheduleActive(schedule: List<ScheduleInterval>): Boolean {
         if (schedule.isEmpty()) return true 
-        
         val now = Calendar.getInstance()
         val dayOfWeek = now.get(Calendar.DAY_OF_WEEK) 
         val ourDayOfWeek = if (dayOfWeek == Calendar.SUNDAY) 7 else dayOfWeek - 1
-        
         val currentMinute = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
-        
-        return schedule.any { 
-            it.dayOfWeek == ourDayOfWeek && currentMinute >= it.startMinute && currentMinute <= it.endMinute 
-        }
+        return schedule.any { it.dayOfWeek == ourDayOfWeek && currentMinute >= it.startMinute && currentMinute <= it.endMinute }
     }
 
     private fun startCountdown(packageName: String, group: AppGroup) {
         val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
         val showPopups = prefs.getBoolean("show_countdown", true)
         val lockoutSeconds = prefs.getInt("lockout_seconds", 10)
-        
         currentCountdownApp = packageName
         persistentSecondsLeft = if (lockoutSeconds > 0) lockoutSeconds else 0
-
         if (lockoutSeconds <= 0) {
             val firstReq = group.exercises.firstOrNull()
-            if (firstReq != null) {
-                triggerOverlay(packageName, firstReq.count, firstReq.type, group.id)
-            }
+            if (firstReq != null) triggerOverlay(packageName, firstReq.count, firstReq.type, group.id)
             return
         }
-
-        if (showPopups) {
-            handler.post {
-                showCountdownOverlay(packageName, group)
-            }
-        } else {
-            startBackgroundTimer(packageName, group)
-        }
+        if (showPopups) handler.post { showCountdownOverlay(packageName, group) }
+        else startBackgroundTimer(packageName, group)
     }
 
     private fun showCountdownOverlay(targetPackage: String, group: AppGroup) {
@@ -455,17 +399,12 @@ class GritLockAccessibilityService : AccessibilityService() {
             countdownView?.let { try { windowManager?.removeView(it) } catch (e: Exception) {} }
             isCountdownShowing = false
         }
-        
         val params = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP
-            y = 100
-        }
+        ).apply { gravity = Gravity.TOP; y = 100 }
 
         val inflater = getSystemService(Context.LAYOUT_INFLATER_SERVICE) as LayoutInflater
         val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
@@ -477,73 +416,49 @@ class GritLockAccessibilityService : AccessibilityService() {
             val tvMessage = countdownView?.findViewById<TextView>(R.id.tv_countdown_message)
             val pbCountdown = countdownView?.findViewById<ProgressBar>(R.id.pb_countdown)
             val btnDismiss = countdownView?.findViewById<Button>(R.id.btn_dismiss_countdown)
-            
             pbCountdown?.max = lockoutSeconds
             pbCountdown?.progress = persistentSecondsLeft
-
-            updateNotification("GritLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
 
             countdownRunnable = object : Runnable {
                 override fun run() {
                     if (currentCountdownApp != targetPackage) return
-
                     persistentSecondsLeft--
-                    
                     if (persistentSecondsLeft >= 0) {
                         updateNotification("GritLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
-                        
-                        val shouldBeVisible = !smartCountdown || persistentSecondsLeft <= 30
-                        if (shouldBeVisible) {
+                        if (!smartCountdown || persistentSecondsLeft <= 30) {
                             if (countdownView?.visibility != View.VISIBLE) countdownView?.visibility = View.VISIBLE
                             tvMessage?.text = "GritLock: Exercise required in ${persistentSecondsLeft}s"
                             pbCountdown?.progress = persistentSecondsLeft
-                        } else {
-                            countdownView?.visibility = View.GONE
-                        }
-                        
+                        } else countdownView?.visibility = View.GONE
                         handler.postDelayed(this, 1000)
                     } else {
-                        removeCountdown()
+                        isCountdownShowing = false
+                        countdownView?.let { try { windowManager?.removeView(it) } catch (e: Exception) {} }
+                        countdownView = null
                         val firstReq = group.exercises.firstOrNull()
-                        if (firstReq != null) {
-                            triggerOverlay(targetPackage, firstReq.count, firstReq.type, group.id)
-                        }
+                        if (firstReq != null) triggerOverlay(targetPackage, firstReq.count, firstReq.type, group.id)
                     }
                 }
             }
-            
-            btnDismiss?.setOnClickListener {
-                removeCountdown()
-                performGlobalAction(GLOBAL_ACTION_BACK)
-            }
-
+            btnDismiss?.setOnClickListener { removeCountdown(); performGlobalAction(GLOBAL_ACTION_BACK) }
             windowManager?.addView(countdownView, params)
             handler.postDelayed(countdownRunnable!!, 1000)
             isCountdownShowing = true
-            
-        } catch (e: Exception) {
-            Log.e("GritLockService", "Error showing overlay", e)
-            startBackgroundTimer(targetPackage, group)
-        }
+        } catch (e: Exception) { startBackgroundTimer(targetPackage, group) }
     }
 
     private fun startBackgroundTimer(targetPackage: String, group: AppGroup) {
         countdownRunnable?.let { handler.removeCallbacks(it) }
-        updateNotification("GritLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
         countdownRunnable = object : Runnable {
             override fun run() {
                 if (currentCountdownApp != targetPackage) return
                 persistentSecondsLeft--
-                
                 if (persistentSecondsLeft >= 0) {
                     updateNotification("GritLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
                     handler.postDelayed(this, 1000)
                 } else {
-                    removeCountdown()
                     val firstReq = group.exercises.firstOrNull()
-                    if (firstReq != null) {
-                        triggerOverlay(targetPackage, firstReq.count, firstReq.type, group.id)
-                    }
+                    if (firstReq != null) triggerOverlay(targetPackage, firstReq.count, firstReq.type, group.id)
                 }
             }
         }
@@ -553,12 +468,7 @@ class GritLockAccessibilityService : AccessibilityService() {
     private fun removeCountdown() {
         handler.removeCallbacksAndMessages(null)
         countdownRunnable = null
-        
-        countdownView?.let {
-            try {
-                windowManager?.removeView(it)
-            } catch (e: Exception) {}
-        }
+        countdownView?.let { try { windowManager?.removeView(it) } catch (e: Exception) {} }
         countdownView = null
         isCountdownShowing = false
         currentCountdownApp = null
@@ -567,7 +477,6 @@ class GritLockAccessibilityService : AccessibilityService() {
     }
 
     private fun triggerOverlay(target: String, reps: Int, exercise: String, groupId: Int) {
-        Log.d("GritLockService", "Triggering block overlay for $target")
         val intent = Intent(this, LockOverlayActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
             putExtra("target_app", target)
@@ -578,12 +487,7 @@ class GritLockAccessibilityService : AccessibilityService() {
         startActivity(intent)
     }
 
-    override fun onInterrupt() {
-        removeCountdown()
-    }
+    override fun onInterrupt() { removeCountdown() }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        removeCountdown()
-    }
+    override fun onDestroy() { super.onDestroy() }
 }

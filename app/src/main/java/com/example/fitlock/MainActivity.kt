@@ -124,10 +124,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         enableEdgeToEdge()
 
         // Initialize our database connection
-        db = Room.databaseBuilder(
-            applicationContext,
-            GritLockDatabase::class.java, "gritlock-db"
-        ).fallbackToDestructiveMigration().build()
+        db = GritLockDatabase.getDatabase(applicationContext)
 
         healthConnectManager = HealthConnectManager(this)
         
@@ -198,6 +195,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             // remember {} caches values so they aren't reset when the UI refreshes
             val prefs = remember { getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
             var appTheme by remember { mutableStateOf(prefs.getString("app_theme", "Default") ?: "Default") }
+            var darkModeSetting by remember { mutableStateOf(prefs.getString("dark_mode", "System") ?: "System") }
             
             // A side effect that periodically checks if the theme setting changed
             LaunchedEffect(Unit) {
@@ -206,12 +204,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     if (appTheme != currentTheme) {
                         appTheme = currentTheme
                     }
+                    val currentDarkMode = prefs.getString("dark_mode", "System") ?: "System"
+                    if (darkModeSetting != currentDarkMode) {
+                        darkModeSetting = currentDarkMode
+                    }
                     kotlinx.coroutines.delay(1000)
                 }
             }
 
             // Wrap the whole UI in our custom Theme
-            GritLockTheme(themeName = appTheme) {
+            GritLockTheme(themeName = appTheme, darkModeSetting = darkModeSetting) {
                 // collectAsState converts a Database "Flow" into a Compose "State"
                 val groups by db.dao().getAllGroups().collectAsState(initial = emptyList())
                 val history by db.dao().getHistory().collectAsState(initial = emptyList())
@@ -238,7 +240,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
 
                 // Internal navigation state (which screen are we on?)
-                var currentScreen by remember { mutableStateOf("groups") }
+                var currentScreen by remember { mutableStateOf("home") }
                 var trackingMode by remember { mutableStateOf(TrackingMode.CAMERA) }
                 var editingGroup by remember { mutableStateOf<AppGroup?>(null) }
                 var calibrationExercise by remember { mutableStateOf<ExerciseType?>(null) }
@@ -258,12 +260,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 containerColor = MaterialTheme.colorScheme.surface,
                                 contentColor = MaterialTheme.colorScheme.onSurface
                             ) {
-                                NavigationItem("Groups", Icons.Default.Home, currentScreen == "groups") { currentScreen = "groups" }
-                                NavigationItem("Vault", Icons.Default.Lock, currentScreen == "vault") { currentScreen = "vault" }
+                                NavigationItem("Home", Icons.Default.Home, currentScreen == "home") { currentScreen = "home" }
+                                NavigationItem("Locks", Icons.Default.Lock, currentScreen == "locks") { currentScreen = "locks" }
                                 NavigationItem("Analytic", Icons.Default.Analytics, currentScreen == "analytics") { currentScreen = "analytics" }
-                                NavigationItem("Stats", Icons.AutoMirrored.Filled.ShowChart, currentScreen == "stats") { currentScreen = "stats" }
                                 NavigationItem("Profile", Icons.Default.Person, currentScreen == "profile") { currentScreen = "profile" }
-                                NavigationItem("Setting", Icons.Default.Settings, currentScreen == "settings") { currentScreen = "settings" }
                             }
                         }
                     }
@@ -275,43 +275,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                          * It decides which Composable to show based on 'currentScreen'.
                          */
                         when (currentScreen) {
-                            "groups" -> {
-                                GroupsScreen(
-                                    groups = groups,
+                            "home" -> {
+                                HomeHub(
                                     userStats = userStats,
                                     challenges = challenges,
                                     todayTotals = todayTotals,
-                                    onAddGroupClick = { 
-                                        editingGroup = null
-                                        currentScreen = "create" 
-                                    },
-                                    onEditGroupClick = { group ->
-                                        editingGroup = group
-                                        currentScreen = "create"
-                                    },
-                                    onDeleteGroupClick = { group ->
-                                        lifecycleScope.launch {
-                                            db.dao().deleteGroup(group)
-                                        }
-                                    },
-                                    onToggleGroupClick = { group ->
-                                        lifecycleScope.launch {
-                                            db.dao().updateGroup(group.copy(isEnabled = !group.isEnabled))
-                                        }
-                                    },
-                                    onSettingsClick = { currentScreen = "settings" },
-                                    onEmergencyBypassClick = { /* Logic */ },
                                     onChallengeClick = { challenge ->
-                                        // When a challenge is clicked, start the first exercise in it
                                         if (challenge.requirements.isNotEmpty()) {
                                             val req = challenge.requirements.first()
                                             currentExerciseType = try { ExerciseType.valueOf(req.type) } catch(_: Exception) { ExerciseType.PUSHUP }
                                             currentGoal = req.count
                                             repCountState.intValue = 0
-                                            
                                             initializeAnalyzers(currentExerciseType, userStats)
                                             exerciseManager.startTracking(currentExerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${currentExerciseType.name}_${trackingMode.name}"))
-                                            
                                             activeRequirements = challenge.requirements
                                             currentRequirementIndex = 0
                                             unlockingVaultItem = null
@@ -319,40 +295,51 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         }
                                     },
                                     onExerciseClick = { type, goal ->
-                                        // Manual workout start from the daily goals list
                                         currentExerciseType = type
                                         currentGoal = goal
                                         repCountState.intValue = 0
-                                        
                                         initializeAnalyzers(type, userStats)
                                         exerciseManager.startTracking(type, trackingMode, goal, userStats?.calibrations?.get("${type.name}_${trackingMode.name}"))
-                                        
                                         activeRequirements = listOf(ExerciseRequirement(type.name, goal))
                                         currentRequirementIndex = 0
                                         unlockingVaultItem = null
                                         currentScreen = "track"
-                                    }
+                                    },
+                                    onSettingsClick = { currentScreen = "settings" }
                                 )
                             }
-                            "vault" -> {
-                                VaultScreen(
+                            "locks" -> {
+                                LocksHub(
+                                    groups = groups,
                                     vaultItems = vaultItems,
-                                    onAddItem = { item ->
+                                    onAddGroup = { 
+                                        editingGroup = null
+                                        currentScreen = "create" 
+                                    },
+                                    onEditGroup = { group ->
+                                        editingGroup = group
+                                        currentScreen = "create"
+                                    },
+                                    onDeleteGroup = { group ->
+                                        lifecycleScope.launch { db.dao().deleteGroup(group) }
+                                    },
+                                    onToggleGroup = { group ->
+                                        lifecycleScope.launch { db.dao().updateGroup(group.copy(isEnabled = !group.isEnabled)) }
+                                    },
+                                    onAddVaultItem = { item ->
                                         lifecycleScope.launch { db.dao().upsertVaultItem(item) }
                                     },
-                                    onDeleteItem = { item ->
+                                    onDeleteVaultItem = { item ->
                                         lifecycleScope.launch { db.dao().deleteVaultItem(item) }
                                     },
-                                    onUnlockItem = { item ->
+                                    onUnlockVaultItem = { item ->
                                         if (item.requirements.isNotEmpty()) {
                                             val req = item.requirements.first()
                                             currentExerciseType = try { ExerciseType.valueOf(req.type) } catch(_: Exception) { ExerciseType.PUSHUP }
                                             currentGoal = req.count
                                             repCountState.intValue = 0
-                                            
                                             initializeAnalyzers(currentExerciseType, userStats)
                                             exerciseManager.startTracking(currentExerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${currentExerciseType.name}_${trackingMode.name}"))
-                                            
                                             activeRequirements = item.requirements
                                             currentRequirementIndex = 0
                                             unlockingVaultItem = item
@@ -362,7 +349,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 )
                             }
                             "analytics" -> {
-                                AnalyticsScreen()
+                                AnalyticsScreen(history = history)
                             }
                             "stats" -> {
                                 StatsScreen(
@@ -692,11 +679,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 Challenge("1", "Morning Pushups", "Do 20 pushups to start your day", listOf(ExerciseRequirement(ExerciseType.PUSHUP.name, 20)), 100),
                 Challenge("2", "Squat Master", "Complete 50 squats", listOf(ExerciseRequirement(ExerciseType.SQUAT.name, 50)), 250),
                 Challenge("3", "Core Strength", "Hold a plank for 60 seconds", listOf(ExerciseRequirement(ExerciseType.PLANK.name, 60)), 150),
-                Challenge("opm_gradual", "One Punch Man (Gradual)", "Saitama's Training: Pushups, Squats, Situps ($currentOpmGoal each).", listOf(
-                    ExerciseRequirement(ExerciseType.PUSHUP.name, currentOpmGoal),
-                    ExerciseRequirement(ExerciseType.SQUAT.name, currentOpmGoal),
-                    ExerciseRequirement(ExerciseType.SITUP.name, currentOpmGoal)
-                ), 500),
+                Challenge("opm_classic", "One Punch Man Challenge", "Saitama's Legend: 100 Pushups, 100 Situps, 100 Squats, and 10km (10,000 steps).", listOf(
+                    ExerciseRequirement(ExerciseType.PUSHUP.name, 100),
+                    ExerciseRequirement(ExerciseType.SITUP.name, 100),
+                    ExerciseRequirement(ExerciseType.SQUAT.name, 100),
+                    ExerciseRequirement(ExerciseType.STEPS.name, 10000)
+                ), 1000),
                 Challenge("solo_leveling", "Solo Leveling: Daily Quest", "Pushups (100), Squats (100), Situps (100), Pullups (20). Don't fail the penalty!", listOf(
                     ExerciseRequirement(ExerciseType.PUSHUP.name, 100),
                     ExerciseRequirement(ExerciseType.SQUAT.name, 100),

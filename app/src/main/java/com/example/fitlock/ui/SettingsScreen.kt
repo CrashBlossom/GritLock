@@ -53,7 +53,7 @@ fun SettingsScreen(
     
     // Customization states
     var selectedTheme by remember { mutableStateOf(prefs.getString("app_theme", "Default") ?: "Default") }
-    var isDarkMode by remember { mutableStateOf(prefs.getBoolean("is_dark_mode", true)) }
+    var darkModeSetting by remember { mutableStateOf(prefs.getString("dark_mode", "System") ?: "System") }
     var customBankMsg by remember { mutableStateOf(prefs.getString("custom_bank_msg", "No reps banked yet. Go sweat!") ?: "No reps banked yet. Go sweat!") }
 
     // Lockout delay
@@ -202,18 +202,28 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Dark Mode", color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                    Switch(
-                        checked = isDarkMode,
-                        onCheckedChange = { 
-                            isDarkMode = it
-                            prefs.edit().putBoolean("is_dark_mode", it).apply()
-                        }
-                    )
+                Text("Dark Mode", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val modes = listOf("System", "Light", "Dark")
+                    modes.forEach { mode ->
+                        FilterChip(
+                            selected = darkModeSetting == mode,
+                            onClick = { 
+                                darkModeSetting = mode
+                                prefs.edit().putString("dark_mode", mode).apply()
+                            },
+                            label = { Text(mode) },
+                            modifier = Modifier.weight(1f),
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+                            )
+                        )
+                    }
                 }
                 
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 12.dp))
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 16.dp))
 
                 Text("App Color", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(12.dp))
@@ -221,6 +231,10 @@ fun SettingsScreen(
                     ThemeOption("Default", Color(0xFFD0BCFF), selectedTheme == "Default") {
                         selectedTheme = "Default"
                         prefs.edit().putString("app_theme", "Default").apply()
+                    }
+                    ThemeOption("Material", MaterialTheme.colorScheme.primary, selectedTheme == "Material") {
+                        selectedTheme = "Material"
+                        prefs.edit().putString("app_theme", "Material").apply()
                     }
                     ThemeOption("Emerald", Color(0xFF50C878), selectedTheme == "Emerald") {
                         selectedTheme = "Emerald"

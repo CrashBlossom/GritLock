@@ -1,7 +1,3 @@
-/**
- * LockOverlayActivity is the screen that "pops up" to block the user from using a restricted app.
- * It stays on top until the user completes the required exercises.
- */
 package com.example.fitlock
 
 import android.content.Context
@@ -13,7 +9,6 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
 import androidx.lifecycle.lifecycleScope
-import androidx.room.Room
 import com.example.fitlock.data.GritLockDatabase
 import com.example.fitlock.data.UserStats
 import com.example.fitlock.data.WorkoutHistory
@@ -24,36 +19,28 @@ import com.example.fitlock.service.GritLockAccessibilityService
 import com.example.fitlock.ui.LockOverlayScreen
 import com.example.fitlock.ui.theme.GritLockTheme
 import com.example.fitlock.utils.HealthConnectManager
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import java.util.Calendar
 
 class LockOverlayActivity : ComponentActivity() {
     
-    private lateinit var db: GritLockDatabase // Reference to our local Room database
-    private lateinit var exerciseManager: ExerciseTrackerManager // Component that handles counting reps
-    private var currentAnalyzer: Any? = null // The ML Kit component that "analyzes" camera frames
+    private lateinit var db: GritLockDatabase
+    private lateinit var exerciseManager: ExerciseTrackerManager
+    private var currentAnalyzer: Any? = null
     
+    private var targetApp by mutableStateOf("Unknown")
+    private var groupId by mutableIntStateOf(-1)
+    private var fallbackReps by mutableIntStateOf(10)
+    private var fallbackExercise by mutableStateOf("PUSHUP")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        db = GritLockDatabase.getDatabase(applicationContext)
         
-        // Retrieve data passed in from the Accessibility Service (which app is being blocked)
-        val targetApp = intent.getStringExtra("target_app") ?: "Unknown"
-        val groupId = intent.getIntExtra("group_id", -1)
+        handleIntent(intent)
 
-        // Initialize database
-        db = Room.databaseBuilder(
-            applicationContext,
-            GritLockDatabase::class.java, "gritlock-db"
-        ).fallbackToDestructiveMigration().build()
-
-        /**
-         * setContent starts the Compose UI.
-         */
         setContent {
             GritLockTheme {
-                // UI State variables
                 val userStats by db.dao().getUserStats().collectAsState(initial = null)
                 val allGroups by db.dao().getAllGroups().collectAsState(initial = emptyList())
                 
@@ -64,12 +51,7 @@ class LockOverlayActivity : ComponentActivity() {
                 var exerciseRequirements by remember { mutableStateOf<List<ExerciseRequirement>>(emptyList()) }
                 var isInitialized by remember { mutableStateOf(false) }
 
-                /**
-                 * LaunchedEffect(Unit) runs once when the screen first loads.
-                 * We use it to load data from the database.
-                 */
-                LaunchedEffect(Unit) {
-                    // If we have a group ID, load the specific exercises for that group
+                LaunchedEffect(groupId, fallbackReps, fallbackExercise) {
                     if (groupId != -1) {
                         val group = db.dao().getGroupById(groupId)
                         if (group != null) {
@@ -77,22 +59,16 @@ class LockOverlayActivity : ComponentActivity() {
                         }
                     }
                     
-                    // Fallback if no specific requirements were found
                     if (exerciseRequirements.isEmpty()) {
-                        val targetReps = intent.getIntExtra("target_reps", 10)
-                        val exerciseTypeStr = intent.getStringExtra("exercise_type") ?: "PUSHUP"
-                        exerciseRequirements = listOf(ExerciseRequirement(exerciseTypeStr, targetReps))
+                        exerciseRequirements = listOf(ExerciseRequirement(fallbackExercise, fallbackReps))
                     }
                     
-                    // Set up the listener for when a rep is successfully counted
                     initializeExerciseManager { count ->
                         repCountState = count
                     }
-                    
                     isInitialized = true
                 }
 
-                // Close the overlay if the group is disabled or the app is removed from the group
                 LaunchedEffect(allGroups, groupId, targetApp) {
                     if (groupId != -1) {
                         val group = allGroups.find { it.id == groupId }
@@ -106,30 +82,22 @@ class LockOverlayActivity : ComponentActivity() {
                     }
                 }
 
-                // If loading is finished and we have exercises to do:
                 if (isInitialized && exerciseRequirements.isNotEmpty()) {
                     val currentReq = exerciseRequirements[currentExerciseIndex]
                     val exerciseType = try { ExerciseType.valueOf(currentReq.type) } catch(e: Exception) { ExerciseType.PUSHUP }
 
-                    /**
-                     * LaunchedEffect that triggers whenever the exercise or tracking mode changes.
-                     * It restarts the tracking logic.
-                     */
                     LaunchedEffect(currentExerciseIndex, trackingMode) {
                         repCountState = 0
                         bankedRepsUsedInSession = 0
                         if (exerciseType != ExerciseType.APP_USAGE) {
                             initializeAnalyzer(exerciseType, userStats)
                             val cal = userStats?.calibrations?.get("${exerciseType.name}_${trackingMode.name}")
-                            // Tell the manager to start listening for movements
                             exerciseManager.startTracking(exerciseType, trackingMode, currentReq.count, cal)
                         } else {
-                            // Specialized logic for "spending time in another app" requirement
                             exerciseManager.startTracking(ExerciseType.APP_USAGE, TrackingMode.POCKET, currentReq.count)
                         }
                     }
 
-                    // The actual Composable function that draws the UI elements
                     LockOverlayScreen(
                         targetApp = targetApp,
                         repCount = repCountState,
@@ -139,9 +107,7 @@ class LockOverlayActivity : ComponentActivity() {
                         bankedReps = userStats?.bankedReps ?: emptyMap(),
                         onModeChange = { trackingMode = it },
                         onPoseDetected = { pose, width, height ->
-                            // This callback is triggered for every camera frame
                             if (trackingMode == TrackingMode.CAMERA) {
-                                // Send the skeleton data to our specific exercise analyzer
                                 when (val analyzer = currentAnalyzer) {
                                     is PushupAnalyzer -> analyzer.analyzePose(pose, width, height)
                                     is SquatAnalyzer -> analyzer.analyzePose(pose, width, height)
@@ -154,21 +120,14 @@ class LockOverlayActivity : ComponentActivity() {
                                 }
                             }
                         },
-                        onEmergencyBypass = { finish() }, // "finish()" closes this activity
+                        onEmergencyBypass = { finish() },
                         onNextExercise = {
                             lifecycleScope.launch {
-                                // Save what we've done so far to history
                                 saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId)
-
-                                val isLastExercise = currentExerciseIndex == exerciseRequirements.size - 1
-                                val isRequirementMet = repCountState >= currentReq.count
-
-                                if (isLastExercise && isRequirementMet) {
-                                    // If everything is done, unlock the app and close the overlay
+                                if (currentExerciseIndex == exerciseRequirements.size - 1 && repCountState >= currentReq.count) {
                                     performUnlock(groupId)
                                     finish()
-                                } else if (isRequirementMet) {
-                                    // Move to the next exercise in the list
+                                } else if (repCountState >= currentReq.count) {
                                     currentExerciseIndex++
                                 }
                             }
@@ -176,34 +135,25 @@ class LockOverlayActivity : ComponentActivity() {
                         onStopExercise = {
                             lifecycleScope.launch {
                                 saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId)
-                                finish() // Just close without unlocking
+                                finish()
                             }
                         },
                         onUseBankedReps = { type, count ->
-                            // User "paid" using previously stored reps
                             useBankedRep(type, count) { 
                                 bankedRepsUsedInSession += count
-                                // Sync the manual addition with the tracker manager
                                 exerciseManager.addManualReps(count)
                             }
                         },
                         onLaunchRequiredApp = {
-                            // Specialized logic for "APP_USAGE" requirements
                             val pkgs = currentReq.targetPackageNames
                             if (pkgs.isNotEmpty()) {
-                                // Try to launch the first app in the list that exists
                                 var launchIntent: Intent? = null
-                                var pkgToLaunch = ""
                                 for (pkg in pkgs) {
                                     launchIntent = packageManager.getLaunchIntentForPackage(pkg)
-                                    if (launchIntent != null) {
-                                        pkgToLaunch = pkg
-                                        break
-                                    }
+                                    if (launchIntent != null) break
                                 }
 
                                 if (launchIntent != null) {
-                                    // Start a background tracking service to count seconds
                                     val serviceIntent = Intent(this@LockOverlayActivity, GritLockAccessibilityService::class.java).apply {
                                         action = "START_APP_USAGE_TRACKING"
                                         putExtra("group_id", groupId)
@@ -212,7 +162,7 @@ class LockOverlayActivity : ComponentActivity() {
                                     }
                                     startService(serviceIntent)
                                     startActivity(launchIntent)
-                                    finish() // Close overlay so they can use the required app
+                                    finish()
                                 } else {
                                     Toast.makeText(this@LockOverlayActivity, "Could not find any of the required apps", Toast.LENGTH_SHORT).show()
                                 }
@@ -223,11 +173,25 @@ class LockOverlayActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == "FINISH_OVERLAY") {
+            finish()
+            return
+        }
+        targetApp = intent?.getStringExtra("target_app") ?: "Unknown"
+        groupId = intent?.getIntExtra("group_id", -1) ?: -1
+        fallbackReps = intent?.getIntExtra("target_reps", 10) ?: 10
+        fallbackExercise = intent?.getStringExtra("exercise_type") ?: "PUSHUP"
+    }
     
-    /**
-     * Initializes the component that manages exercise sessions.
-     */
     private fun initializeExerciseManager(onRepCount: (Int) -> Unit) {
+        if (::exerciseManager.isInitialized) exerciseManager.shutdown()
         exerciseManager = ExerciseTrackerManager(
             context = this,
             onRepCountChanged = { count ->
@@ -237,9 +201,6 @@ class LockOverlayActivity : ComponentActivity() {
         )
     }
 
-    /**
-     * Chooses the right analyzer logic based on what exercise the user is doing.
-     */
     private fun initializeAnalyzer(type: ExerciseType, stats: UserStats?) {
         val cal = stats?.calibrations?.get("${type.name}_CAMERA")
         currentAnalyzer = when (type) {
@@ -255,9 +216,6 @@ class LockOverlayActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Deducts stored reps from the user's "bank" to satisfy the current lock.
-     */
     private fun useBankedRep(exerciseType: String, count: Int, onComplete: () -> Unit) {
         lifecycleScope.launch {
             val stats = db.dao().getUserStats().first() ?: return@launch
@@ -266,7 +224,6 @@ class LockOverlayActivity : ComponentActivity() {
             if (currentBanked >= count) {
                 val newBanked = stats.bankedReps.toMutableMap()
                 newBanked[exerciseType] = currentBanked - count
-                // Update the database with the new balance
                 db.dao().updateUserStats(stats.copy(bankedReps = newBanked))
                 onComplete()
                 Toast.makeText(this@LockOverlayActivity, "Used 1 banked rep", Toast.LENGTH_SHORT).show()
@@ -274,17 +231,9 @@ class LockOverlayActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Saves the reps the user just performed into their workout history.
-     */
     private suspend fun saveRepsToHistory(exerciseType: ExerciseType, totalReps: Int, bankedUsed: Int, requirement: Int, groupId: Int) {
         val physicalReps = (totalReps - bankedUsed).coerceAtLeast(0)
-        
-        // Calculate extras based on total progress (Physical + Banked) vs requirement
         val extraReps = (totalReps - requirement).coerceAtLeast(0)
-        
-        // Update user stats (XP and Banking)
-        // We only grant XP for physical reps, but we bank based on total excess
         val xpGained = physicalReps * 5
         updateUserStats(xpGained, exerciseType.name, extraReps)
 
@@ -297,8 +246,6 @@ class LockOverlayActivity : ComponentActivity() {
                     xpGained = xpGained
                 )
             )
-
-            // Push to Health Connect so other fitness apps can see this activity
             val healthConnectManager = HealthConnectManager(this)
             if (healthConnectManager.hasPermissions()) {
                 val now = java.time.Instant.now()
@@ -313,44 +260,31 @@ class LockOverlayActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Marks an app group as "Unlocked" so the Accessibility service allows it to run.
-     */
     private suspend fun performUnlock(groupId: Int) {
         if (groupId != -1) {
             val group = db.dao().getGroupById(groupId)
             if (group != null) {
                 val now = System.currentTimeMillis()
-                // Update database
                 db.dao().updateGroup(group.copy(lastUnlockedTimestamp = now))
-                // Update the memory-only manager for faster response
                 LockStatusManager.updateUnlock(groupId, now)
                 Log.d("LockOverlay", "Group $groupId UNLOCKED at $now")
             }
         }
     }
 
-    /**
-     * Updates the user's XP and checks if they've leveled up.
-     */
     private suspend fun updateUserStats(xpGained: Int, exerciseType: String, extraReps: Int) {
         val currentStats = db.dao().getUserStats().first() ?: UserStats()
-        
         var newXp = currentStats.totalXp + xpGained
         var newLevel = currentStats.level
         val xpNeeded = newLevel * 100
-        
-        // Level up logic (every 100 XP is a level)
         while (newXp >= xpNeeded) {
             newXp -= xpNeeded
             newLevel++
         }
-
         val newBankedReps = currentStats.bankedReps.toMutableMap()
         if (extraReps > 0) {
             newBankedReps[exerciseType] = (newBankedReps[exerciseType] ?: 0) + extraReps
         }
-        
         db.dao().updateUserStats(
             currentStats.copy(
                 totalXp = newXp,
@@ -361,13 +295,10 @@ class LockOverlayActivity : ComponentActivity() {
         )
     }
 
-    /**
-     * Cleanup code called when the screen is closed.
-     */
     override fun onDestroy() {
         super.onDestroy()
         if (::exerciseManager.isInitialized) {
-            exerciseManager.shutdown() // Stop sensors and release resources
+            exerciseManager.shutdown()
         }
     }
 }
