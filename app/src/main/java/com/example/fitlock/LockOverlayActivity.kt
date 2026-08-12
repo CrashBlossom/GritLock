@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.*
 import androidx.lifecycle.lifecycleScope
+import androidx.room.Room
 import com.example.fitlock.data.GritLockDatabase
 import com.example.fitlock.data.UserStats
 import com.example.fitlock.data.WorkoutHistory
@@ -46,6 +47,7 @@ class LockOverlayActivity : ComponentActivity() {
                 
                 var currentExerciseIndex by remember { mutableIntStateOf(0) }
                 var repCountState by remember { mutableIntStateOf(0) }
+                var isStationaryState by remember { mutableStateOf(false) }
                 var bankedRepsUsedInSession by remember { mutableIntStateOf(0) }
                 var trackingMode by remember { mutableStateOf(TrackingMode.CAMERA) }
                 var exerciseRequirements by remember { mutableStateOf<List<ExerciseRequirement>>(emptyList()) }
@@ -63,9 +65,10 @@ class LockOverlayActivity : ComponentActivity() {
                         exerciseRequirements = listOf(ExerciseRequirement(fallbackExercise, fallbackReps))
                     }
                     
-                    initializeExerciseManager { count ->
-                        repCountState = count
-                    }
+                    initializeExerciseManager(
+                        onRepCount = { count -> repCountState = count },
+                        onStationaryStatusChanged = { isSteady -> isStationaryState = isSteady }
+                    )
                     isInitialized = true
                 }
 
@@ -101,6 +104,7 @@ class LockOverlayActivity : ComponentActivity() {
                     LockOverlayScreen(
                         targetApp = targetApp,
                         repCount = repCountState,
+                        isStationary = isStationaryState,
                         exerciseRequirements = exerciseRequirements,
                         currentExerciseIndex = currentExerciseIndex,
                         trackingMode = trackingMode,
@@ -135,6 +139,11 @@ class LockOverlayActivity : ComponentActivity() {
                         onStopExercise = {
                             lifecycleScope.launch {
                                 saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId)
+                                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                    addCategory(Intent.CATEGORY_HOME)
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                startActivity(homeIntent)
                                 finish()
                             }
                         },
@@ -190,14 +199,15 @@ class LockOverlayActivity : ComponentActivity() {
         fallbackExercise = intent?.getStringExtra("exercise_type") ?: "PUSHUP"
     }
     
-    private fun initializeExerciseManager(onRepCount: (Int) -> Unit) {
+    private fun initializeExerciseManager(onRepCount: (Int) -> Unit, onStationaryStatusChanged: (Boolean) -> Unit) {
         if (::exerciseManager.isInitialized) exerciseManager.shutdown()
         exerciseManager = ExerciseTrackerManager(
             context = this,
             onRepCountChanged = { count ->
                 onRepCount(count)
             },
-            onWorkoutComplete = { reps -> }
+            onWorkoutComplete = { reps -> },
+            onStationaryStatusChanged = onStationaryStatusChanged
         )
     }
 

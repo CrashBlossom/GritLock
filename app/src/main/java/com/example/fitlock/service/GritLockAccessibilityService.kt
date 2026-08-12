@@ -51,7 +51,6 @@ class GritLockAccessibilityService : AccessibilityService() {
     private var countdownRunnable: Runnable? = null
     
     private var persistentSecondsLeft: Int = -1
-    private var currentAppStartTime: Long = 0
 
     // For APP_USAGE tracking
     private var activeAppUsageGroup: Int = -1
@@ -339,16 +338,13 @@ class GritLockAccessibilityService : AccessibilityService() {
         val isUnlocked = timeSinceUnlock < unlockDurationMs
 
         if (!isUnlocked) {
-            currentAppStartTime = 0
             if (packageName != currentCountdownApp) {
                 if (isCountdownShowing) removeCountdown()
                 startCountdown(packageName, group)
             }
         } else {
-            if (currentAppStartTime == 0L) currentAppStartTime = now
             val remainingMs = unlockDurationMs - timeSinceUnlock
-            val sMs = now - currentAppStartTime
-            updateNotification("GritLock: App Unlocked", "Spent: ${formatTime((sMs/1000).toInt())} | Relocking in ${formatTime((remainingMs/1000).toInt())}")
+            updateNotification("GritLock: App Unlocked", "Access expires in ${formatTime((remainingMs/1000).toInt())}")
             
             handler.removeCallbacksAndMessages(null)
             handler.postDelayed(object : Runnable {
@@ -357,11 +353,9 @@ class GritLockAccessibilityService : AccessibilityService() {
                         val updatedNow = System.currentTimeMillis()
                         val updatedRemainingMs = unlockDurationMs - (updatedNow - lastUnlocked)
                         if (updatedRemainingMs > 0) {
-                            val spent = (updatedNow - currentAppStartTime) / 1000
-                            updateNotification("GritLock: App Unlocked", "Spent: ${formatTime(spent.toInt())} | Relocking in ${formatTime((updatedRemainingMs/1000).toInt())}")
+                            updateNotification("GritLock: App Unlocked", "Access expires in ${formatTime((updatedRemainingMs/1000).toInt())}")
                             handler.postDelayed(this, 1000)
                         } else {
-                            currentAppStartTime = 0
                             handleGroupMonitoring(packageName, group)
                         }
                     }
@@ -432,11 +426,15 @@ class GritLockAccessibilityService : AccessibilityService() {
                         } else countdownView?.visibility = View.GONE
                         handler.postDelayed(this, 1000)
                     } else {
-                        isCountdownShowing = false
-                        countdownView?.let { try { windowManager?.removeView(it) } catch (e: Exception) {} }
-                        countdownView = null
+                        val target = targetPackage
                         val firstReq = group.exercises.firstOrNull()
-                        if (firstReq != null) triggerOverlay(targetPackage, firstReq.count, firstReq.type, group.id)
+                        val reps = firstReq?.count ?: 10
+                        val type = firstReq?.type ?: "PUSHUP"
+                        val gId = group.id
+                        
+                        handler.post { Toast.makeText(this@GritLockAccessibilityService, "Time's up! Complete requirements to unlock.", Toast.LENGTH_SHORT).show() }
+                        removeCountdown()
+                        triggerOverlay(target, reps, type, gId)
                     }
                 }
             }
@@ -457,8 +455,14 @@ class GritLockAccessibilityService : AccessibilityService() {
                     updateNotification("GritLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
                     handler.postDelayed(this, 1000)
                 } else {
+                    val target = targetPackage
                     val firstReq = group.exercises.firstOrNull()
-                    if (firstReq != null) triggerOverlay(targetPackage, firstReq.count, firstReq.type, group.id)
+                    val reps = firstReq?.count ?: 10
+                    val type = firstReq?.type ?: "PUSHUP"
+                    val gId = group.id
+                    
+                    removeCountdown()
+                    triggerOverlay(target, reps, type, gId)
                 }
             }
         }

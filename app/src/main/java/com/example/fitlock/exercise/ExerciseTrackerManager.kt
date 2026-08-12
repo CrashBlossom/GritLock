@@ -1,9 +1,14 @@
 package com.example.fitlock.exercise
 
 import android.content.Context
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.speech.tts.TextToSpeech
 import com.example.fitlock.data.ExerciseCalibration
 import java.util.*
+import kotlin.math.sqrt
 
 enum class ExerciseType { PUSHUP, SQUAT, PULLUP, DIP, SITUP, HINGE, ROW, PLANK, STEPS, APP_USAGE }
 enum class TrackingMode { CAMERA, POCKET }
@@ -11,8 +16,9 @@ enum class TrackingMode { CAMERA, POCKET }
 class ExerciseTrackerManager(
     private val context: Context,
     private val onRepCountChanged: (Int) -> Unit,
-    private val onWorkoutComplete: (Int) -> Unit
-) : TextToSpeech.OnInitListener {
+    private val onWorkoutComplete: (Int) -> Unit,
+    private val onStationaryStatusChanged: (Boolean) -> Unit = {}
+) : TextToSpeech.OnInitListener, SensorEventListener {
 
     private var tts: TextToSpeech? = TextToSpeech(context, this)
     private var currentReps = 0
@@ -24,6 +30,14 @@ class ExerciseTrackerManager(
     private var goalReachedSpoken = false
     private var workoutStartTime: Long = 0
 
+    // Stationary detection
+    private var sensorManager: SensorManager? = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+    private var accelerometer: Sensor? = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    private var isStationary = false
+    private var lastStationaryStartTime = 0L
+    private val SETTLING_TIME_MS = 2000L // Must be still for 2 seconds
+    private var currentMode: TrackingMode = TrackingMode.CAMERA
+
     fun startTracking(type: ExerciseType, mode: TrackingMode, goal: Int, calibration: ExerciseCalibration? = null) {
         this.targetReps = goal
         this.currentReps = 0
@@ -31,6 +45,10 @@ class ExerciseTrackerManager(
         this.currentCalibration = calibration
         this.goalReachedSpoken = false
         this.workoutStartTime = System.currentTimeMillis()
+        this.currentMode = mode
+        this.isStationary = false
+        this.lastStationaryStartTime = 0L
+        onStationaryStatusChanged(false)
         
         if (mode == TrackingMode.POCKET) {
             sensorTracker?.stop()
@@ -39,9 +57,13 @@ class ExerciseTrackerManager(
             
             val guide = PocketExerciseGuide.getPlacementInstruction(type)
             speak("Placement guide: $guide")
+            // Unregister stationary detection for pocket mode
+            sensorManager?.unregisterListener(this)
         } else {
             sensorTracker?.stop()
             sensorTracker = null
+            // Register stationary detection for camera mode
+            sensorManager?.registerListener(this, accelerometer, SensorManager.SENSOR_DELAY_UI)
         }
         
         val modeStr = if (mode == TrackingMode.CAMERA) "Camera" else "Pocket"
@@ -54,11 +76,48 @@ class ExerciseTrackerManager(
         }
     }
 
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (currentExerciseType == null || currentMode != TrackingMode.CAMERA || event?.sensor?.type != Sensor.TYPE_ACCELEROMETER) return
+        
+        val x = event.values[0]
+        val y = event.values[1]
+        val z = event.values[2]
+        
+        // Calculate magnitude minus gravity (roughly 9.806)
+        val g = sqrt(x*x + y*y + z*z)
+        val movement = Math.abs(g - 9.80665f)
+        
+        val MOVEMENT_THRESHOLD = 0.4f // Reverting to balanced sensitivity
+        val now = System.currentTimeMillis()
+
+        if (movement > MOVEMENT_THRESHOLD) {
+            if (isStationary || lastStationaryStartTime != 0L) {
+                isStationary = false
+                lastStationaryStartTime = 0L
+                onStationaryStatusChanged(false)
+            }
+        } else {
+            if (lastStationaryStartTime == 0L) {
+                lastStationaryStartTime = now
+            } else if (!isStationary && (now - lastStationaryStartTime > SETTLING_TIME_MS)) {
+                isStationary = true
+                onStationaryStatusChanged(true)
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
     fun getDurationSeconds(): Long {
         return (System.currentTimeMillis() - workoutStartTime) / 1000
     }
 
     fun onRepDetected() {
+        if (currentMode == TrackingMode.CAMERA && !isStationary) {
+            // Movement detected or still settling, ignore the rep
+            return
+        }
+
         currentReps++
         onRepCountChanged(currentReps)
         
@@ -107,5 +166,9 @@ class ExerciseTrackerManager(
         tts?.shutdown()
         tts = null
         sensorTracker?.stop()
+        sensorManager?.unregisterListener(this)
+        currentExerciseType = null
+        isStationary = false
+        lastStationaryStartTime = 0L
     }
 }

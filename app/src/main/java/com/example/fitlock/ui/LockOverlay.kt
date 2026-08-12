@@ -1,5 +1,6 @@
 package com.example.fitlock.ui
 
+import androidx.activity.compose.BackHandler
 import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -49,6 +50,7 @@ import java.util.concurrent.Executors
 fun LockOverlayScreen(
     targetApp: String,
     repCount: Int,
+    isStationary: Boolean = true,
     exerciseRequirements: List<ExerciseRequirement>,
     currentExerciseIndex: Int,
     trackingMode: TrackingMode,
@@ -61,6 +63,17 @@ fun LockOverlayScreen(
     onUseBankedReps: (String, Int) -> Unit,
     onLaunchRequiredApp: () -> Unit = {}
 ) {
+    val context = LocalContext.current
+    
+    // Intercept back button and send user to Home screen
+    BackHandler {
+        val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
+            addCategory(android.content.Intent.CATEGORY_HOME)
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(homeIntent)
+    }
+
     var currentPose by remember { mutableStateOf<Pose?>(null) }
     var imageWidth by remember { mutableIntStateOf(0) }
     var imageHeight by remember { mutableIntStateOf(0) }
@@ -190,11 +203,28 @@ fun LockOverlayScreen(
                             .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(16.dp))
                             .padding(horizontal = 24.dp, vertical = 8.dp)
                     ) {
-                        Text(
-                            text = "$repCount / ${currentReq.count}",
-                            style = MaterialTheme.typography.displayMedium,
-                            color = if (isComplete) Color.Green else Color.White
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            if (trackingMode == TrackingMode.CAMERA) {
+                                Surface(
+                                    color = (if (isStationary) Color.Green else Color.Red).copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                ) {
+                                    Text(
+                                        text = if (isStationary) "✓ Phone is steady. Tracking active." else "⚠ Phone is moving. Please set it down.",
+                                        color = if (isStationary) Color.Green else Color.Red,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                            Text(
+                                text = "$repCount / ${currentReq.count}",
+                                style = MaterialTheme.typography.displayMedium,
+                                color = if (isComplete) Color.Green else Color.White
+                            )
+                        }
                     }
                 }
             }

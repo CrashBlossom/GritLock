@@ -135,49 +135,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
         // State variables for the active workout session
         val repCountState = mutableIntStateOf(0)
-        var currentExerciseType by mutableStateOf(ExerciseType.PUSHUP)
+        var currentExerciseType by mutableStateOf<ExerciseType?>(ExerciseType.PUSHUP)
         var currentGoal by mutableIntStateOf(10)
 
-        // Initialize the exercise manager with callbacks
-        exerciseManager = ExerciseTrackerManager(
-            context = this,
-            onRepCountChanged = { count ->
-                repCountState.intValue = count
-            },
-            onWorkoutComplete = { reps ->
-                // lifecycleScope.launch starts a "Coroutine" (background task)
-                lifecycleScope.launch {
-                    val physicalReps = (reps - bankedUsedInSession).coerceAtLeast(0)
-                    if (physicalReps > 0) {
-                        val xpGained = physicalReps * 5
-                        
-                        // Save workout to database
-                        db.dao().insertWorkout(
-                            WorkoutHistory(
-                                exerciseType = currentExerciseType.name,
-                                repsCompleted = physicalReps,
-                                appGroupId = 0,
-                                xpGained = xpGained
-                            )
-                        )
-                        // Update user's overall stats (XP and Level)
-                        updateUserStats(xpGained, currentExerciseType.name, physicalReps)
-                        
-                        // Sync this workout to Android's Health Connect system
-                        val now = java.time.Instant.now()
-                        val duration = exerciseManager.getDurationSeconds()
-                        healthConnectManager.writeExerciseSession(
-                            currentExerciseType.name,
-                            physicalReps,
-                            now.minusSeconds(duration),
-                            now
-                        )
-                        
-                        Toast.makeText(this@MainActivity, "Workout Saved! +$xpGained XP, Banked $physicalReps reps", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        )
+        // Initialize with default
+        initializeExerciseManager(onRepCount = { repCountState.intValue = it })
 
         // Setup the built-in step counter sensor
         sensorManager = getSystemService(Context.SENSOR_SERVICE) as SensorManager
@@ -282,12 +244,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     todayTotals = todayTotals,
                                     onChallengeClick = { challenge ->
                                         if (challenge.requirements.isNotEmpty()) {
-                                            val req = challenge.requirements.first()
-                                            currentExerciseType = try { ExerciseType.valueOf(req.type) } catch(_: Exception) { ExerciseType.PUSHUP }
-                                            currentGoal = req.count
-                                            repCountState.intValue = 0
-                                            initializeAnalyzers(currentExerciseType, userStats)
-                                            exerciseManager.startTracking(currentExerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${currentExerciseType.name}_${trackingMode.name}"))
                                             activeRequirements = challenge.requirements
                                             currentRequirementIndex = 0
                                             unlockingVaultItem = null
@@ -295,11 +251,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         }
                                     },
                                     onExerciseClick = { type, goal ->
-                                        currentExerciseType = type
-                                        currentGoal = goal
-                                        repCountState.intValue = 0
-                                        initializeAnalyzers(type, userStats)
-                                        exerciseManager.startTracking(type, trackingMode, goal, userStats?.calibrations?.get("${type.name}_${trackingMode.name}"))
                                         activeRequirements = listOf(ExerciseRequirement(type.name, goal))
                                         currentRequirementIndex = 0
                                         unlockingVaultItem = null
@@ -334,12 +285,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     },
                                     onUnlockVaultItem = { item ->
                                         if (item.requirements.isNotEmpty()) {
-                                            val req = item.requirements.first()
-                                            currentExerciseType = try { ExerciseType.valueOf(req.type) } catch(_: Exception) { ExerciseType.PUSHUP }
-                                            currentGoal = req.count
-                                            repCountState.intValue = 0
-                                            initializeAnalyzers(currentExerciseType, userStats)
-                                            exerciseManager.startTracking(currentExerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${currentExerciseType.name}_${trackingMode.name}"))
                                             activeRequirements = item.requirements
                                             currentRequirementIndex = 0
                                             unlockingVaultItem = item
@@ -369,7 +314,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             }
                             "settings" -> {
                                 SettingsScreen(
-                                    onBack = { currentScreen = "groups" },
+                                    onBack = { currentScreen = "home" },
                                     trackingMode = trackingMode,
                                     onTrackingModeChange = { trackingMode = it },
                                     userStats = userStats,
@@ -394,10 +339,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             } else {
                                                 db.dao().updateGroup(group)
                                             }
-                                            currentScreen = "groups"
+                                            currentScreen = "locks"
                                         }
                                     },
-                                    onBack = { currentScreen = "groups" }
+                                    onBack = { currentScreen = "locks" }
                                 )
                             }
                             "calibrate" -> {
@@ -421,25 +366,40 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             "track" -> {
                                 val currentReq = activeRequirements.getOrNull(currentRequirementIndex)
                                 if (currentReq != null) {
+                                    var isStationaryState by remember { mutableStateOf(false) }
+                                    
                                     // Update local tracking state for current requirement
-                                    LaunchedEffect(currentRequirementIndex) {
+                                    LaunchedEffect(currentRequirementIndex, trackingMode) {
                                         val req = activeRequirements[currentRequirementIndex]
-                                        currentExerciseType = try { ExerciseType.valueOf(req.type) } catch(e: Exception) { ExerciseType.PUSHUP }
+                                        val exerciseType = try { ExerciseType.valueOf(req.type) } catch(e: Exception) { ExerciseType.PUSHUP }
+                                        currentExerciseType = exerciseType
                                         currentGoal = req.count
                                         repCountState.intValue = 0
                                         bankedUsedInSession = 0
                                         
-                                        if (currentExerciseType != ExerciseType.APP_USAGE) {
-                                            initializeAnalyzers(currentExerciseType, userStats)
-                                            exerciseManager.startTracking(currentExerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${currentExerciseType.name}_${trackingMode.name}"))
+                                        initializeExerciseManager(
+                                            onRepCount = { repCountState.intValue = it },
+                                            onStationaryStatusChanged = { isSteady -> isStationaryState = isSteady }
+                                        )
+
+                                        if (exerciseType != ExerciseType.APP_USAGE) {
+                                            initializeAnalyzers(exerciseType, userStats)
+                                            exerciseManager.startTracking(exerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${exerciseType.name}_${trackingMode.name}"))
                                         } else {
                                             exerciseManager.startTracking(ExerciseType.APP_USAGE, TrackingMode.POCKET, currentGoal)
+                                        }
+                                    }
+
+                                    DisposableEffect(Unit) {
+                                        onDispose {
+                                            exerciseManager.shutdown()
                                         }
                                     }
 
                                     LockOverlayScreen(
                                         targetApp = unlockingVaultItem?.title ?: "Workout Mode",
                                         repCount = repCountState.intValue,
+                                        isStationary = isStationaryState,
                                         exerciseRequirements = activeRequirements,
                                         currentExerciseIndex = currentRequirementIndex,
                                         trackingMode = trackingMode,
@@ -461,7 +421,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             }
                                         },
                                         onEmergencyBypass = { 
-                                            currentScreen = if (unlockingVaultItem != null) "vault" else "groups"
+                                            currentScreen = if (unlockingVaultItem != null) "vault" else "home"
                                             unlockingVaultItem = null
                                         },
                                         onNextExercise = {
@@ -474,18 +434,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                     
                                                     db.dao().insertWorkout(
                                                         WorkoutHistory(
-                                                            exerciseType = currentExerciseType.name,
+                                                            exerciseType = currentExerciseType!!.name,
                                                             repsCompleted = physicalReps,
                                                             appGroupId = 0,
                                                             xpGained = xpGained
                                                         )
                                                     )
-                                                    updateUserStats(xpGained, currentExerciseType.name, physicalReps)
+                                                    updateUserStats(xpGained, currentExerciseType!!.name, physicalReps)
                                                     
                                                     val now = java.time.Instant.now()
                                                     val duration = exerciseManager.getDurationSeconds()
                                                     healthConnectManager.writeExerciseSession(
-                                                        currentExerciseType.name,
+                                                        currentExerciseType!!.name,
                                                         physicalReps,
                                                         now.minusSeconds(duration),
                                                         now
@@ -495,12 +455,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                 if (currentRequirementIndex < activeRequirements.size - 1) {
                                                     currentRequirementIndex++
                                                 } else {
-                                                    // Finished all requirements
                                                     unlockingVaultItem?.let { item ->
                                                         db.dao().upsertVaultItem(item.copy(lastUnlockedTimestamp = System.currentTimeMillis()))
                                                         currentScreen = "vault"
                                                     } ?: run {
-                                                        currentScreen = "groups"
+                                                        currentScreen = "home"
                                                     }
                                                     unlockingVaultItem = null
                                                 }
@@ -516,27 +475,34 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                     
                                                     db.dao().insertWorkout(
                                                         WorkoutHistory(
-                                                            exerciseType = currentExerciseType.name,
+                                                            exerciseType = currentExerciseType!!.name,
                                                             repsCompleted = physicalReps,
                                                             appGroupId = 0,
                                                             xpGained = xpGained
                                                         )
                                                     )
-                                                    updateUserStats(xpGained, currentExerciseType.name, physicalReps)
+                                                    updateUserStats(xpGained, currentExerciseType!!.name, physicalReps)
                                                     
                                                     val now = java.time.Instant.now()
                                                     val duration = exerciseManager.getDurationSeconds()
                                                     healthConnectManager.writeExerciseSession(
-                                                        currentExerciseType.name,
+                                                        currentExerciseType!!.name,
                                                         physicalReps,
                                                         now.minusSeconds(duration),
                                                         now
                                                     )
                                                 }
+                                                // Send user to Home screen on stop
+                                                val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                                                    addCategory(Intent.CATEGORY_HOME)
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                                }
+                                                startActivity(homeIntent)
+
                                                 if (unlockingVaultItem != null) {
                                                     currentScreen = "vault"
                                                 } else {
-                                                    currentScreen = "groups"
+                                                    currentScreen = "home"
                                                 }
                                                 unlockingVaultItem = null
                                             }
@@ -572,9 +538,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                     }
                                                     startService(serviceIntent)
                                                     startActivity(launchIntent)
-                                                    // For vault, we might want to stay in main activity or close it?
-                                                    // Usually we stay, but service will track.
-                                                    // If we're in track screen, maybe we stay here.
                                                 }
                                             }
                                         }
@@ -670,7 +633,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val now = Calendar.getInstance()
             val dayOfYear = now.get(Calendar.DAY_OF_YEAR)
             
-            // Gradual OPM Scaling: Start at 10, add 3 every day, cap at 100
             val opmBase = 10
             val dailyIncrement = 3
             val currentOpmGoal = (opmBase + (dayOfYear * dailyIncrement)).coerceAtMost(100)
@@ -712,6 +674,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             ExerciseType.PLANK -> plankAnalyzer = PlankAnalyzer(exerciseManager)
             else -> {}
         }
+    }
+
+    private fun initializeExerciseManager(onRepCount: (Int) -> Unit, onStationaryStatusChanged: (Boolean) -> Unit = {}) {
+        if (::exerciseManager.isInitialized) exerciseManager.shutdown()
+        exerciseManager = ExerciseTrackerManager(
+            context = this,
+            onRepCountChanged = { count ->
+                onRepCount(count)
+            },
+            onWorkoutComplete = { reps -> },
+            onStationaryStatusChanged = onStationaryStatusChanged
+        )
     }
 
     /**
@@ -769,6 +743,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         super.onResume()
         // Refresh data whenever the user returns to the app
         refreshStepsFromHealth()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (::exerciseManager.isInitialized) {
+            exerciseManager.shutdown()
+        }
     }
 
     /**
