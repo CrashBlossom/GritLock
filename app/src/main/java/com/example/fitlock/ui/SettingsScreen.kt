@@ -61,6 +61,12 @@ fun SettingsScreen(
 
     // Strict Mode state
     var strictMode by remember { mutableStateOf(prefs.getBoolean("strict_mode", false)) }
+    
+    // Master Password state
+    var masterPasswordEnabled by remember { mutableStateOf(prefs.getBoolean("master_password_enabled", false)) }
+    val masterPassword = remember { prefs.getString("master_password", "") ?: "" }
+    var showSetPasswordDialog by remember { mutableStateOf(false) }
+    var showVerifyPasswordDialog by remember { mutableStateOf(false) }
 
     // Refresh permissions
     LaunchedEffect(Unit) {
@@ -331,10 +337,57 @@ fun SettingsScreen(
                         }
                     )
                 }
+                
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Master Password Protection", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                        Text("Requires a password to disable groups or protection.", color = Color.Gray, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = masterPasswordEnabled,
+                        onCheckedChange = { isEnabling ->
+                            if (isEnabling) {
+                                showSetPasswordDialog = true
+                            } else {
+                                showVerifyPasswordDialog = true
+                            }
+                        }
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+
+        if (showSetPasswordDialog) {
+            SetMasterPasswordDialog(
+                onDismiss = { showSetPasswordDialog = false },
+                onSave = { newPass ->
+                    prefs.edit()
+                        .putBoolean("master_password_enabled", true)
+                        .putString("master_password", newPass)
+                        .apply()
+                    masterPasswordEnabled = true
+                    showSetPasswordDialog = false
+                    Toast.makeText(context, "Master Protection Enabled", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
+        
+        if (showVerifyPasswordDialog) {
+            MasterPasswordDialog(
+                correctPassword = masterPassword,
+                onDismiss = { showVerifyPasswordDialog = false },
+                onSuccess = {
+                    prefs.edit().putBoolean("master_password_enabled", false).apply()
+                    masterPasswordEnabled = false
+                    showVerifyPasswordDialog = false
+                    Toast.makeText(context, "Protection Disabled", Toast.LENGTH_SHORT).show()
+                }
+            )
+        }
 
         // Rep Bank Management Section
         SectionHeader("Rep Bank Management")

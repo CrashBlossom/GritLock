@@ -12,7 +12,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import android.content.Context
 import com.example.fitlock.data.AppGroup
 import com.example.fitlock.data.VaultItem
 
@@ -28,7 +30,26 @@ fun LocksHub(
     onDeleteVaultItem: (VaultItem) -> Unit,
     onUnlockVaultItem: (VaultItem) -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
+    
     var selectedTab by remember { mutableIntStateOf(0) }
+    
+    // Master Password state management
+    var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    
+    val isProtectionEnabled = prefs.getBoolean("master_password_enabled", false)
+    val masterPassword = prefs.getString("master_password", "") ?: ""
+
+    val handleProtectedAction = { action: () -> Unit ->
+        if (isProtectionEnabled) {
+            pendingAction = action
+            showPasswordDialog = true
+        } else {
+            action()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -59,10 +80,16 @@ fun LocksHub(
             if (selectedTab == 0) {
                 AppGroupsContent(
                     groups = groups,
-                    onAdd = onAddGroup,
-                    onEdit = onEditGroup,
-                    onDelete = onDeleteGroup,
-                    onToggle = onToggleGroup
+                    onAdd = { handleProtectedAction(onAddGroup) },
+                    onEdit = { handleProtectedAction { onEditGroup(it) } },
+                    onDelete = { handleProtectedAction { onDeleteGroup(it) } },
+                    onToggle = { group ->
+                        if (isProtectionEnabled && group.isEnabled) {
+                            handleProtectedAction { onToggleGroup(group) }
+                        } else {
+                            onToggleGroup(group)
+                        }
+                    }
                 )
             } else {
                 VaultScreen(
@@ -73,6 +100,18 @@ fun LocksHub(
                 )
             }
         }
+    }
+
+    if (showPasswordDialog) {
+        MasterPasswordDialog(
+            correctPassword = masterPassword,
+            onDismiss = { showPasswordDialog = false },
+            onSuccess = {
+                showPasswordDialog = false
+                pendingAction?.invoke()
+                pendingAction = null
+            }
+        )
     }
 }
 

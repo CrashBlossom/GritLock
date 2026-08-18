@@ -105,6 +105,11 @@ class GritLockAccessibilityService : AccessibilityService() {
 
     private fun cancelNotification() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
+            .build()
         notificationManager.cancel(NOTIFICATION_ID)
     }
 
@@ -129,11 +134,23 @@ class GritLockAccessibilityService : AccessibilityService() {
             }
 
             val enabledGroups = allGroups.filter { it.isEnabled }
-            val matchingGroup = enabledGroups.find { it.packageNames.contains(activeApp) }
+            val matchingGroups = enabledGroups.filter { it.packageNames.contains(activeApp) }
             
-            if (matchingGroup != null) {
-                if (isScheduleActive(matchingGroup.schedule)) {
-                    if (currentCountdownApp == null) handleGroupMonitoring(activeApp, matchingGroup)
+            if (matchingGroups.isNotEmpty()) {
+                val activeGroups = matchingGroups.filter { isScheduleActive(it.schedule) }
+                if (activeGroups.isNotEmpty()) {
+                    // STACKING: Find first group that is actually locked
+                    val lockedGroup = activeGroups.find { group ->
+                        val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                        val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                        (System.currentTimeMillis() - lastUnlocked) >= unlockDurationMs
+                    }
+
+                    if (lockedGroup != null) {
+                        if (currentCountdownApp == null) handleGroupMonitoring(activeApp, lockedGroup)
+                    } else if (currentCountdownApp != null) {
+                        removeCountdown()
+                    }
                 } else if (currentCountdownApp != null) {
                     removeCountdown()
                 }
@@ -145,7 +162,13 @@ class GritLockAccessibilityService : AccessibilityService() {
                     if (keywordsToBlock.isNotEmpty()) {
                         val foundKeyword = findKeywordInNode(rootNode, keywordsToBlock)
                         if (foundKeyword != null) {
-                            keywordBlockedGroup = activeKeywordGroups.find { it.keywords.contains(foundKeyword) }
+                            // STACKING for keywords
+                            val matchingKeywordGroups = activeKeywordGroups.filter { it.keywords.contains(foundKeyword) }
+                            keywordBlockedGroup = matchingKeywordGroups.find { group ->
+                                val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                                val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                                (System.currentTimeMillis() - lastUnlocked) >= unlockDurationMs
+                            }
                         }
                     }
                 }
@@ -187,44 +210,66 @@ class GritLockAccessibilityService : AccessibilityService() {
             event.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED ||
             event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             
-            val matchingGroup = allGroups.find { it.packageNames.contains(packageName) && it.isEnabled }
+            val matchingGroups = allGroups.filter { it.packageNames.contains(packageName) && it.isEnabled }
             
-            if (matchingGroup != null) {
-                if (isScheduleActive(matchingGroup.schedule)) {
-                    if (activeAppUsageGroup == matchingGroup.id) {
-                        triggerOverlay(packageName, 0, ExerciseType.APP_USAGE.name, matchingGroup.id)
+            if (matchingGroups.isNotEmpty()) {
+                val activeGroups = matchingGroups.filter { isScheduleActive(it.schedule) }
+                if (activeGroups.isNotEmpty()) {
+                    // DISCIPLINE STACKING: Find the first group that is NOT yet unlocked
+                    val lockedGroup = activeGroups.find { group ->
+                        val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                        val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                        (System.currentTimeMillis() - lastUnlocked) >= unlockDurationMs
+                    }
+
+                    if (lockedGroup != null) {
+                        if (activeAppUsageGroup == lockedGroup.id) {
+                            triggerOverlay(packageName, 0, ExerciseType.APP_USAGE.name, lockedGroup.id)
+                            return
+                        }
+                        handleGroupMonitoring(packageName, lockedGroup)
+                        return
+                    } else {
+                        // ALL groups for this app are unlocked. Show info for the one expiring soonest.
+                        val soonestExpiring = activeGroups.minByOrNull { group ->
+                            val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                            lastUnlocked + (group.unlockDurationMinutes * 60 * 1000L)
+                        }
+                        if (soonestExpiring != null) handleGroupMonitoring(packageName, soonestExpiring)
                         return
                     }
-                    handleGroupMonitoring(packageName, matchingGroup)
-                    return
                 }
             }
 
             val nodeToSearch = rootInActiveWindow ?: event.source
             if (nodeToSearch != null) {
-                val activeGroups = allGroups.filter { it.isEnabled && isScheduleActive(it.schedule) }
-                val keywordsToBlock = activeGroups.flatMap { it.keywords }
+                val enabledGroups = allGroups.filter { it.isEnabled && isScheduleActive(it.schedule) }
+                val keywordsToBlock = enabledGroups.flatMap { it.keywords }
                 
                 if (keywordsToBlock.isNotEmpty()) {
                     val foundKeyword = findKeywordInNode(nodeToSearch, keywordsToBlock)
                     if (foundKeyword != null) {
-                        val keywordGroup = activeGroups.find { it.keywords.contains(foundKeyword) }
-                        if (keywordGroup != null) {
-                            if (activeAppUsageGroup == keywordGroup.id) {
-                                triggerOverlay(packageName, 0, ExerciseType.APP_USAGE.name, keywordGroup.id)
+                        val keywordGroups = enabledGroups.filter { it.keywords.contains(foundKeyword) }
+                        val lockedKeywordGroup = keywordGroups.find { group ->
+                            val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                            val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                            (System.currentTimeMillis() - lastUnlocked) >= unlockDurationMs
+                        }
+
+                        if (lockedKeywordGroup != null) {
+                            if (activeAppUsageGroup == lockedKeywordGroup.id) {
+                                triggerOverlay(packageName, 0, ExerciseType.APP_USAGE.name, lockedKeywordGroup.id)
                                 return
                             }
-                            handleGroupMonitoring(packageName, keywordGroup)
+                            handleGroupMonitoring(packageName, lockedKeywordGroup)
                             return
                         }
-                    } else if (currentCountdownApp == packageName && matchingGroup == null) {
+                    } else if (currentCountdownApp == packageName && matchingGroups.isEmpty()) {
                         removeCountdown()
                     }
-                } else if (currentCountdownApp == packageName && matchingGroup == null) {
+                } else if (currentCountdownApp == packageName && matchingGroups.isEmpty()) {
                     removeCountdown()
                 }
-            } else if (currentCountdownApp == packageName && matchingGroup == null) {
-                // If we can't see nodes, we can't verify keywords, so we might need to remove countdown
             }
             
             if (currentCountdownApp != null && packageName != currentCountdownApp) {
@@ -412,6 +457,8 @@ class GritLockAccessibilityService : AccessibilityService() {
             val btnDismiss = countdownView?.findViewById<Button>(R.id.btn_dismiss_countdown)
             pbCountdown?.max = lockoutSeconds
             pbCountdown?.progress = persistentSecondsLeft
+
+            updateNotification("GritLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
 
             countdownRunnable = object : Runnable {
                 override fun run() {
