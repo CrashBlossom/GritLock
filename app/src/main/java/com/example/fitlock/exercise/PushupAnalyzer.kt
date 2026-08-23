@@ -14,6 +14,7 @@ class PushupAnalyzer(
     private var isDown = false
     private var lastRepTime = 0L
     private val REP_COOLDOWN_MS = 1000L
+    private val MIN_CONFIDENCE = 0.8f // Option 1: Higher confidence gate
 
     // Default values if no calibration exists
     private var minElbowAngle = calibration?.bottomValue ?: 90.0
@@ -27,30 +28,41 @@ class PushupAnalyzer(
         this.imageWidth = width
         this.imageHeight = height
 
-        // Check for full body visibility
+        // 1. Confidence Check (Option 1)
+        // Ensure the AI is very sure it's seeing human landmarks
         val leftShoulder = pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER)
         val rightShoulder = pose.getPoseLandmark(PoseLandmark.RIGHT_SHOULDER)
+        val leftElbow = pose.getPoseLandmark(PoseLandmark.LEFT_ELBOW)
+        val leftWrist = pose.getPoseLandmark(PoseLandmark.LEFT_WRIST)
+
+        if (leftShoulder == null || rightShoulder == null || leftElbow == null || leftWrist == null) return
+
+        if (leftShoulder.inFrameLikelihood < MIN_CONFIDENCE || 
+            rightShoulder.inFrameLikelihood < MIN_CONFIDENCE ||
+            leftElbow.inFrameLikelihood < MIN_CONFIDENCE) {
+            return // Skip this frame if confidence is low (e.g. looking at a plant)
+        }
+
+        // 2. Full Body Visibility
         val leftAnkle = pose.getPoseLandmark(PoseLandmark.LEFT_ANKLE)
         val rightAnkle = pose.getPoseLandmark(PoseLandmark.RIGHT_ANKLE)
         val leftKnee = pose.getPoseLandmark(PoseLandmark.LEFT_KNEE)
         val rightKnee = pose.getPoseLandmark(PoseLandmark.RIGHT_KNEE)
 
-        val bodyInShot = (leftShoulder != null && rightShoulder != null) &&
-                (leftAnkle != null || rightAnkle != null || (leftKnee != null && rightKnee != null))
+        val bodyInShot = (leftAnkle != null && leftAnkle.inFrameLikelihood > 0.5f) || 
+                         (rightAnkle != null && rightAnkle.inFrameLikelihood > 0.5f) || 
+                         (leftKnee != null && leftKnee.inFrameLikelihood > 0.5f)
 
         if (!bodyInShot) {
             manager.provideCorrection("Step back! Ensure full body is visible.")
             return
         }
         
-        val leftElbow = pose.getPoseLandmark(PoseLandmark.LEFT_ELBOW) ?: return
-        val leftWrist = pose.getPoseLandmark(PoseLandmark.LEFT_WRIST) ?: return
-        
         val rightElbow = pose.getPoseLandmark(PoseLandmark.RIGHT_ELBOW)
         val rightWrist = pose.getPoseLandmark(PoseLandmark.RIGHT_WRIST)
 
-        val leftAngle = calculateAngle(leftShoulder!!, leftElbow, leftWrist)
-        val rightAngle = if (rightShoulder != null && rightElbow != null && rightWrist != null) {
+        val leftAngle = calculateAngle(leftShoulder, leftElbow, leftWrist)
+        val rightAngle = if (rightShoulder != null && rightElbow != null && rightWrist != null && rightElbow.inFrameLikelihood > MIN_CONFIDENCE) {
             calculateAngle(rightShoulder, rightElbow, rightWrist)
         } else {
             leftAngle
@@ -58,29 +70,35 @@ class PushupAnalyzer(
 
         val avgElbowAngle = (leftAngle + rightAngle) / 2.0
 
+        // Reset baseline if needed
         if (baselineShoulderY == null) {
             baselineShoulderY = leftShoulder.position.y
         }
 
-        val MOVEMENT_THRESHOLD = height * 0.1f 
+        // 3. Motion Delta Check (Option 3)
+        // Require at least 12% vertical displacement of the torso for a rep
+        val MOVEMENT_THRESHOLD = height * 0.12f 
 
-        // Rep detection logic using calibrated or default angles
-        // For pushups, "Down" (Bottom) is a smaller angle, "Up" (Top) is a larger angle
         if (!isDown && avgElbowAngle <= minElbowAngle) {
             isDown = true
+            // Capture Y position at the "Bottom" of the pushup
+            baselineShoulderY = leftShoulder.position.y
         } else if (isDown && avgElbowAngle >= maxElbowAngle) {
             val currentTime = System.currentTimeMillis()
             if (currentTime - lastRepTime > REP_COOLDOWN_MS) {
                 
+                // Calculate how much the shoulder actually moved since the "Down" phase
                 val verticalDisplacement = abs(leftShoulder.position.y - (baselineShoulderY ?: 0f))
                 
-                // If calibrated, we might also use a threshold for movement, otherwise default to 10% screen height
                 if (verticalDisplacement > MOVEMENT_THRESHOLD) {
                     isDown = false
                     lastRepTime = currentTime
                     manager.onRepDetected()
                 } else {
-                    manager.provideCorrection("Go deeper and move your whole body!")
+                    // It was likely just camera jitter or a non-human object "flickering"
+                    // We don't trigger correction immediately to avoid noise, but we reset "isDown"
+                    // if they come all the way up without enough movement.
+                    isDown = false
                 }
             }
         }

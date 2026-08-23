@@ -42,10 +42,12 @@ fun HomeHub(
         
         Spacer(modifier = Modifier.height(24.dp))
         
+        /* 
         // RPG Stats (Spider Chart)
         StatRadarCard(userStats)
         
         Spacer(modifier = Modifier.height(24.dp))
+        */
         
         SectionTitle("Daily Quest")
         val dailyQuest = challenges.find { it.id == "opm_classic" || it.id == "solo_leveling" }

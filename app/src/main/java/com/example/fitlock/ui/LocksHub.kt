@@ -80,7 +80,7 @@ fun LocksHub(
             if (selectedTab == 0) {
                 AppGroupsContent(
                     groups = groups,
-                    onAdd = { handleProtectedAction(onAddGroup) },
+                    onAdd = onAddGroup,
                     onEdit = { handleProtectedAction { onEditGroup(it) } },
                     onDelete = { handleProtectedAction { onDeleteGroup(it) } },
                     onToggle = { group ->
@@ -95,7 +95,7 @@ fun LocksHub(
                 VaultScreen(
                     vaultItems = vaultItems,
                     onAddItem = onAddVaultItem,
-                    onDeleteItem = onDeleteVaultItem,
+                    onDeleteItem = { handleProtectedAction { onDeleteVaultItem(it) } },
                     onUnlockItem = onUnlockVaultItem
                 )
             }

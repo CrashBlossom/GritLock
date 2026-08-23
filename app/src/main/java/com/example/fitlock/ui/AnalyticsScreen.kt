@@ -95,7 +95,7 @@ fun AnalyticsScreen(history: List<WorkoutHistory>) {
                 Tab(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    text = { Text("Websites") },
+                    text = { Text("Daily Totals") },
                     icon = { Icon(Icons.Default.Language, contentDescription = null) }
                 )
             }
@@ -105,7 +105,7 @@ fun AnalyticsScreen(history: List<WorkoutHistory>) {
             when (selectedTab) {
                 0 -> AppUsageList(usageStats)
                 1 -> ExerciseHistoryList(history)
-                2 -> WebsiteUsageList()
+                2 -> DailyTotalsLeaderboard(history)
             }
         }
     }
@@ -182,21 +182,63 @@ fun AppUsageList(usageStats: List<AppUsageInfo>) {
 }
 
 @Composable
-fun WebsiteUsageList() {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Icon(Icons.Default.Language, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(48.dp))
-        Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            "Website tracking requires browser extensions or Accessibility Service deep inspection.",
-            color = Color.Gray,
-            fontSize = 14.sp,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-            modifier = Modifier.padding(horizontal = 32.dp)
-        )
+fun DailyTotalsLeaderboard(history: List<WorkoutHistory>) {
+    val dailyTotals = remember(history) {
+        history.groupBy { 
+            SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(it.timestamp))
+        }.mapValues { entry ->
+            entry.value.sumOf { it.repsCompleted }
+        }.toList().sortedByDescending { it.first }
+    }
+
+    if (dailyTotals.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No exercise data found.", color = Color.Gray)
+        }
+    } else {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            item {
+                Text(
+                    "Past Performance",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(vertical = 8.dp)
+                )
+            }
+            items(dailyTotals) { (dateStr, totalReps) ->
+                val displayDate = remember(dateStr) {
+                    val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(dateStr)
+                    SimpleDateFormat("EEEE, MMM dd", Locale.getDefault()).format(date ?: Date())
+                }
+                
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(displayDate, color = Color.White, fontWeight = FontWeight.Bold)
+                            Text("Total Reps", color = Color.Gray, fontSize = 12.sp)
+                        }
+                        Text(
+                            "$totalReps",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.ExtraBold
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
