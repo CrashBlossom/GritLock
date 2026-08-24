@@ -5,6 +5,10 @@ import java.util.concurrent.ConcurrentHashMap
 
 enum class StatType { STR, AGI, VIT, INT, SEN, CHA }
 
+enum class GauntletTriggerType { MANUAL, TIME_BASED }
+enum class PhysicalTriggerType { NONE, NFC, QR }
+enum class AvatarType { SEEKER, WARRIOR, MAGE, ROGUE }
+
 @Entity(tableName = "app_groups")
 data class AppGroup(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
@@ -15,7 +19,74 @@ data class AppGroup(
     val lastUnlockedTimestamp: Long = 0L,
     val isEnabled: Boolean = true,
     val schedule: List<ScheduleInterval> = emptyList(),
-    val keywords: List<String> = emptyList()
+    val keywords: List<String> = emptyList(),
+    val icon: String? = null
+)
+
+@Entity(tableName = "gauntlets")
+data class Gauntlet(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val name: String,
+    val isEnabled: Boolean = true,
+    val triggerType: GauntletTriggerType = GauntletTriggerType.MANUAL,
+    val triggerTime: String? = null, // HH:mm format for time-based
+    val bufferSeconds: Int = 10,
+    val targetBlockGroupId: Int? = null,
+    val whitelistedPackages: List<String> = emptyList(),
+    val icon: String? = null,
+    val physicalTriggerType: PhysicalTriggerType = PhysicalTriggerType.NONE,
+    val physicalTriggerData: String? = null,
+    val delayedNudgeMinutes: Int = 5
+)
+
+@Entity(
+    tableName = "habits",
+    foreignKeys = [
+        ForeignKey(
+            entity = Gauntlet::class,
+            parentColumns = ["id"],
+            childColumns = ["gauntletId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("gauntletId")]
+)
+data class Habit(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val gauntletId: Int,
+    val name: String,
+    val orderIndex: Int,
+    val estimatedDurationSeconds: Int? = 60,
+    val icon: String? = null,
+    val subHabits: List<String> = emptyList()
+)
+
+@Entity(tableName = "gauntlet_history")
+data class GauntletHistory(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val gauntletId: Int,
+    val timestamp: Long = System.currentTimeMillis(),
+    val totalTimeSeconds: Int,
+    val estimatedTimeSeconds: Int,
+    val xpGained: Int,
+    val streakCount: Int,
+    val habitLogs: List<HabitLog>
+)
+
+data class HabitLog(
+    val habitId: Int,
+    val name: String,
+    val actualDurationSeconds: Int,
+    val estimatedDurationSeconds: Int?
+)
+
+data class GauntletWithHabits(
+    @Embedded val gauntlet: Gauntlet,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "gauntletId"
+    )
+    val habits: List<Habit>
 )
 
 @Entity(tableName = "app_rules")
@@ -50,7 +121,8 @@ data class VaultItem(
     val imageUri: String? = null,
     val requirements: List<ExerciseRequirement>,
     val unlockDurationMinutes: Int = 5,
-    val lastUnlockedTimestamp: Long = 0L
+    val lastUnlockedTimestamp: Long = 0L,
+    val icon: String? = null
 )
 
 data class ExerciseCalibration(
@@ -115,6 +187,18 @@ data class UserStats(
     val senXp: Long = 0,
     val chaXp: Long = 0,
     
+    // Willpower and Sobriety
+    val willpowerXp: Long = 0,
+    val sobrietyStreak: Int = 0,
+    val longestSobrietyStreak: Int = 0,
+    val reclaimedMinutesTotal: Long = 0,
+    val lastPledgeDate: String? = null, // YYYY-MM-DD
+    
+    val activeTheme: String = "DEFAULT",
+    
+    val avatarType: AvatarType = AvatarType.SEEKER,
+    val unlockedGear: List<String> = emptyList(),
+    
     val penaltyStateActive: Boolean = false,
     
     // System fields
@@ -122,4 +206,54 @@ data class UserStats(
     val calibrations: Map<String, ExerciseCalibration> = emptyMap(),
     val bankResetFrequency: String = "Never", 
     val lastBankReset: Long = 0L
+)
+
+@Entity(tableName = "daily_pledges")
+data class DailyPledge(
+    @PrimaryKey val date: String, // YYYY-MM-DD
+    val pledgeTimestamp: Long? = null,
+    val reviewTimestamp: Long? = null,
+    val status: String = "PENDING" // PENDING, COMMITTED, SUCCESS, RELAPSED
+)
+
+@Entity(tableName = "urge_events")
+data class UrgeEvent(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val timestamp: Long = System.currentTimeMillis(),
+    val intensity: Int, // 1-10
+    val category: String = "General", // Voice, Hunger, Boredom, etc.
+    val subCategory: String? = null,
+    val comment: String? = null,
+    val location: String? = null,
+    val wasResisted: Boolean = true
+)
+
+@Entity(tableName = "motivational_quotes")
+data class MotivationalQuote(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val text: String,
+    val category: String,
+    val subCategory: String? = null
+)
+
+@Entity(tableName = "daily_log_notes")
+data class DailyLogNote(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val timestamp: Long = System.currentTimeMillis(),
+    val content: String,
+    val type: String = "MANUAL" // MANUAL, AUTO_BLOCK, AUTO_EXERCISE, URGE
+)
+
+@Entity(tableName = "app_block_events")
+data class AppBlockEvent(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val timestamp: Long = System.currentTimeMillis(),
+    val packageName: String,
+    val reason: String? = null
+)
+
+@Entity(tableName = "usage_baselines")
+data class UsageBaseline(
+    @PrimaryKey val packageName: String,
+    val baselineMinutesPerDay: Int
 )

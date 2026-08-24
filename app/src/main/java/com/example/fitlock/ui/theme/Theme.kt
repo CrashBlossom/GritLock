@@ -67,6 +67,7 @@ private val LightOcean = lightColorScheme(
 fun GritLockTheme(
     themeName: String = "Default",
     darkModeSetting: String = "System", // "System", "Light", "Dark"
+    activeArchetype: String = "DEFAULT",
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
@@ -76,19 +77,38 @@ fun GritLockTheme(
         else -> isSystemInDarkTheme()
     }
 
-    val colorScheme = when (themeName) {
-        "Emerald" -> if (isDarkMode) DarkEmerald else LightEmerald
-        "Crimson" -> if (isDarkMode) DarkCrimson else LightCrimson
-        "Ocean" -> if (isDarkMode) DarkOcean else LightOcean
-        "Material" -> {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val context = LocalContext.current
-                if (isDarkMode) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            } else {
-                if (isDarkMode) DarkColorScheme else LightColorScheme
-            }
+    val archetype = getThemeData(activeArchetype)
+
+    val colorScheme = when (activeArchetype) {
+        "SUPERHERO" -> if (isDarkMode) {
+            darkColorScheme(primary = archetype.primaryColor, background = Color(0xFF000000), surface = Color(0xFF0A0A0A))
+        } else {
+            lightColorScheme(primary = archetype.primaryColor, background = Color(0xFFF5F5F5), surface = Color(0xFFFFFFFF))
         }
-        else -> if (isDarkMode) DarkColorScheme else LightColorScheme
+        "SOLO" -> if (isDarkMode) {
+            darkColorScheme(primary = archetype.primaryColor, background = Color(0xFF000510), surface = Color(0xFF001220))
+        } else {
+            lightColorScheme(primary = archetype.primaryColor, background = Color(0xFFE3F2FD), surface = Color(0xFFFFFFFF))
+        }
+        "COZY" -> if (isDarkMode) {
+            darkColorScheme(primary = archetype.primaryColor, background = Color(0xFF1B1612), surface = Color(0xFF2E241F))
+        } else {
+            lightColorScheme(primary = archetype.primaryColor, background = Color(0xFFFFF8E1), surface = Color(0xFFFFFFFF))
+        }
+        else -> when (themeName) {
+            "Emerald" -> if (isDarkMode) DarkEmerald else LightEmerald
+            "Crimson" -> if (isDarkMode) DarkCrimson else LightCrimson
+            "Ocean" -> if (isDarkMode) DarkOcean else LightOcean
+            "Material" -> {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val context = LocalContext.current
+                    if (isDarkMode) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+                } else {
+                    if (isDarkMode) DarkColorScheme else LightColorScheme
+                }
+            }
+            else -> if (isDarkMode) DarkColorScheme else LightColorScheme
+        }
     }
 
     MaterialTheme(

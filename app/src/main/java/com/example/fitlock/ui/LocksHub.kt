@@ -15,20 +15,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import android.content.Context
+import androidx.compose.material.icons.automirrored.filled.ListAlt
 import com.example.fitlock.data.AppGroup
+import com.example.fitlock.data.GauntletWithHabits
 import com.example.fitlock.data.VaultItem
 
 @Composable
 fun LocksHub(
     groups: List<AppGroup>,
     vaultItems: List<VaultItem>,
+    gauntlets: List<GauntletWithHabits>,
     onAddGroup: () -> Unit,
     onEditGroup: (AppGroup) -> Unit,
     onDeleteGroup: (AppGroup) -> Unit,
     onToggleGroup: (AppGroup) -> Unit,
     onAddVaultItem: (VaultItem) -> Unit,
     onDeleteVaultItem: (VaultItem) -> Unit,
-    onUnlockVaultItem: (VaultItem) -> Unit
+    onUnlockVaultItem: (VaultItem) -> Unit,
+    onAddGauntlet: () -> Unit,
+    onEditGauntlet: (GauntletWithHabits) -> Unit,
+    onDeleteGauntlet: (GauntletWithHabits) -> Unit,
+    onToggleGauntlet: (GauntletWithHabits) -> Unit,
+    onStartGauntlet: (GauntletWithHabits) -> Unit
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
@@ -74,11 +82,17 @@ fun LocksHub(
                 text = { Text("Secret Vault") },
                 icon = { Icon(Icons.Default.Lock, contentDescription = null) }
             )
+            Tab(
+                selected = selectedTab == 2,
+                onClick = { selectedTab = 2 },
+                text = { Text("The Gauntlet") },
+                icon = { Icon(Icons.AutoMirrored.Filled.ListAlt, contentDescription = null) }
+            )
         }
 
         Box(modifier = Modifier.weight(1f)) {
-            if (selectedTab == 0) {
-                AppGroupsContent(
+            when (selectedTab) {
+                0 -> AppGroupsContent(
                     groups = groups,
                     onAdd = onAddGroup,
                     onEdit = { handleProtectedAction { onEditGroup(it) } },
@@ -91,12 +105,19 @@ fun LocksHub(
                         }
                     }
                 )
-            } else {
-                VaultScreen(
+                1 -> VaultScreen(
                     vaultItems = vaultItems,
                     onAddItem = onAddVaultItem,
                     onDeleteItem = { handleProtectedAction { onDeleteVaultItem(it) } },
                     onUnlockItem = onUnlockVaultItem
+                )
+                2 -> GauntletScreen(
+                    gauntlets = gauntlets,
+                    onAdd = onAddGauntlet,
+                    onEdit = { g: GauntletWithHabits -> handleProtectedAction { onEditGauntlet(g) } },
+                    onDelete = { g: GauntletWithHabits -> handleProtectedAction { onDeleteGauntlet(g) } },
+                    onToggle = { g: GauntletWithHabits -> handleProtectedAction { onToggleGauntlet(g) } },
+                    onStart = onStartGauntlet
                 )
             }
         }

@@ -77,4 +77,43 @@ class Converters {
 
     @TypeConverter
     fun toStatType(value: String): StatType = StatType.valueOf(value)
+
+    @TypeConverter
+    fun fromGauntletTriggerType(type: GauntletTriggerType): String = type.name
+
+    @TypeConverter
+    fun toGauntletTriggerType(value: String): GauntletTriggerType = GauntletTriggerType.valueOf(value)
+
+    @TypeConverter
+    fun fromPhysicalTriggerType(type: PhysicalTriggerType): String = type.name
+
+    @TypeConverter
+    fun toPhysicalTriggerType(value: String): PhysicalTriggerType = PhysicalTriggerType.valueOf(value)
+
+    @TypeConverter
+    fun fromAvatarType(type: AvatarType): String = type.name
+
+    @TypeConverter
+    fun toAvatarType(value: String): AvatarType = AvatarType.valueOf(value)
+
+    @TypeConverter
+    fun fromHabitLogList(list: List<HabitLog>): String {
+        return list.joinToString(";") { 
+            "${it.habitId}|${it.name}|${it.actualDurationSeconds}|${it.estimatedDurationSeconds ?: -1}" 
+        }
+    }
+
+    @TypeConverter
+    fun toHabitLogList(data: String): List<HabitLog> {
+        if (data.isBlank()) return emptyList()
+        return data.split(";").map {
+            val parts = it.split("|")
+            HabitLog(
+                habitId = parts[0].toInt(),
+                name = parts[1],
+                actualDurationSeconds = parts[2].toInt(),
+                estimatedDurationSeconds = parts[3].toInt().let { if (it == -1) null else it }
+            )
+        }
+    }
 }

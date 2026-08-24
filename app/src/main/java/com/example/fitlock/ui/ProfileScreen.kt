@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.fitlock.data.Challenge
 import com.example.fitlock.data.ExerciseRequirement
+import com.example.fitlock.data.UsageBaseline
 import com.example.fitlock.data.UserStats
 import com.example.fitlock.exercise.ExerciseType
 import java.util.UUID
@@ -32,7 +33,10 @@ import java.util.UUID
 fun ProfileScreen(
     userStats: UserStats?,
     challenges: List<Challenge>,
-    onAddChallenge: (Challenge) -> Unit
+    baselines: List<UsageBaseline>,
+    onAddChallenge: (Challenge) -> Unit,
+    onAddBaseline: (UsageBaseline) -> Unit,
+    onDeleteBaseline: (UsageBaseline) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -49,7 +53,12 @@ fun ProfileScreen(
         
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Rep Bank Section (Moved out of header for visibility)
+        // Time Reclaimed Baseline Section
+        BaselineSection(baselines, onAddBaseline, onDeleteBaseline)
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Rep Bank Section
         RepBankSection(userStats)
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -92,6 +101,71 @@ fun ProfileScreen(
         }
         
         Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@Composable
+fun BaselineSection(
+    baselines: List<UsageBaseline>,
+    onAdd: (UsageBaseline) -> Unit,
+    onDelete: (UsageBaseline) -> Unit
+) {
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(24.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(20.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Life Baselines", color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                IconButton(onClick = { showAddDialog = true }) {
+                    Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary)
+                }
+            }
+            Text("Set your pre-GritLock daily usage for apps to track 'Life Reclaimed'.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            baselines.forEach { baseline ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(baseline.packageName.split(".").last(), modifier = Modifier.weight(1f))
+                    Text("${baseline.baselineMinutesPerDay}m", fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { onDelete(baseline) }) {
+                        Icon(Icons.Default.Delete, null, tint = Color.Red, modifier = Modifier.size(20.dp))
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddDialog) {
+        var pkg by remember { mutableStateOf("") }
+        var mins by remember { mutableStateOf("60") }
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            title = { Text("Add Baseline") },
+            text = {
+                Column {
+                    OutlinedTextField(value = pkg, onValueChange = { pkg = it }, label = { Text("Package Name") })
+                    OutlinedTextField(value = mins, onValueChange = { mins = it }, label = { Text("Daily Minutes Baseline") })
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    onAdd(UsageBaseline(pkg, mins.toIntOrNull() ?: 60))
+                    showAddDialog = false
+                }) { Text("Add") }
+            }
+        )
     }
 }
 

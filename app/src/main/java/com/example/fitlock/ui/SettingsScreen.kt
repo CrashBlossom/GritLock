@@ -42,7 +42,8 @@ fun SettingsScreen(
     onTrackingModeChange: (TrackingMode) -> Unit,
     userStats: UserStats?,
     onUpdateUserStats: (UserStats) -> Unit,
-    onNavigateToCalibration: (ExerciseType) -> Unit
+    onNavigateToCalibration: (ExerciseType) -> Unit,
+    onNavigateToQuotes: () -> Unit
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
@@ -159,14 +160,20 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ExerciseType.values().forEach { type ->
+                ExerciseType.entries.forEach { type ->
                     DailyGoalItem(type, prefs)
-                    if (type != ExerciseType.values().last()) {
+                    if (type != ExerciseType.entries.last()) {
                         HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
                     }
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Rep Bank Management Section
+        SectionHeader("Rep Bank Management")
+        RepBankSettingsCard(userStats, onUpdateUserStats)
 
         Spacer(modifier = Modifier.height(24.dp))
 
@@ -256,6 +263,40 @@ fun SettingsScreen(
                     }
                 }
                 
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 16.dp))
+                
+                Text("App Archetype (Total Conversion)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(12.dp))
+                val themes = listOf("DEFAULT", "SUPERHERO", "AGENT", "SOLO", "COZY")
+                themes.forEach { themeId ->
+                    val data = com.example.fitlock.ui.theme.getThemeData(themeId)
+                    val isSelected = (userStats?.activeTheme ?: "DEFAULT") == themeId
+                    
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val current = userStats ?: UserStats(id = 1)
+                                onUpdateUserStats(current.copy(activeTheme = themeId))
+                            }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = isSelected,
+                            onClick = {
+                                val current = userStats ?: UserStats(id = 1)
+                                onUpdateUserStats(current.copy(activeTheme = themeId))
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text(data.name, fontWeight = FontWeight.Medium)
+                            Text("Mode: ${data.tabHome} / ${data.tabLocks}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                        }
+                    }
+                }
+
                 HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 16.dp))
                 
                 Text("Motivational Message", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
@@ -356,6 +397,17 @@ fun SettingsScreen(
                         }
                     )
                 }
+
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
+
+                Button(
+                    onClick = onNavigateToQuotes,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.FormatQuote, null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Edit Motivational Quotes")
+                }
             }
         }
 
@@ -388,12 +440,6 @@ fun SettingsScreen(
                 }
             )
         }
-
-        // Rep Bank Management Section
-        SectionHeader("Rep Bank Management")
-        RepBankSettingsCard(userStats, onUpdateUserStats)
-
-        Spacer(modifier = Modifier.height(24.dp))
 
         // Exercise Management Section
         SectionHeader("Exercise Management")
@@ -515,8 +561,6 @@ fun ThemeOption(name: String, color: Color, isSelected: Boolean, onClick: () -> 
 
 @Composable
 fun RepBankSettingsCard(userStats: UserStats?, onUpdate: (UserStats) -> Unit) {
-    if (userStats == null) return
-
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp),
@@ -526,25 +570,33 @@ fun RepBankSettingsCard(userStats: UserStats?, onUpdate: (UserStats) -> Unit) {
             Text("Bank Reset Frequency", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
             Text("Controls how often your banked reps are cleared.", color = Color.Gray, fontSize = 12.sp)
             
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
             
             val frequencies = listOf("Daily", "Weekly", "Monthly", "Never")
             var expanded by remember { mutableStateOf(false) }
             
             Box {
                 OutlinedButton(
-                    onClick = { expanded = true },
+                    onClick = { if (userStats != null) expanded = true },
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp)
+                    shape = RoundedCornerShape(8.dp),
+                    enabled = userStats != null
                 ) {
-                    Text(userStats.bankResetFrequency, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        text = userStats?.bankResetFrequency ?: "Loading...",
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
                 }
-                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false }
+                ) {
                     frequencies.forEach { freq ->
                         DropdownMenuItem(
                             text = { Text(freq) },
                             onClick = {
-                                onUpdate(userStats.copy(bankResetFrequency = freq))
+                                userStats?.let { onUpdate(it.copy(bankResetFrequency = freq)) }
                                 expanded = false
                             }
                         )
@@ -567,9 +619,9 @@ fun ExerciseSettingsCard(
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            ExerciseType.values().forEach { type ->
+            ExerciseType.entries.forEach { type ->
                 ExerciseTypeSettingsItem(type, prefs, userStats, onNavigateToCalibration)
-                if (type != ExerciseType.values().last()) {
+                if (type != ExerciseType.entries.last()) {
                     HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
                 }
             }

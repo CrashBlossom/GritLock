@@ -61,4 +61,85 @@ interface GritLockDao {
 
     @Query("SELECT * FROM vault_items WHERE id = :id")
     suspend fun getVaultItemById(id: Int): VaultItem?
+
+    // Gauntlets
+    @Transaction
+    @Query("SELECT * FROM gauntlets")
+    fun getAllGauntletsWithHabits(): Flow<List<GauntletWithHabits>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertGauntlet(gauntlet: Gauntlet): Long
+
+    @Delete
+    suspend fun deleteGauntlet(gauntlet: Gauntlet)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertHabit(habit: Habit): Long
+
+    @Delete
+    suspend fun deleteHabit(habit: Habit)
+
+    @Query("DELETE FROM habits WHERE gauntletId = :gauntletId")
+    suspend fun deleteHabitsForGauntlet(gauntletId: Int)
+
+    // Gauntlet History
+    @Query("SELECT * FROM gauntlet_history ORDER BY timestamp DESC")
+    fun getGauntletHistory(): Flow<List<GauntletHistory>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGauntletHistory(history: GauntletHistory)
+
+    @Query("SELECT COUNT(*) FROM gauntlet_history WHERE gauntletId = :gauntletId AND timestamp >= :since")
+    suspend fun getGauntletCountSince(gauntletId: Int, since: Long): Int
+
+    // Daily Pledge
+    @Query("SELECT * FROM daily_pledges WHERE date = :date")
+    suspend fun getPledgeForDate(date: String): DailyPledge?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPledge(pledge: DailyPledge)
+
+    @Query("SELECT * FROM daily_pledges ORDER BY date DESC")
+    fun getAllPledges(): Flow<List<DailyPledge>>
+
+    // Urge Events
+    @Query("SELECT * FROM urge_events ORDER BY timestamp DESC")
+    fun getUrgeEvents(): Flow<List<UrgeEvent>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertUrgeEvent(event: UrgeEvent)
+
+    // Motivational Quotes
+    @Query("SELECT * FROM motivational_quotes")
+    fun getAllQuotes(): Flow<List<MotivationalQuote>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertQuote(quote: MotivationalQuote)
+
+    @Query("SELECT * FROM motivational_quotes WHERE category = :category")
+    fun getQuotesByCategory(category: String): Flow<List<MotivationalQuote>>
+
+    // Daily Log Notes
+    @Query("SELECT * FROM daily_log_notes ORDER BY timestamp DESC")
+    fun getAllLogNotes(): Flow<List<DailyLogNote>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLogNote(note: DailyLogNote)
+
+    // App Block Events
+    @Query("SELECT * FROM app_block_events ORDER BY timestamp DESC")
+    fun getBlockEvents(): Flow<List<AppBlockEvent>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBlockEvent(event: AppBlockEvent)
+
+    // Usage Baselines
+    @Query("SELECT * FROM usage_baselines")
+    fun getAllBaselines(): Flow<List<UsageBaseline>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertBaseline(baseline: UsageBaseline)
+
+    @Delete
+    suspend fun deleteBaseline(baseline: UsageBaseline)
 }

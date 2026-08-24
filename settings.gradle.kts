@@ -24,3 +24,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "FitLock"
 include(":app")
+include(":wear")

@@ -23,6 +23,7 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.example.fitlock.LockOverlayActivity
 import com.example.fitlock.R
+import com.example.fitlock.data.AppBlockEvent
 import com.example.fitlock.data.GritLockDatabase
 import com.example.fitlock.data.AppGroup
 import com.example.fitlock.data.ScheduleInterval
@@ -60,6 +61,11 @@ class GritLockAccessibilityService : AccessibilityService() {
     private var appUsageSecondsRemaining: Int = 0
     private var lastUsageTick: Long = 0
     private var appUsageTimerRunnable: Runnable? = null
+
+    // Focus Shield State
+    private var focusShieldActive = false
+    private var focusBlockGroupId = -1
+    private var focusWhitelist = emptyList<String>()
 
     private val CHANNEL_ID = "gritlock_countdown_channel"
     private val NOTIFICATION_ID = 1001
@@ -190,6 +196,15 @@ class GritLockAccessibilityService : AccessibilityService() {
             packageName == "com.android.launcher" ||
             packageName.contains("launcher") ||
             packageName == "com.google.android.permissioncontroller") return
+
+        // Focus Shield enforcement
+        if (focusShieldActive && focusBlockGroupId != -1) {
+            val groupToBlock = allGroups.find { it.id == focusBlockGroupId }
+            if (groupToBlock != null && groupToBlock.packageNames.contains(packageName) && !focusWhitelist.contains(packageName)) {
+                triggerOverlay(packageName, 0, ExerciseType.APP_USAGE.name, focusBlockGroupId)
+                return
+            }
+        }
 
         if (activeAppUsagePackages.isNotEmpty()) {
             if (activeAppUsagePackages.contains(packageName)) {
@@ -352,6 +367,16 @@ class GritLockAccessibilityService : AccessibilityService() {
             appUsageSecondsRemaining = appUsageTotalSeconds
             lastUsageTick = 0
             updateNotification("GritLock: Usage Required", "Open any of: ${activeAppUsagePackages.take(2).joinToString(", ")} to start tracking.")
+        } else if (intent?.action == "ACTIVATE_FOCUS_SHIELD") {
+            focusShieldActive = true
+            focusBlockGroupId = intent.getIntExtra("block_group_id", -1)
+            focusWhitelist = intent.getStringArrayExtra("whitelist")?.toList() ?: emptyList()
+            Log.d("GritLockService", "Focus Shield Activated for group $focusBlockGroupId")
+        } else if (intent?.action == "DEACTIVATE_FOCUS_SHIELD") {
+            focusShieldActive = false
+            focusBlockGroupId = -1
+            focusWhitelist = emptyList()
+            Log.d("GritLockService", "Focus Shield Deactivated")
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -528,6 +553,9 @@ class GritLockAccessibilityService : AccessibilityService() {
     }
 
     private fun triggerOverlay(target: String, reps: Int, exercise: String, groupId: Int) {
+        serviceScope.launch {
+            db.dao().insertBlockEvent(AppBlockEvent(packageName = target, reason = "Blocked by App Group"))
+        }
         val intent = Intent(this, LockOverlayActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
             putExtra("target_app", target)

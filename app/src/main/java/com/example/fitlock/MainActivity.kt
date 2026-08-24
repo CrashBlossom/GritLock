@@ -22,11 +22,19 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
@@ -36,6 +44,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.core.content.ContextCompat
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ExerciseSessionRecord
@@ -44,23 +56,24 @@ import androidx.lifecycle.lifecycleScope
 import androidx.room.Room
 import com.example.fitlock.data.*
 import com.example.fitlock.exercise.*
+import com.example.fitlock.service.GauntletService
 import com.example.fitlock.service.GritLockAccessibilityService
 import com.example.fitlock.ui.*
 import com.example.fitlock.ui.theme.GritLockTheme
 import com.example.fitlock.utils.HealthConnectManager
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.Calendar
+import javax.inject.Inject
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity(), SensorEventListener {
 
-    /** 
-     * Properties: These are variables that belong to the class.
-     * 'private' means they can't be accessed from outside this class.
-     * 'lateinit' tells Kotlin "I'll initialize this later before I use it".
-     */
-    private lateinit var db: GritLockDatabase // Our local database (Room)
-    private lateinit var exerciseManager: ExerciseTrackerManager // Handles exercise logic
+    @Inject lateinit var db: GritLockDatabase
+    @Inject lateinit var repository: GritLockRepository
+    
+    private lateinit var exerciseManager: ExerciseTrackerManager
     
     // Analyzers for different exercise types (initialized when needed)
     private var pushupAnalyzer: PushupAnalyzer? = null
@@ -123,15 +136,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         // Makes the app draw behind the status bar and navigation bar (full screen look)
         enableEdgeToEdge()
 
-        // Initialize our database connection
-        db = GritLockDatabase.getDatabase(applicationContext)
-
         healthConnectManager = HealthConnectManager(this)
         
         // Initial setup routines
         initChallenges()
+        initQuotes()
+        initStats()
         handleGoalProgression()
         handleBankReset()
+        
+        startService(Intent(this, com.example.fitlock.service.DailyLogService::class.java))
 
         // State variables for the active workout session
         val repCountState = mutableIntStateOf(0)
@@ -148,6 +162,22 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         // Initial checks for permissions
         checkPermissions()
         checkHealthPermissions()
+
+        val usageTracker = com.example.fitlock.utils.UsageTracker(this)
+        lifecycleScope.launch {
+            usageTracker.syncReclaimedTime()
+        }
+
+        // Schedule Smart Nudge
+        val workManager = androidx.work.WorkManager.getInstance(this)
+        val nudgeRequest = androidx.work.PeriodicWorkRequestBuilder<com.example.fitlock.service.SmartNudgeWorker>(
+            1, java.util.concurrent.TimeUnit.DAYS
+        ).build()
+        workManager.enqueueUniquePeriodicWork(
+            "smart_nudge",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            nudgeRequest
+        )
 
         /**
          * setContent defines the UI of the app using Composable functions.
@@ -174,15 +204,36 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
             }
 
+            val userStatsFlow = remember { db.dao().getUserStats() }
+            val statsState by userStatsFlow.collectAsState(initial = null)
+
             // Wrap the whole UI in our custom Theme
-            GritLockTheme(themeName = appTheme, darkModeSetting = darkModeSetting) {
-                // collectAsState converts a Database "Flow" into a Compose "State"
-                val groups by db.dao().getAllGroups().collectAsState(initial = emptyList())
-                val history by db.dao().getHistory().collectAsState(initial = emptyList())
-                val userStats by db.dao().getUserStats().collectAsState(initial = null)
-                val challenges by db.dao().getChallenges().collectAsState(initial = emptyList())
-                val vaultItems by db.dao().getAllVaultItems().collectAsState(initial = emptyList())
+            GritLockTheme(
+                themeName = appTheme, 
+                darkModeSetting = darkModeSetting,
+                activeArchetype = statsState?.activeTheme ?: "DEFAULT"
+            ) {
+                val homeViewModel: HomeViewModel = hiltViewModel()
+                val locksViewModel: LocksViewModel = hiltViewModel()
+                val userViewModel: UserViewModel = hiltViewModel()
+
+                val groups by locksViewModel.appGroups.collectAsState()
+                val vaultItems by locksViewModel.vaultItems.collectAsState()
+                val gauntlets by locksViewModel.gauntlets.collectAsState()
                 
+                val userStats = statsState
+                val challenges by homeViewModel.challenges.collectAsState()
+                val currentPledge by homeViewModel.currentPledge.collectAsState()
+
+                val themeData = com.example.fitlock.ui.theme.getThemeData(userStats?.activeTheme ?: "DEFAULT")
+                
+                val history by db.dao().getHistory().collectAsState(initial = emptyList())
+                val gauntletHistory by db.dao().getGauntletHistory().collectAsState(initial = emptyList())
+                val baselines by db.dao().getAllBaselines().collectAsState(initial = emptyList())
+                val quotes by db.dao().getAllQuotes().collectAsState(initial = emptyList())
+                
+                val todayDate = remember { java.time.LocalDate.now().toString() }
+
                 // Calculate today's workout totals for the progress bars
                 val todayTotals = remember(history, _stepCount.intValue) {
                     val cal = Calendar.getInstance()
@@ -207,8 +258,43 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 var editingGroup by remember { mutableStateOf<AppGroup?>(null) }
                 var calibrationExercise by remember { mutableStateOf<ExerciseType?>(null) }
                 var unlockingVaultItem by remember { mutableStateOf<VaultItem?>(null) }
+                var editingGauntlet by remember { mutableStateOf<GauntletWithHabits?>(null) }
                 var activeRequirements by remember { mutableStateOf<List<ExerciseRequirement>>(emptyList()) }
                 var currentRequirementIndex by remember { mutableIntStateOf(0) }
+                var showUrgeNegotiation by remember { mutableStateOf(false) }
+                var showPostNoteDialog by remember { mutableStateOf(intent.getStringExtra("navigate_to") == "post_note") }
+                var generatedLogText by remember { mutableStateOf<String?>(null) }
+                var celebrationData by remember { mutableStateOf<Pair<String, String>?>(null) }
+                
+                LaunchedEffect(userStats?.level) {
+                    if (userStats != null && userStats!!.level > 1) {
+                        celebrationData = "Level Up!" to "You reached Level ${userStats!!.level}"
+                    }
+                }
+
+                LaunchedEffect(intent) {
+                    if (intent.getStringExtra("navigate_to") == "post_note") {
+                        showPostNoteDialog = true
+                    }
+                }
+                
+                // Active Gauntlet Session State from Service
+                val gauntletSession by GauntletService.sessionState.collectAsState()
+                var lastCompletedGauntletHistoryId by remember { mutableIntStateOf(-1) }
+
+                LaunchedEffect(gauntletSession) {
+                    if (gauntletSession == null && currentScreen == "gauntlet_execution") {
+                        // Service stopped, wait for history to update then show summary
+                        kotlinx.coroutines.delay(500)
+                        val latest = gauntletHistory.firstOrNull()
+                        if (latest != null && latest.id != lastCompletedGauntletHistoryId) {
+                            lastCompletedGauntletHistoryId = latest.id
+                            currentScreen = "gauntlet_summary"
+                        } else {
+                            currentScreen = "locks"
+                        }
+                    }
+                }
                 
                 /**
                  * Scaffold is a layout helper that provides slots for common UI parts
@@ -217,15 +303,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 Scaffold(
                     bottomBar = {
                         // Hide the bottom bar on specific screens
-                        if (currentScreen != "track" && currentScreen != "create" && currentScreen != "calibrate") {
+                        val hideBottomBar = listOf("track", "create", "calibrate", "gauntlet_editor", "gauntlet_execution")
+                        if (currentScreen !in hideBottomBar) {
                             NavigationBar(
                                 containerColor = MaterialTheme.colorScheme.surface,
                                 contentColor = MaterialTheme.colorScheme.onSurface
                             ) {
-                                NavigationItem("Home", Icons.Default.Home, currentScreen == "home") { currentScreen = "home" }
-                                NavigationItem("Locks", Icons.Default.Lock, currentScreen == "locks") { currentScreen = "locks" }
-                                NavigationItem("Analytic", Icons.Default.Analytics, currentScreen == "analytics") { currentScreen = "analytics" }
-                                NavigationItem("Profile", Icons.Default.Person, currentScreen == "profile") { currentScreen = "profile" }
+                                NavigationItem(themeData.tabHome, Icons.Default.Home, currentScreen == "home") { currentScreen = "home" }
+                                NavigationItem(themeData.tabLocks, Icons.Default.Lock, currentScreen == "locks") { currentScreen = "locks" }
+                                NavigationItem(themeData.tabAnalytics, Icons.Default.Analytics, currentScreen == "analytics") { currentScreen = "analytics" }
+                                NavigationItem(themeData.tabProfile, Icons.Default.Person, currentScreen == "profile") { currentScreen = "profile" }
                             }
                         }
                     }
@@ -242,6 +329,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     userStats = userStats,
                                     challenges = challenges,
                                     todayTotals = todayTotals,
+                                    currentPledge = currentPledge,
                                     onChallengeClick = { challenge ->
                                         if (challenge.requirements.isNotEmpty()) {
                                             activeRequirements = challenge.requirements
@@ -256,13 +344,52 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         unlockingVaultItem = null
                                         currentScreen = "track"
                                     },
-                                    onSettingsClick = { currentScreen = "settings" }
+                                    onSettingsClick = { currentScreen = "settings" },
+                                    onUrgeClick = {
+                                        showUrgeNegotiation = true
+                                    },
+                                    onPledgeClick = { currentScreen = "pledge" },
+                                    onViewLogClick = {
+                                        lifecycleScope.launch {
+                                            generatedLogText = com.example.fitlock.utils.MarkdownExporter(this@MainActivity).generateDailyLog(java.util.Date())
+                                        }
+                                    }
+                                )
+                            }
+                            "pledge" -> {
+                                PledgeScreen(
+                                    currentPledge = currentPledge,
+                                    onCommit = {
+                                        lifecycleScope.launch {
+                                            db.dao().upsertPledge(currentPledge!!.copy(status = "COMMITTED", pledgeTimestamp = System.currentTimeMillis()))
+                                        }
+                                    },
+                                    onSuccess = {
+                                        lifecycleScope.launch {
+                                            db.dao().upsertPledge(currentPledge!!.copy(status = "SUCCESS", reviewTimestamp = System.currentTimeMillis()))
+                                            val stats = userStats ?: UserStats()
+                                            db.dao().updateUserStats(stats.copy(
+                                                willpowerXp = stats.willpowerXp + 100,
+                                                sobrietyStreak = stats.sobrietyStreak + 1,
+                                                longestSobrietyStreak = maxOf(stats.longestSobrietyStreak, stats.sobrietyStreak + 1)
+                                            ))
+                                        }
+                                    },
+                                    onRelapse = {
+                                        lifecycleScope.launch {
+                                            db.dao().upsertPledge(currentPledge!!.copy(status = "RELAPSED", reviewTimestamp = System.currentTimeMillis()))
+                                            val stats = userStats ?: UserStats()
+                                            db.dao().updateUserStats(stats.copy(sobrietyStreak = 0))
+                                        }
+                                    },
+                                    onBack = { currentScreen = "home" }
                                 )
                             }
                             "locks" -> {
                                 LocksHub(
                                     groups = groups,
                                     vaultItems = vaultItems,
+                                    gauntlets = gauntlets,
                                     onAddGroup = { 
                                         editingGroup = null
                                         currentScreen = "create" 
@@ -272,16 +399,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         currentScreen = "create"
                                     },
                                     onDeleteGroup = { group ->
-                                        lifecycleScope.launch { db.dao().deleteGroup(group) }
+                                        locksViewModel.deleteGroup(group)
                                     },
                                     onToggleGroup = { group ->
-                                        lifecycleScope.launch { db.dao().updateGroup(group.copy(isEnabled = !group.isEnabled)) }
+                                        locksViewModel.toggleGroup(group)
                                     },
                                     onAddVaultItem = { item ->
-                                        lifecycleScope.launch { db.dao().upsertVaultItem(item) }
+                                        locksViewModel.upsertVaultItem(item)
                                     },
                                     onDeleteVaultItem = { item ->
-                                        lifecycleScope.launch { db.dao().deleteVaultItem(item) }
+                                        locksViewModel.deleteVaultItem(item)
                                     },
                                     onUnlockVaultItem = { item ->
                                         if (item.requirements.isNotEmpty()) {
@@ -290,6 +417,28 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             unlockingVaultItem = item
                                             currentScreen = "track"
                                         }
+                                    },
+                                    onAddGauntlet = {
+                                        editingGauntlet = null
+                                        currentScreen = "gauntlet_editor"
+                                    },
+                                    onEditGauntlet = { g ->
+                                        editingGauntlet = g
+                                        currentScreen = "gauntlet_editor"
+                                    },
+                                    onDeleteGauntlet = { g ->
+                                        locksViewModel.deleteGauntlet(g.gauntlet)
+                                    },
+                                    onToggleGauntlet = { g ->
+                                        locksViewModel.upsertGauntlet(g.gauntlet.copy(isEnabled = !g.gauntlet.isEnabled))
+                                    },
+                                    onStartGauntlet = { g ->
+                                        val intent = Intent(this@MainActivity, GauntletService::class.java).apply {
+                                            action = GauntletService.ACTION_START
+                                            putExtra(GauntletService.EXTRA_GAUNTLET_ID, g.gauntlet.id)
+                                        }
+                                        startForegroundService(intent)
+                                        currentScreen = "gauntlet_execution"
                                     }
                                 )
                             }
@@ -305,9 +454,20 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 ProfileScreen(
                                     userStats = userStats,
                                     challenges = challenges,
+                                    baselines = baselines,
                                     onAddChallenge = { challenge ->
                                         lifecycleScope.launch {
                                             db.dao().upsertChallenge(challenge)
+                                        }
+                                    },
+                                    onAddBaseline = { baseline ->
+                                        lifecycleScope.launch {
+                                            db.dao().upsertBaseline(baseline)
+                                        }
+                                    },
+                                    onDeleteBaseline = { baseline ->
+                                        lifecycleScope.launch {
+                                            db.dao().deleteBaseline(baseline)
                                         }
                                     }
                                 )
@@ -326,24 +486,85 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     onNavigateToCalibration = { exercise ->
                                         calibrationExercise = exercise
                                         currentScreen = "calibrate"
-                                    }
+                                    },
+                                    onNavigateToQuotes = { currentScreen = "quotes" }
+                                )
+                            }
+                            "quotes" -> {
+                                QuotesEditor(
+                                    quotes = quotes,
+                                    onAddQuote = { quote ->
+                                        lifecycleScope.launch {
+                                            db.dao().upsertQuote(quote)
+                                        }
+                                    },
+                                    onBack = { currentScreen = "settings" }
                                 )
                             }
                             "create" -> {
                                 CreateGroupScreen(
                                     editingGroup = editingGroup,
                                     onSave = { group ->
+                                        locksViewModel.upsertGroup(group)
+                                        currentScreen = "locks"
+                                    },
+                                    onBack = { currentScreen = "locks" }
+                                )
+                            }
+                            "gauntlet_editor" -> {
+                                GauntletEditor(
+                                    editingGauntlet = editingGauntlet,
+                                    groups = groups,
+                                    onSave = { gauntlet, habits ->
                                         lifecycleScope.launch {
-                                            if (group.id == 0) {
-                                                db.dao().insertGroup(group)
-                                            } else {
-                                                db.dao().updateGroup(group)
-                                            }
+                                            val gId = locksViewModel.upsertGauntlet(gauntlet).await().toInt()
+                                            locksViewModel.deleteHabitsForGauntlet(gId)
+                                            habits.forEach { locksViewModel.upsertHabit(it.copy(gauntletId = gId)) }
                                             currentScreen = "locks"
                                         }
                                     },
                                     onBack = { currentScreen = "locks" }
                                 )
+                            }
+                            "gauntlet_execution" -> {
+                                gauntletSession?.let { session ->
+                                    GauntletExecutionScreen(
+                                        gauntlet = session.gauntlet,
+                                        currentHabitIndex = session.currentHabitIndex,
+                                        elapsedSeconds = session.elapsedSeconds,
+                                        isInBuffer = session.isInBuffer,
+                                        bufferRemainingSeconds = session.gauntlet.gauntlet.bufferSeconds - session.bufferElapsedSeconds,
+                                        onNext = {
+                                            val intent = Intent(this@MainActivity, GauntletService::class.java).apply {
+                                                action = GauntletService.ACTION_NEXT
+                                            }
+                                            startService(intent)
+                                        },
+                                        onStop = {
+                                            val intent = Intent(this@MainActivity, GauntletService::class.java).apply {
+                                                action = GauntletService.ACTION_STOP
+                                            }
+                                            startService(intent)
+                                            currentScreen = "locks"
+                                        }
+                                    )
+                                } ?: run {
+                                    // Managed by LaunchedEffect(gauntletSession)
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                                        CircularProgressIndicator()
+                                    }
+                                }
+                            }
+                            "gauntlet_summary" -> {
+                                val latest = gauntletHistory.firstOrNull()
+                                if (latest != null) {
+                                    GauntletSummaryScreen(
+                                        history = latest,
+                                        onDone = { currentScreen = "locks" }
+                                    )
+                                } else {
+                                    currentScreen = "locks"
+                                }
                             }
                             "calibrate" -> {
                                 calibrationExercise?.let { type ->
@@ -546,7 +767,102 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             }
                         }
                     }
+                    if (showUrgeNegotiation) {
+                        UrgeNegotiationDialog(
+                            onDismiss = { showUrgeNegotiation = false },
+                            availableQuotes = quotes,
+                            themeUrgeLabel = themeData.tabUrge,
+                            onConfirm = { event ->
+                                lifecycleScope.launch {
+                                    db.dao().insertUrgeEvent(event)
+                                    showUrgeNegotiation = false
+                                    
+                                    // Also trigger the physical challenge as per plan
+                                    activeRequirements = listOf(
+                                        ExerciseRequirement(ExerciseType.PUSHUP.name, 15),
+                                        ExerciseRequirement(ExerciseType.SQUAT.name, 20)
+                                    )
+                                    currentRequirementIndex = 0
+                                    unlockingVaultItem = null
+                                    currentScreen = "track"
+                                }
+                            }
+                        )
+                    }
+
+                    if (showPostNoteDialog) {
+                        var noteContent by remember { mutableStateOf("") }
+                        AlertDialog(
+                            onDismissRequest = { showPostNoteDialog = false },
+                            title = { Text("Daily Log Entry") },
+                            text = {
+                                OutlinedTextField(
+                                    value = noteContent,
+                                    onValueChange = { noteContent = it },
+                                    label = { Text("What's on your mind?") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            },
+                            confirmButton = {
+                                Button(onClick = {
+                                    if (noteContent.isNotBlank()) {
+                                        lifecycleScope.launch {
+                                            db.dao().insertLogNote(DailyLogNote(content = noteContent))
+                                            showPostNoteDialog = false
+                                        }
+                                    }
+                                }) { Text("POST") }
+                            },
+                            dismissButton = { TextButton(onClick = { showPostNoteDialog = false }) { Text("Cancel") } }
+                        )
+                    }
+
+                    if (generatedLogText != null) {
+                        AlertDialog(
+                            onDismissRequest = { generatedLogText = null },
+                            title = { Text("Daily Discipline Log") },
+                            text = { 
+                                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                                    Text(generatedLogText!!, style = MaterialTheme.typography.bodySmall) 
+                                }
+                            },
+                            confirmButton = { Button(onClick = { generatedLogText = null }) { Text("Close") } }
+                        )
+                    }
+
+                    celebrationData?.let { data ->
+                        HeroicCelebration(
+                            title = data.first,
+                            subtitle = data.second,
+                            onDismiss = { celebrationData = null }
+                        )
+                    }
                 }
+            }
+        }
+    }
+
+    private fun initQuotes() {
+        lifecycleScope.launch {
+            val count = db.dao().getAllQuotes().first().size
+            if (count == 0) {
+                val defaultQuotes = listOf(
+                    MotivationalQuote(text = "You are stronger than your excuses.", category = "Internal Voice", subCategory = "Laziness"),
+                    MotivationalQuote(text = "The pain of discipline is far less than the pain of regret.", category = "Internal Voice", subCategory = "Rationalization"),
+                    MotivationalQuote(text = "Discipline is doing what needs to be done, even if you don't want to do it.", category = "Internal Voice"),
+                    MotivationalQuote(text = "Don't let your short-term desires steal your long-term dreams.", category = "Internal Voice", subCategory = "Greed"),
+                    MotivationalQuote(text = "Fear is a liar. Step through it.", category = "Internal Voice", subCategory = "Fear")
+                )
+                defaultQuotes.forEach { db.dao().upsertQuote(it) }
+            }
+        }
+    }
+
+    private fun initStats() {
+        lifecycleScope.launch {
+            val stats = db.dao().getUserStats().first()
+            if (stats == null) {
+                db.dao().updateUserStats(UserStats(id = 1))
             }
         }
     }
@@ -809,9 +1125,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     fun RowScope.NavigationItem(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
         NavigationBarItem(
             icon = { Icon(icon, contentDescription = label) },
-            label = { Text(label) },
+            label = { 
+                Text(
+                    text = label,
+                    maxLines = 1,
+                    textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.fillMaxWidth()
+                ) 
+            },
             selected = selected,
             onClick = onClick,
+            alwaysShowLabel = true,
             colors = NavigationBarItemDefaults.colors(
                 selectedIconColor = MaterialTheme.colorScheme.primary,
                 unselectedIconColor = Color.Gray,
