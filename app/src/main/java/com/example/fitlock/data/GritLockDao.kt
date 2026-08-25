@@ -142,4 +142,40 @@ interface GritLockDao {
 
     @Delete
     suspend fun deleteBaseline(baseline: UsageBaseline)
+
+    // Flashcards (Anki-lite)
+    @Query("SELECT * FROM flashcards ORDER BY nextReviewDate ASC")
+    fun getAllFlashcards(): Flow<List<Flashcard>>
+
+    @Query("SELECT * FROM flashcards WHERE deckName = :deckName ORDER BY nextReviewDate ASC")
+    fun getFlashcardsByDeck(deckName: String): Flow<List<Flashcard>>
+
+    @Query("SELECT DISTINCT deckName FROM flashcards")
+    fun getAllDeckNames(): Flow<List<String>>
+
+    @Query("DELETE FROM flashcards WHERE deckName = :deckName")
+    suspend fun deleteFlashcardsByDeck(deckName: String)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertFlashcard(card: Flashcard): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertFlashcards(cards: List<Flashcard>)
+
+    @Delete
+    suspend fun deleteFlashcard(card: Flashcard)
+
+    // Advanced Workouts (Overcoming Gravity)
+    @Transaction
+    @Query("SELECT * FROM gauntlets WHERE id = :gauntletId")
+    fun getAdvancedWorkout(gauntletId: Int): Flow<GauntletWithAdvancedWorkout?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWorkoutBlock(block: WorkoutBlockEntity): Long
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertWorkoutExercise(exercise: WorkoutExercise): Long
+
+    @Query("DELETE FROM workout_blocks WHERE gauntletId = :gauntletId")
+    suspend fun deleteBlocksForGauntlet(gauntletId: Int)
 }

@@ -1,7 +1,10 @@
 package com.example.fitlock.ui
 
+import android.content.Context
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.fitlock.data.AnkiImporter
 import com.example.fitlock.data.Challenge
 import com.example.fitlock.data.DailyPledge
 import com.example.fitlock.data.GritLockRepository
@@ -14,6 +17,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import javax.inject.Inject
+
+data class DeckSummary(
+    val name: String,
+    val cardsDue: Int
+)
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -30,6 +38,19 @@ class HomeViewModel @Inject constructor(
         .map { list -> list.find { it.date == LocalDate.now().toString() } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val deckSummaries: StateFlow<List<DeckSummary>> = repository.allFlashcards
+        .map { cards ->
+            val now = System.currentTimeMillis() + 300000 // 5 min buffer to ensure immediate visibility
+            cards.groupBy { it.deckName }
+                .map { (name, cardsInDeck) ->
+                    DeckSummary(
+                        name = name,
+                        cardsDue = cardsInDeck.count { it.nextReviewDate <= now }
+                    )
+                }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun logUrge(event: UrgeEvent) {
         viewModelScope.launch {
             repository.insertUrgeEvent(event)
@@ -39,6 +60,19 @@ class HomeViewModel @Inject constructor(
     fun updatePledge(pledge: DailyPledge) {
         viewModelScope.launch {
             repository.upsertPledge(pledge)
+        }
+    }
+
+    fun importAnkiDeck(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            val importer = AnkiImporter(context, repository)
+            importer.import(uri)
+        }
+    }
+
+    fun deleteDeck(deckName: String) {
+        viewModelScope.launch {
+            repository.deleteFlashcardsByDeck(deckName)
         }
     }
 }

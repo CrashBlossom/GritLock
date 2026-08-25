@@ -53,6 +53,7 @@ class DailyLogService : Service() {
     private fun createNotification(): Notification {
         val intent = Intent(this, MainActivity::class.java).apply {
             putExtra("navigate_to", "post_note")
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         val pendingIntent = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
@@ -67,16 +68,18 @@ class DailyLogService : Service() {
         val postNotePendingIntent = PendingIntent.getBroadcast(this, 0, postNoteIntent, PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
 
         val action = NotificationCompat.Action.Builder(
-            R.drawable.ic_launcher_foreground,
+            R.drawable.ic_stat_discipline,
             "Post Note",
             postNotePendingIntent
         ).addRemoteInput(remoteInput).build()
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("GritLock: Active Logging")
+            .setSmallIcon(R.drawable.ic_stat_discipline)
+            .setContentTitle("GritLock: Daily Log Active")
             .setContentText("Tap to record a thought or reflection.")
             .setOngoing(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setContentIntent(pendingIntent)
             .addAction(action)
             .setPriority(NotificationCompat.PRIORITY_LOW)

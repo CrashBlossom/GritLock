@@ -24,9 +24,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         UsageBaseline::class,
         MotivationalQuote::class,
         DailyLogNote::class,
-        AppBlockEvent::class
+        AppBlockEvent::class,
+        Flashcard::class,
+        WorkoutBlockEntity::class,
+        WorkoutExercise::class
     ], 
-    version = 19, 
+    version = 22, 
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -36,6 +39,21 @@ abstract class GritLockDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: GritLockDatabase? = null
+
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // 1. Create flashcards
+                database.execSQL("CREATE TABLE IF NOT EXISTS `flashcards` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `deckName` TEXT NOT NULL, `frontText` TEXT NOT NULL, `backText` TEXT NOT NULL, `drawingData` TEXT, `easinessFactor` REAL NOT NULL, `interval` INTEGER NOT NULL, `nextReviewDate` INTEGER NOT NULL, `repetitions` INTEGER NOT NULL)")
+                
+                // 2. Create workout_blocks
+                database.execSQL("CREATE TABLE IF NOT EXISTS `workout_blocks` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `gauntletId` INTEGER NOT NULL, `blockType` TEXT NOT NULL, `orderIndex` INTEGER NOT NULL, `restAfterBlock` INTEGER NOT NULL, FOREIGN KEY(`gauntletId`) REFERENCES `gauntlets`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_workout_blocks_gauntletId` ON `workout_blocks` (`gauntletId`)")
+                
+                // 3. Create workout_exercises
+                database.execSQL("CREATE TABLE IF NOT EXISTS `workout_exercises` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `blockId` INTEGER NOT NULL, `name` TEXT NOT NULL, `sets` INTEGER NOT NULL, `targetReps` TEXT NOT NULL, `restBetweenSets` INTEGER NOT NULL, `orderIndex` INTEGER NOT NULL, `progressionLevel` INTEGER NOT NULL, FOREIGN KEY(`blockId`) REFERENCES `workout_blocks`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_workout_exercises_blockId` ON `workout_exercises` (`blockId`)")
+            }
+        }
 
         val MIGRATION_16_17 = object : Migration(16, 17) {
             override fun migrate(database: SupportSQLiteDatabase) {
@@ -68,6 +86,18 @@ abstract class GritLockDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_flashcards_deckName_frontText_backText` ON `flashcards` (`deckName`, `frontText`, `backText`)")
+            }
+        }
+
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE flashcards ADD COLUMN allFieldsJson TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): GritLockDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -75,7 +105,7 @@ abstract class GritLockDatabase : RoomDatabase() {
                     GritLockDatabase::class.java,
                     "gritlock-db"
                 )
-                .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19)
+                .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22)
                 .build()
                 INSTANCE = instance
                 instance

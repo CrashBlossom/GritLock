@@ -48,4 +48,19 @@ class GritLockRepository(private val dao: GritLockDao) {
     // Group Management
     suspend fun upsertGroup(group: AppGroup) = if (group.id == 0) dao.insertGroup(group) else dao.updateGroup(group)
     suspend fun deleteGroup(group: AppGroup) = dao.deleteGroup(group)
+
+    // Flashcards & Advanced Training
+    val allFlashcards: Flow<List<Flashcard>> = dao.getAllFlashcards()
+    fun getFlashcardsByDeck(deckName: String): Flow<List<Flashcard>> = dao.getFlashcardsByDeck(deckName)
+    val allDeckNames: Flow<List<String>> = dao.getAllDeckNames()
+
+    suspend fun deleteFlashcardsByDeck(deckName: String) = dao.deleteFlashcardsByDeck(deckName)
+
+    suspend fun upsertFlashcard(card: Flashcard) = dao.upsertFlashcard(card)
+    suspend fun upsertFlashcards(cards: List<Flashcard>) = dao.upsertFlashcards(cards)
+    suspend fun deleteFlashcard(card: Flashcard) = dao.deleteFlashcard(card)
+
+    suspend fun upsertWorkoutBlock(block: WorkoutBlockEntity) = dao.upsertWorkoutBlock(block)
+    suspend fun upsertWorkoutExercise(exercise: WorkoutExercise) = dao.upsertWorkoutExercise(exercise)
+    suspend fun deleteBlocksForGauntlet(gauntletId: Int) = dao.deleteBlocksForGauntlet(gauntletId)
 }

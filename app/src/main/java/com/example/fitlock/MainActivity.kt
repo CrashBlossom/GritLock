@@ -21,13 +21,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -41,6 +37,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -48,6 +45,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ExerciseSessionRecord
@@ -58,6 +57,7 @@ import com.example.fitlock.data.*
 import com.example.fitlock.exercise.*
 import com.example.fitlock.service.GauntletService
 import com.example.fitlock.service.GritLockAccessibilityService
+import com.example.fitlock.service.MovementReminderWorker
 import com.example.fitlock.ui.*
 import com.example.fitlock.ui.theme.GritLockTheme
 import com.example.fitlock.utils.HealthConnectManager
@@ -126,6 +126,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         }
     }
 
+    private var onAnkiUriReceived: ((android.net.Uri) -> Unit)? = null
+    private val importAnkiLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let { onAnkiUriReceived?.invoke(it) }
+    }
+
     /**
      * onCreate is a "Lifecycle Method".
      * It's called by Android when the Activity is first created.
@@ -179,6 +186,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             nudgeRequest
         )
 
+        // Schedule Movement Reminder (Every 2 hours)
+        val movementRequest = androidx.work.PeriodicWorkRequestBuilder<MovementReminderWorker>(
+            2, java.util.concurrent.TimeUnit.HOURS
+        ).build()
+        workManager.enqueueUniquePeriodicWork(
+            "movement_reminder",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            movementRequest
+        )
+
         /**
          * setContent defines the UI of the app using Composable functions.
          * Everything inside here is written in declarative Compose syntax.
@@ -207,13 +224,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val userStatsFlow = remember { db.dao().getUserStats() }
             val statsState by userStatsFlow.collectAsState(initial = null)
 
+            // Flashcard Import callback
+            val homeViewModel: HomeViewModel = hiltViewModel()
+            onAnkiUriReceived = { uri -> homeViewModel.importAnkiDeck(this@MainActivity, uri) }
+
             // Wrap the whole UI in our custom Theme
             GritLockTheme(
                 themeName = appTheme, 
                 darkModeSetting = darkModeSetting,
                 activeArchetype = statsState?.activeTheme ?: "DEFAULT"
             ) {
-                val homeViewModel: HomeViewModel = hiltViewModel()
                 val locksViewModel: LocksViewModel = hiltViewModel()
                 val userViewModel: UserViewModel = hiltViewModel()
 
@@ -224,6 +244,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 val userStats = statsState
                 val challenges by homeViewModel.challenges.collectAsState()
                 val currentPledge by homeViewModel.currentPledge.collectAsState()
+                val deckSummaries by homeViewModel.deckSummaries.collectAsState()
 
                 val themeData = com.example.fitlock.ui.theme.getThemeData(userStats?.activeTheme ?: "DEFAULT")
                 
@@ -254,6 +275,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
                 // Internal navigation state (which screen are we on?)
                 var currentScreen by remember { mutableStateOf("home") }
+                var selectedDeckName by remember { mutableStateOf<String?>(null) }
                 var trackingMode by remember { mutableStateOf(TrackingMode.CAMERA) }
                 var editingGroup by remember { mutableStateOf<AppGroup?>(null) }
                 var calibrationExercise by remember { mutableStateOf<ExerciseType?>(null) }
@@ -275,6 +297,14 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 LaunchedEffect(intent) {
                     if (intent.getStringExtra("navigate_to") == "post_note") {
                         showPostNoteDialog = true
+                    }
+                    if (intent.getBooleanExtra("START_MINI_WORKOUT", false)) {
+                        val exType = intent.getStringExtra("EXERCISE_TYPE") ?: ExerciseType.SQUAT.name
+                        val exCount = intent.getIntExtra("EXERCISE_COUNT", 20)
+                        activeRequirements = listOf(ExerciseRequirement(exType, exCount))
+                        currentRequirementIndex = 0
+                        unlockingVaultItem = null
+                        currentScreen = "track"
                     }
                 }
                 
@@ -307,10 +337,44 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         if (currentScreen !in hideBottomBar) {
                             NavigationBar(
                                 containerColor = MaterialTheme.colorScheme.surface,
-                                contentColor = MaterialTheme.colorScheme.onSurface
+                                contentColor = MaterialTheme.colorScheme.onSurface,
+                                tonalElevation = 8.dp
                             ) {
                                 NavigationItem(themeData.tabHome, Icons.Default.Home, currentScreen == "home") { currentScreen = "home" }
                                 NavigationItem(themeData.tabLocks, Icons.Default.Lock, currentScreen == "locks") { currentScreen = "locks" }
+                                
+                                // PROMINENT CENTRAL BUTTON
+                                NavigationBarItem(
+                                    selected = false,
+                                    onClick = { showUrgeNegotiation = true },
+                                    icon = { 
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .background(MaterialTheme.colorScheme.error, CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.FlashOn,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        }
+                                    },
+                                    label = { 
+                                        Text(
+                                            text = themeData.tabUrge,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.error,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        ) 
+                                    },
+                                    alwaysShowLabel = true
+                                )
+
                                 NavigationItem(themeData.tabAnalytics, Icons.Default.Analytics, currentScreen == "analytics") { currentScreen = "analytics" }
                                 NavigationItem(themeData.tabProfile, Icons.Default.Person, currentScreen == "profile") { currentScreen = "profile" }
                             }
@@ -330,6 +394,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     challenges = challenges,
                                     todayTotals = todayTotals,
                                     currentPledge = currentPledge,
+                                    deckSummaries = deckSummaries,
                                     onChallengeClick = { challenge ->
                                         if (challenge.requirements.isNotEmpty()) {
                                             activeRequirements = challenge.requirements
@@ -353,6 +418,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         lifecycleScope.launch {
                                             generatedLogText = com.example.fitlock.utils.MarkdownExporter(this@MainActivity).generateDailyLog(java.util.Date())
                                         }
+                                    },
+                                    onImportAnkiClick = {
+                                        importAnkiLauncher.launch("*/*")
+                                    },
+                                    onDeckClick = { deckName ->
+                                        selectedDeckName = deckName
+                                        currentScreen = "flashcard_review"
+                                    },
+                                    onDeleteDeck = { deckName ->
+                                        homeViewModel.deleteDeck(deckName)
                                     }
                                 )
                             }
@@ -564,6 +639,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     )
                                 } else {
                                     currentScreen = "locks"
+                                }
+                            }
+                            "flashcard_review" -> {
+                                selectedDeckName?.let { deckName ->
+                                    FlashcardReviewScreen(
+                                        deckName = deckName,
+                                        repository = repository,
+                                        onFinish = {
+                                            currentScreen = "home"
+                                            selectedDeckName = null
+                                        }
+                                    )
                                 }
                             }
                             "calibrate" -> {
@@ -1059,6 +1146,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         super.onResume()
         // Refresh data whenever the user returns to the app
         refreshStepsFromHealth()
+        
+        // Ensure Daily Log Service is running
+        startService(Intent(this, com.example.fitlock.service.DailyLogService::class.java))
     }
 
     override fun onDestroy() {
@@ -1131,7 +1221,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     maxLines = 1,
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.fillMaxWidth()
+                    overflow = TextOverflow.Visible,
+                    softWrap = false
                 ) 
             },
             selected = selected,

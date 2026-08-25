@@ -241,7 +241,7 @@ data class DailyLogNote(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val timestamp: Long = System.currentTimeMillis(),
     val content: String,
-    val type: String = "MANUAL" // MANUAL, AUTO_BLOCK, AUTO_EXERCISE, URGE
+    val type: String = "MANUAL" // MANUAL, AUTO_BLOCK, AUTO_EXERCISE, URGE, SNOOZE_REASON
 )
 
 @Entity(tableName = "app_block_events")

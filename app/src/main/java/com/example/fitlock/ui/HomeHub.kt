@@ -1,14 +1,18 @@
 package com.example.fitlock.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -26,12 +30,16 @@ fun HomeHub(
     challenges: List<Challenge>,
     todayTotals: Map<String, Int>,
     currentPledge: DailyPledge?,
+    deckSummaries: List<DeckSummary>,
     onChallengeClick: (Challenge) -> Unit,
     onExerciseClick: (ExerciseType, Int) -> Unit,
     onSettingsClick: () -> Unit,
     onUrgeClick: () -> Unit,
     onPledgeClick: () -> Unit,
-    onViewLogClick: () -> Unit
+    onViewLogClick: () -> Unit,
+    onImportAnkiClick: () -> Unit,
+    onDeckClick: (String) -> Unit,
+    onDeleteDeck: (String) -> Unit
 ) {
     val themeData = com.example.fitlock.ui.theme.getThemeData(userStats?.activeTheme ?: "DEFAULT")
 
@@ -63,6 +71,15 @@ fun HomeHub(
         )
 
         Spacer(modifier = Modifier.height(24.dp))
+
+        CognitiveForgeSection(
+            deckSummaries = deckSummaries,
+            onDeckClick = onDeckClick,
+            onImportClick = onImportAnkiClick,
+            onDeleteDeck = onDeleteDeck
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
         
         SectionTitle(themeData.tabAnalytics.replace("Analytics", "Daily Quest").replace("Crime Map", "Bounty").replace("Quest Log", "Main Quest").replace("Journal", "Adventure"))
         val dailyQuest = challenges.find { it.id == "opm_classic" || it.id == "solo_leveling" }
@@ -89,6 +106,87 @@ fun HomeHub(
         DailyGoalsList(prefs, todayTotals, onExerciseClick)
         
         Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun CognitiveForgeSection(
+    deckSummaries: List<DeckSummary>,
+    onDeckClick: (String) -> Unit,
+    onImportClick: () -> Unit,
+    onDeleteDeck: (String) -> Unit
+) {
+    var deckToDelete by remember { mutableStateOf<String?>(null) }
+
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SectionTitle("Cognitive Forge")
+            IconButton(onClick = onImportClick) {
+                Icon(Icons.Default.Add, contentDescription = "Import Anki Deck")
+            }
+        }
+        
+        if (deckSummaries.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth().height(100.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Text("No decks imported. Tap '+' to start.", color = Color.Gray)
+                }
+            }
+        } else {
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                contentPadding = PaddingValues(bottom = 8.dp)
+            ) {
+                items(deckSummaries) { deck ->
+                    Card(
+                        modifier = Modifier
+                            .width(160.dp)
+                            .height(100.dp)
+                            .combinedClickable(
+                                onClick = { onDeckClick(deck.name) },
+                                onLongClick = { deckToDelete = deck.name }
+                            ),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            Text(deck.name, fontWeight = FontWeight.Bold, maxLines = 1, style = MaterialTheme.typography.titleMedium)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text("${deck.cardsDue} cards due", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (deckToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { deckToDelete = null },
+            title = { Text("Delete Pack") },
+            text = { Text("Remove all cards from '${deckToDelete}'?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onDeleteDeck(deckToDelete!!)
+                        deckToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deckToDelete = null }) { Text("Cancel") } }
+        )
     }
 }
 
