@@ -43,7 +43,8 @@ fun SettingsScreen(
     userStats: UserStats?,
     onUpdateUserStats: (UserStats) -> Unit,
     onNavigateToCalibration: (ExerciseType) -> Unit,
-    onNavigateToQuotes: () -> Unit
+    onNavigateToQuotes: () -> Unit,
+    groups: List<com.example.fitlock.data.AppGroup> = emptyList()
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
@@ -314,6 +315,100 @@ fun SettingsScreen(
                         unfocusedContainerColor = MaterialTheme.colorScheme.background
                     )
                 )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // AI Settings Section
+        SectionHeader("Gemini AI Integration")
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                var apiKey by remember { mutableStateOf(prefs.getString("gemini_api_key", "") ?: "") }
+                Text("API Key", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                Text("Required for AI extraction and coaching.", color = Color.Gray, fontSize = 12.sp)
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = apiKey,
+                    onValueChange = { 
+                        apiKey = it
+                        prefs.edit().putString("gemini_api_key", it).apply()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Enter Google AI API Key") },
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Intermittent Discipline Checks Section
+        SectionHeader("Intermittent Discipline Checks")
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                var intermittentEnabled by remember { mutableStateOf(prefs.getBoolean("intermittent_lock_enabled", false)) }
+                var selectedGroupId by remember { mutableIntStateOf(prefs.getInt("intermittent_block_group_id", -1)) }
+                
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Active Lockdown", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                        Text("Block apps when movement reminder triggers.", color = Color.Gray, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = intermittentEnabled,
+                        onCheckedChange = { 
+                            intermittentEnabled = it
+                            prefs.edit().putBoolean("intermittent_lock_enabled", it).apply()
+                        }
+                    )
+                }
+                
+                if (intermittentEnabled) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("App Group to Block", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    
+                    var expanded by remember { mutableStateOf(false) }
+                    val selectedGroup = groups.find { it.id == selectedGroupId }
+                    
+                    Box {
+                        OutlinedButton(
+                            onClick = { expanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(selectedGroup?.name ?: "No Group Selected")
+                        }
+                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                            DropdownMenuItem(
+                                text = { Text("None") },
+                                onClick = { 
+                                    selectedGroupId = -1
+                                    prefs.edit().putInt("intermittent_block_group_id", -1).apply()
+                                    expanded = false
+                                }
+                            )
+                            groups.forEach { group ->
+                                DropdownMenuItem(
+                                    text = { Text(group.name) },
+                                    onClick = {
+                                        selectedGroupId = group.id
+                                        prefs.edit().putInt("intermittent_block_group_id", group.id).apply()
+                                        expanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 

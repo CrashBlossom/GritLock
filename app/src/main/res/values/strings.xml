@@ -1,4 +1,14 @@
 <resources>
     <string name="app_name">GritLock</string>
     <string name="accessibility_service_description">GritLock uses this to detect when you open blocked apps or websites and enforces physical exercises to unlock them.</string>
+
+    <!-- Shortcut Labels -->
+    <string name="shortcut_morning_short">Morning Plan</string>
+    <string name="shortcut_morning_long">Start Morning Ritual</string>
+    <string name="shortcut_grit_short">Log Grit</string>
+    <string name="shortcut_grit_long">Record an Urge</string>
+    <string name="shortcut_rr_short">Start RR</string>
+    <string name="shortcut_rr_long">Recommended Routine</string>
+    <string name="shortcut_forge_short">Forge</string>
+    <string name="shortcut_forge_long">Open the Forge</string>
 </resources>

@@ -10,13 +10,13 @@ import com.example.fitlock.data.ExerciseCalibration
 import java.util.*
 import kotlin.math.sqrt
 
-enum class ExerciseType { PUSHUP, SQUAT, PULLUP, DIP, SITUP, HINGE, ROW, PLANK, STEPS, APP_USAGE }
+enum class ExerciseType { PUSHUP, SQUAT, PULLUP, DIP, SITUP, HINGE, ROW, PLANK, STEPS, APP_USAGE, FLASHCARDS }
 enum class TrackingMode { CAMERA, POCKET }
 
 class ExerciseTrackerManager(
     private val context: Context,
     private val onRepCountChanged: (Int) -> Unit,
-    private val onWorkoutComplete: (Int) -> Unit,
+    private val onWorkoutComplete: (Int, String?, Int) -> Unit, // reps, familyId, level
     private val onStationaryStatusChanged: (Boolean) -> Unit = {}
 ) : TextToSpeech.OnInitListener, SensorEventListener {
 
@@ -38,17 +38,39 @@ class ExerciseTrackerManager(
     private val SETTLING_TIME_MS = 2000L // Must be still for 2 seconds
     private var currentMode: TrackingMode = TrackingMode.CAMERA
 
-    fun startTracking(type: ExerciseType, mode: TrackingMode, goal: Int, calibration: ExerciseCalibration? = null) {
+    private var tempoTracker: TempoTracker? = null
+    private var currentFamilyId: String? = null
+    private var currentLevel: Int = 1
+    private var currentVariantName: String? = null
+
+    fun startTracking(
+        type: ExerciseType, 
+        mode: TrackingMode, 
+        goal: Int, 
+        calibration: ExerciseCalibration? = null, 
+        tempo: String = "3-1-1-1",
+        familyId: String? = null,
+        level: Int = 1,
+        variantName: String? = null
+    ) {
         this.targetReps = goal
         this.currentReps = 0
         this.currentExerciseType = type
         this.currentCalibration = calibration
+        this.currentFamilyId = familyId
+        this.currentLevel = level
+        this.currentVariantName = variantName
         this.goalReachedSpoken = false
         this.workoutStartTime = System.currentTimeMillis()
         this.currentMode = mode
         this.isStationary = false
         this.lastStationaryStartTime = 0L
         onStationaryStatusChanged(false)
+
+        if (mode == TrackingMode.CAMERA) {
+            tempoTracker = TempoTracker(tempo, ::speak, ::onRepDetected)
+            tempoTracker?.start()
+        }
         
         if (mode == TrackingMode.POCKET) {
             sensorTracker?.stop()
@@ -74,6 +96,22 @@ class ExerciseTrackerManager(
         } else {
             speak("Starting ${calStr}${type.name.lowercase()} workout in $modeStr mode. Goal is $goal reps.")
         }
+    }
+
+    fun switchToPocketMode() {
+        if (currentMode == TrackingMode.POCKET) return
+        
+        currentMode = TrackingMode.POCKET
+        tempoTracker?.stop()
+        tempoTracker = null
+        
+        sensorTracker = SensorTracker(context, this, currentCalibration, currentExerciseType ?: ExerciseType.PUSHUP)
+        sensorTracker?.start()
+        
+        sensorManager?.unregisterListener(this)
+        
+        val guide = PocketExerciseGuide.getPlacementInstruction(currentExerciseType ?: ExerciseType.PUSHUP)
+        speak("Switching to Pocket Mode. $guide")
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -112,6 +150,14 @@ class ExerciseTrackerManager(
         return (System.currentTimeMillis() - workoutStartTime) / 1000
     }
 
+    fun onWorkoutCompleteInternal() {
+        onWorkoutComplete(currentReps, currentFamilyId, currentLevel)
+    }
+
+    fun onMovementUpdate(isMovingDown: Boolean, isAtBottom: Boolean, isAtTop: Boolean) {
+        tempoTracker?.onMovementDetected(isMovingDown, isAtBottom, isAtTop)
+    }
+
     fun onRepDetected() {
         if (currentMode == TrackingMode.CAMERA && !isStationary) {
             // Movement detected or still settling, ignore the rep
@@ -125,7 +171,7 @@ class ExerciseTrackerManager(
             if (!goalReachedSpoken) {
                 speak("Goal reached! Keep going or move to next.")
                 goalReachedSpoken = true
-                onWorkoutComplete(currentReps)
+                onWorkoutComplete(currentReps, currentFamilyId, currentLevel)
             } else {
                 speak("$currentReps")
             }
@@ -140,7 +186,7 @@ class ExerciseTrackerManager(
         if (currentReps >= targetReps && !goalReachedSpoken) {
             speak("Goal reached via banked reps!")
             goalReachedSpoken = true
-            onWorkoutComplete(currentReps)
+            onWorkoutComplete(currentReps, currentFamilyId, currentLevel)
         }
     }
 

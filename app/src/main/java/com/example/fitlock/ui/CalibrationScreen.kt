@@ -48,11 +48,13 @@ import kotlin.math.atan2
 @Composable
 fun CalibrationScreen(
     exerciseType: ExerciseType,
+    variantName: String? = null,
     mode: TrackingMode,
     onCalibrationComplete: (ExerciseCalibration) -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val displayName = variantName ?: exerciseType.name
     
     var calibrationStep by remember { mutableStateOf(0) } // 0: Guide, 1: Top, 2: Bottom, 3: Success
     var countdown by remember { mutableStateOf(5) }
@@ -156,6 +158,9 @@ fun CalibrationScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(displayName, color = Color.White, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(16.dp))
+
                         when (calibrationStep) {
                             0 -> {
                                 Card(
@@ -205,7 +210,8 @@ fun CalibrationScreen(
                                         Button(
                                             onClick = {
                                                 if (topValue != null && bottomValue != null) {
-                                                    onCalibrationComplete(ExerciseCalibration("${exerciseType.name}_${mode.name}", topValue!!, bottomValue!!))
+                                                    val key = if (variantName != null) "${variantName}_${mode.name}" else "${exerciseType.name}_${mode.name}"
+                                                    onCalibrationComplete(ExerciseCalibration(key, topValue!!, bottomValue!!, 0.0, variantName))
                                                 }
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4CAF50))

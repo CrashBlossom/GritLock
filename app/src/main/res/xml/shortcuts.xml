@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="morning_plan"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_morning_short"
+        android:shortcutLongLabel="@string/shortcut_morning_long">
+        <intent
+            android:action="com.example.fitlock.ACTION_SHORTCUT"
+            android:targetPackage="com.example.fitlock"
+            android:targetClass="com.example.fitlock.MainActivity">
+            <extra android:name="shortcut_action" android:value="morning_plan" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="log_grit"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_grit_short"
+        android:shortcutLongLabel="@string/shortcut_grit_long">
+        <intent
+            android:action="com.example.fitlock.ACTION_SHORTCUT"
+            android:targetPackage="com.example.fitlock"
+            android:targetClass="com.example.fitlock.MainActivity">
+            <extra android:name="shortcut_action" android:value="log_grit" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="recommended_routine"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_rr_short"
+        android:shortcutLongLabel="@string/shortcut_rr_long">
+        <intent
+            android:action="com.example.fitlock.ACTION_SHORTCUT"
+            android:targetPackage="com.example.fitlock"
+            android:targetClass="com.example.fitlock.MainActivity">
+            <extra android:name="shortcut_action" android:value="recommended_routine" />
+        </intent>
+    </shortcut>
+    <shortcut
+        android:shortcutId="open_forge"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_forge_short"
+        android:shortcutLongLabel="@string/shortcut_forge_long">
+        <intent
+            android:action="com.example.fitlock.ACTION_SHORTCUT"
+            android:targetPackage="com.example.fitlock"
+            android:targetClass="com.example.fitlock.MainActivity">
+            <extra android:name="shortcut_action" android:value="open_forge" />
+        </intent>
+    </shortcut>
+</shortcuts>

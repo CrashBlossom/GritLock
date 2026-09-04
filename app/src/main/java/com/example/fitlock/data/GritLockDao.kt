@@ -82,6 +82,22 @@ interface GritLockDao {
     @Query("DELETE FROM habits WHERE gauntletId = :gauntletId")
     suspend fun deleteHabitsForGauntlet(gauntletId: Int)
 
+    // Habit Library
+    @Query("SELECT * FROM habit_definitions")
+    fun getAllHabitDefinitions(): Flow<List<HabitDefinition>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertHabitDefinition(definition: HabitDefinition): Long
+
+    @Delete
+    suspend fun deleteHabitDefinition(definition: HabitDefinition)
+
+    @Query("SELECT * FROM habit_definitions WHERE id = :id")
+    suspend fun getHabitDefinitionById(id: Int): HabitDefinition?
+
+    @Query("SELECT * FROM gauntlet_history")
+    suspend fun getAllHistoryList(): List<GauntletHistory>
+
     // Gauntlet History
     @Query("SELECT * FROM gauntlet_history ORDER BY timestamp DESC")
     fun getGauntletHistory(): Flow<List<GauntletHistory>>
@@ -167,6 +183,10 @@ interface GritLockDao {
 
     // Advanced Workouts (Overcoming Gravity)
     @Transaction
+    @Query("SELECT * FROM gauntlets")
+    fun getAllGauntletsWithAdvancedWorkouts(): Flow<List<GauntletWithAdvancedWorkout>>
+
+    @Transaction
     @Query("SELECT * FROM gauntlets WHERE id = :gauntletId")
     fun getAdvancedWorkout(gauntletId: Int): Flow<GauntletWithAdvancedWorkout?>
 
@@ -178,4 +198,100 @@ interface GritLockDao {
 
     @Query("DELETE FROM workout_blocks WHERE gauntletId = :gauntletId")
     suspend fun deleteBlocksForGauntlet(gauntletId: Int)
+
+    // Unified Quests
+    @Transaction
+    @Query("SELECT * FROM quests")
+    fun getAllQuestsWithBlocks(): Flow<List<QuestWithBlocks>>
+
+    @Transaction
+    @Query("SELECT * FROM quests WHERE id = :questId")
+    fun getQuestWithBlocksById(questId: String): Flow<QuestWithBlocks?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertQuest(quest: Quest)
+
+    @Delete
+    suspend fun deleteQuest(quest: Quest)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertQuestBlock(block: QuestBlock)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertQuestBlocks(blocks: List<QuestBlock>)
+
+    @Query("DELETE FROM quest_blocks WHERE questId = :questId")
+    suspend fun deleteBlocksForQuest(questId: String)
+
+    @Query("SELECT * FROM quest_blocks WHERE type = 'TASK' AND isCompleted = 0")
+    fun getUnfinishedTasks(): Flow<List<QuestBlock>>
+
+    // Exercise Library
+    @Query("SELECT * FROM exercise_definitions")
+    fun getAllExerciseDefinitions(): Flow<List<ExerciseDefinition>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertExerciseDefinition(definition: ExerciseDefinition)
+
+    @Delete
+    suspend fun deleteExerciseDefinition(definition: ExerciseDefinition)
+
+    // Task Library
+    @Query("SELECT * FROM task_definitions")
+    fun getAllTaskDefinitions(): Flow<List<TaskDefinition>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTaskDefinition(definition: TaskDefinition)
+
+    @Delete
+    suspend fun deleteTaskDefinition(definition: TaskDefinition)
+
+    @Query("UPDATE quests SET isCompletedToday = 0")
+    suspend fun resetQuestCompletionStatus()
+
+    @Query("UPDATE quest_blocks SET isCompleted = 0, completionTimestamp = NULL WHERE questId IN (SELECT id FROM quests WHERE type = 'ROUTINE')")
+    suspend fun resetRecurringQuestBlocks()
+
+    @Query("SELECT * FROM quests WHERE type = 'DAILY_COMMITMENT' AND isCompletedToday = 0 ORDER BY lastCompletedTimestamp DESC LIMIT 1")
+    suspend fun getLatestUnfinishedDailyQuest(): Quest?
+
+    // Atlas: Goals & Projects
+    @Transaction
+    @Query("SELECT * FROM goals")
+    fun getAllGoalsWithProjects(): Flow<List<GoalWithProjects>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertGoal(goal: Goal)
+
+    @Delete
+    suspend fun deleteGoal(goal: Goal)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertProject(project: Project)
+
+    @Delete
+    suspend fun deleteProject(project: Project)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertMilestone(milestone: Milestone)
+
+    @Delete
+    suspend fun deleteMilestone(milestone: Milestone)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertProjectTask(task: ProjectTask)
+
+    @Delete
+    suspend fun deleteProjectTask(task: ProjectTask)
+
+    @Query("SELECT * FROM project_tasks WHERE isCompleted = 0")
+    fun getUnfinishedProjectTasks(): Flow<List<ProjectTask>>
+
+    // Progression System
+    @Transaction
+    @Query("SELECT * FROM exercise_families")
+    fun getAllFamiliesWithLevels(): Flow<List<FamilyWithLevels>>
+
+    @Query("SELECT * FROM progression_levels WHERE familyId = :familyId AND level = :level")
+    suspend fun getLevelData(familyId: String, level: Int): ProgressionLevel?
 }

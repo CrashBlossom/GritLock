@@ -48,7 +48,7 @@ class PlankAnalyzer(private val manager: ExerciseTrackerManager) {
         } else {
             if (isPlanking) {
                 isPlanking = false
-                manager.provideCorrection("Keep your back straight!")
+                manager.provideCorrection("Form break. Try to lower your hips to keep your body in a straight line.")
             }
         }
     }

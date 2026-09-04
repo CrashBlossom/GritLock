@@ -12,7 +12,7 @@ class Converters {
     @TypeConverter
     fun fromExerciseList(list: List<ExerciseRequirement>): String {
         return list.joinToString(";") { 
-            "${it.type}:${it.count}:${it.isExtra}:${it.targetPackageNames.joinToString(",")}" 
+            "${it.type}:${it.count}:${it.isExtra}:${it.targetPackageNames.joinToString(",")}:${it.deckName ?: ""}:${it.variantName ?: ""}:${it.familyId ?: ""}" 
         }
     }
 
@@ -25,7 +25,10 @@ class Converters {
                 type = parts[0],
                 count = parts[1].toInt(),
                 isExtra = parts.getOrNull(2)?.toBoolean() ?: false,
-                targetPackageNames = parts.getOrNull(3)?.split(",")?.filter { pkg -> pkg.isNotBlank() } ?: emptyList()
+                targetPackageNames = parts.getOrNull(3)?.split(",")?.filter { pkg -> pkg.isNotBlank() } ?: emptyList(),
+                deckName = parts.getOrNull(4)?.let { if (it.isEmpty()) null else it },
+                variantName = parts.getOrNull(5)?.let { if (it.isEmpty()) null else it },
+                familyId = parts.getOrNull(6)?.let { if (it.isEmpty()) null else it }
             )
         }
     }
@@ -60,7 +63,7 @@ class Converters {
 
     @TypeConverter
     fun fromCalibrationMap(map: Map<String, ExerciseCalibration>): String {
-        return map.entries.joinToString(";") { "${it.key}:${it.value.topValue}:${it.value.bottomValue}:${it.value.thresholdValue}" }
+        return map.entries.joinToString(";") { "${it.key}:${it.value.topValue}:${it.value.bottomValue}:${it.value.thresholdValue}:${it.value.variantName ?: ""}" }
     }
 
     @TypeConverter
@@ -68,7 +71,8 @@ class Converters {
         if (data.isBlank()) return emptyMap()
         return data.split(";").associate {
             val parts = it.split(":")
-            parts[0] to ExerciseCalibration(parts[0], parts[1].toDouble(), parts[2].toDouble(), parts.getOrNull(3)?.toDouble() ?: 0.0)
+            val variant = parts.getOrNull(4)?.let { if (it.isEmpty()) null else it }
+            parts[0] to ExerciseCalibration(parts[0], parts[1].toDouble(), parts[2].toDouble(), parts.getOrNull(3)?.toDouble() ?: 0.0, variant)
         }
     }
 
@@ -97,9 +101,21 @@ class Converters {
     fun toAvatarType(value: String): AvatarType = AvatarType.valueOf(value)
 
     @TypeConverter
+    fun fromHabitMediaType(type: HabitMediaType): String = type.name
+
+    @TypeConverter
+    fun toHabitMediaType(value: String): HabitMediaType = HabitMediaType.valueOf(value)
+
+    @TypeConverter
+    fun fromHabitTrackingType(type: HabitTrackingType): String = type.name
+
+    @TypeConverter
+    fun toHabitTrackingType(value: String): HabitTrackingType = HabitTrackingType.valueOf(value)
+
+    @TypeConverter
     fun fromHabitLogList(list: List<HabitLog>): String {
         return list.joinToString(";") { 
-            "${it.habitId}|${it.name}|${it.actualDurationSeconds}|${it.estimatedDurationSeconds ?: -1}" 
+            "${it.habitId}|${it.name}|${it.actualDurationSeconds}|${it.estimatedDurationSeconds ?: -1}|${it.repsCompleted ?: -1}" 
         }
     }
 
@@ -112,8 +128,21 @@ class Converters {
                 habitId = parts[0].toInt(),
                 name = parts[1],
                 actualDurationSeconds = parts[2].toInt(),
-                estimatedDurationSeconds = parts[3].toInt().let { if (it == -1) null else it }
+                estimatedDurationSeconds = parts[3].toInt().let { if (it == -1) null else it },
+                repsCompleted = parts.getOrNull(4)?.toInt()?.let { if (it == -1) null else it }
             )
         }
     }
+
+    @TypeConverter
+    fun fromQuestType(type: QuestType): String = type.name
+
+    @TypeConverter
+    fun toQuestType(value: String): QuestType = QuestType.valueOf(value)
+
+    @TypeConverter
+    fun fromBlockType(type: BlockType): String = type.name
+
+    @TypeConverter
+    fun toBlockType(value: String): BlockType = BlockType.valueOf(value)
 }

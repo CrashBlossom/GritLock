@@ -106,6 +106,7 @@ dependencies {
     implementation(libs.gson)
     implementation(libs.coil.compose)
     implementation(libs.coil.gif)
+    implementation(libs.google.generativeai)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

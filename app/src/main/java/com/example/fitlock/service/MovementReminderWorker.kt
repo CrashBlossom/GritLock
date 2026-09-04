@@ -20,12 +20,46 @@ import com.example.fitlock.ui.MindfulSnoozeActivity
 class MovementReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        val prefs = applicationContext.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
+        val isLockEnabled = prefs.getBoolean("intermittent_lock_enabled", false)
+        val blockGroupId = prefs.getInt("intermittent_block_group_id", -1)
+        
         val hardStop = inputData.getBoolean("hardStop", false)
-        sendIntermittentTrainingNotification(hardStop)
+        val (exType, exCount) = getSelectedExercise()
+
+        if (isLockEnabled && blockGroupId != -1) {
+            activateIntermittentLock(blockGroupId, exType, exCount)
+        }
+
+        sendIntermittentTrainingNotification(hardStop, exType, exCount)
         return Result.success()
     }
 
-    private fun sendIntermittentTrainingNotification(hardStop: Boolean) {
+    private fun getSelectedExercise(): Pair<String, Int> {
+        val exercises = listOf(
+            "SQUAT" to 20,
+            "PUSHUP" to 15,
+            "PLANK" to 45,
+            "SITUP" to 25
+        )
+        // Use current hour as seed for stability
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        val day = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
+        val seed = (day * 100 + hour).toLong()
+        return exercises[java.util.Random(seed).nextInt(exercises.size)]
+    }
+
+    private fun activateIntermittentLock(groupId: Int, exType: String, exCount: Int) {
+        val intent = Intent(applicationContext, GritLockAccessibilityService::class.java).apply {
+            action = "ACTIVATE_INTERMITTENT_LOCK"
+            putExtra("block_group_id", groupId)
+            putExtra("exercise_type", exType)
+            putExtra("exercise_count", exCount)
+        }
+        applicationContext.startService(intent)
+    }
+
+    private fun sendIntermittentTrainingNotification(hardStop: Boolean, exType: String, exCount: Int) {
         val channelId = "movement_reminders"
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -35,17 +69,6 @@ class MovementReminderWorker(context: Context, params: WorkerParameters) : Corou
             val channel = NotificationChannel(channelId, name, importance)
             notificationManager.createNotificationChannel(channel)
         }
-
-        // Exercise Rotation
-        val exercises = listOf(
-            "SQUAT" to 20,
-            "PUSHUP" to 15,
-            "PLANK" to 45,
-            "SITUP" to 25
-        )
-        val selected = exercises.random()
-        val exType = selected.first
-        val exCount = selected.second
 
         // Action: DO IT NOW
         val workoutIntent = Intent(applicationContext, MainActivity::class.java).apply {

@@ -22,7 +22,7 @@ fun UrgeNegotiationDialog(
     onDismiss: () -> Unit,
     onConfirm: (UrgeEvent) -> Unit,
     availableQuotes: List<MotivationalQuote>,
-    themeUrgeLabel: String = "Willpower Trial"
+    themeUrgeLabel: String = "Grit Trial"
 ) {
     var intensity by remember { mutableFloatStateOf(5f) }
     var selectedCategory by remember { mutableStateOf("Internal Voice") }
@@ -52,7 +52,7 @@ fun UrgeNegotiationDialog(
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
             ) {
-                Text("How intense is the urge?", style = MaterialTheme.typography.titleSmall)
+                Text("How intense is the grit requirement?", style = MaterialTheme.typography.titleSmall)
                 Slider(
                     value = intensity,
                     onValueChange = { intensity = it },

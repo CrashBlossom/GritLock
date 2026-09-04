@@ -17,9 +17,9 @@ import com.example.fitlock.data.DailyPledge
 @Composable
 fun PledgeScreen(
     currentPledge: DailyPledge?,
-    onCommit: () -> Unit,
-    onSuccess: () -> Unit,
-    onRelapse: () -> Unit,
+    onCommitWithObjective: (String) -> Unit,
+    onSuccessWithReflection: (String) -> Unit,
+    onRelapseWithReflection: (String) -> Unit,
     onBack: () -> Unit
 ) {
     Scaffold(
@@ -39,25 +39,50 @@ fun PledgeScreen(
         ) {
             when (currentPledge?.status) {
                 "PENDING" -> {
+                    var objective by remember { mutableStateOf("") }
+                    
                     Text("Today's Pledge", fontSize = 28.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text(
                         "I commit to avoiding my distracting habits today and focusing on my growth.",
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    
+                    OutlinedTextField(
+                        value = objective,
+                        onValueChange = { objective = it },
+                        label = { Text("Main Objective of the Day") },
+                        placeholder = { Text("What is your #1 priority?") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    
                     Spacer(modifier = Modifier.height(32.dp))
                     Button(
-                        onClick = onCommit,
-                        modifier = Modifier.fillMaxWidth().height(56.dp)
+                        onClick = { onCommitWithObjective(objective) },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        enabled = objective.isNotBlank()
                     ) {
                         Text("I COMMIT")
                     }
                 }
                 "COMMITTED" -> {
-                    Text("How is your day going?", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    var reflection by remember { mutableStateOf("") }
+                    
+                    Text("Daily Reflection", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    
+                    OutlinedTextField(
+                        value = reflection,
+                        onValueChange = { reflection = it },
+                        label = { Text("How was your day? (Reflection)") },
+                        modifier = Modifier.fillMaxWidth().height(150.dp),
+                        placeholder = { Text("Any wins, challenges, or lessons learned?") }
+                    )
+                    
                     Spacer(modifier = Modifier.height(32.dp))
                     Button(
-                        onClick = onSuccess,
+                        onClick = { onSuccessWithReflection(reflection) },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF4CAF50))
                     ) {
@@ -67,7 +92,7 @@ fun PledgeScreen(
                     }
                     Spacer(modifier = Modifier.height(16.dp))
                     OutlinedButton(
-                        onClick = onRelapse,
+                        onClick = { onRelapseWithReflection(reflection) },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) {

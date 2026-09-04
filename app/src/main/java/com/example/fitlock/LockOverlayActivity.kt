@@ -139,6 +139,13 @@ class LockOverlayActivity : ComponentActivity() {
                         onStopExercise = {
                             lifecycleScope.launch {
                                 saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId)
+                                
+                                // Deactivate Intermittent Lock on stop too
+                                val deactivateIntent = Intent(this@LockOverlayActivity, com.example.fitlock.service.GritLockAccessibilityService::class.java).apply {
+                                    action = "DEACTIVATE_INTERMITTENT_LOCK"
+                                }
+                                startService(deactivateIntent)
+
                                 val homeIntent = Intent(Intent.ACTION_MAIN).apply {
                                     addCategory(Intent.CATEGORY_HOME)
                                     flags = Intent.FLAG_ACTIVITY_NEW_TASK
@@ -152,6 +159,19 @@ class LockOverlayActivity : ComponentActivity() {
                                 bankedRepsUsedInSession += count
                                 exerciseManager.addManualReps(count)
                             }
+                        },
+                        onStartFlashcardReview = { count ->
+                            val currentReq = exerciseRequirements.getOrNull(currentExerciseIndex)
+                            val intent = Intent(this@LockOverlayActivity, MainActivity::class.java).apply {
+                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                                putExtra("START_FLASHCARD_REVIEW", true)
+                                putExtra("FLASHCARD_COUNT", count)
+                                putExtra("DECK_NAME", currentReq?.deckName ?: "ALL")
+                                putExtra("RETURN_PACKAGE", targetApp)
+                                putExtra("RETURN_GROUP_ID", groupId)
+                            }
+                            startActivity(intent)
+                            finish()
                         },
                         onLaunchRequiredApp = {
                             val pkgs = currentReq.targetPackageNames
@@ -206,7 +226,7 @@ class LockOverlayActivity : ComponentActivity() {
             onRepCountChanged = { count ->
                 onRepCount(count)
             },
-            onWorkoutComplete = { reps -> },
+            onWorkoutComplete = { reps, familyId, level -> },
             onStationaryStatusChanged = onStationaryStatusChanged
         )
     }
@@ -278,6 +298,12 @@ class LockOverlayActivity : ComponentActivity() {
                 db.dao().updateGroup(group.copy(lastUnlockedTimestamp = now))
                 LockStatusManager.updateUnlock(groupId, now)
                 Log.d("LockOverlay", "Group $groupId UNLOCKED at $now")
+
+                // Deactivate Intermittent Lock
+                val deactivateIntent = Intent(this, com.example.fitlock.service.GritLockAccessibilityService::class.java).apply {
+                    action = "DEACTIVATE_INTERMITTENT_LOCK"
+                }
+                startService(deactivateIntent)
             }
         }
     }

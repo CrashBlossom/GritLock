@@ -156,7 +156,13 @@ fun SetMasterPasswordDialog(
 }
 
 @Composable
-fun RequirementRow(index: Int, req: ExerciseRequirement, onUpdate: (ExerciseRequirement) -> Unit, onDelete: () -> Unit) {
+fun RequirementRow(
+    index: Int, 
+    req: ExerciseRequirement, 
+    onUpdate: (ExerciseRequirement) -> Unit, 
+    onDelete: () -> Unit,
+    deckNames: List<String> = emptyList()
+) {
     val context = LocalContext.current
     var showAppPicker by remember { mutableStateOf(false) }
     val allApps = remember { AppInfoFetcher.getInstalledApps(context) }
@@ -199,7 +205,16 @@ fun RequirementRow(index: Int, req: ExerciseRequirement, onUpdate: (ExerciseRequ
                 modifier = Modifier.weight(1f),
                 colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White),
                 textStyle = LocalTextStyle.current.copy(fontSize = 12.sp),
-                label = { Text(if (req.type == "APP_USAGE") "Seconds" else "Reps", fontSize = 8.sp) }
+                label = { 
+                    Text(
+                        when (req.type) {
+                            "APP_USAGE", "PLANK" -> "Seconds"
+                            "FLASHCARDS" -> "Cards"
+                            else -> "Reps"
+                        }, 
+                        fontSize = 8.sp
+                    ) 
+                }
             )
 
             IconButton(onClick = onDelete) {
@@ -220,6 +235,44 @@ fun RequirementRow(index: Int, req: ExerciseRequirement, onUpdate: (ExerciseRequ
                     color = Color.White,
                     fontSize = 11.sp
                 )
+            }
+        } else if (req.type == "FLASHCARDS") {
+            Spacer(modifier = Modifier.height(4.dp))
+            var deckExpanded by remember { mutableStateOf(false) }
+            Box(modifier = Modifier.fillMaxWidth()) {
+                OutlinedButton(
+                    onClick = { deckExpanded = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = if (req.deckName.isNullOrEmpty()) "All Decks" else "Pack: ${req.deckName}",
+                        color = Color.White,
+                        fontSize = 11.sp
+                    )
+                }
+                DropdownMenu(
+                    expanded = deckExpanded,
+                    onDismissRequest = { deckExpanded = false },
+                    modifier = Modifier.background(Color(0xFF1C1C21))
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("All Decks", color = Color.White) },
+                        onClick = {
+                            onUpdate(req.copy(deckName = null))
+                            deckExpanded = false
+                        }
+                    )
+                    deckNames.forEach { name ->
+                        DropdownMenuItem(
+                            text = { Text(name, color = Color.White) },
+                            onClick = {
+                                onUpdate(req.copy(deckName = name))
+                                deckExpanded = false
+                            }
+                        )
+                    }
+                }
             }
         }
     }

@@ -21,6 +21,10 @@ import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -61,7 +65,9 @@ fun LockOverlayScreen(
     onNextExercise: () -> Unit,
     onStopExercise: () -> Unit,
     onUseBankedReps: (String, Int) -> Unit,
-    onLaunchRequiredApp: () -> Unit = {}
+    onSwitchToPocket: () -> Unit = {},
+    onLaunchRequiredApp: () -> Unit = {},
+    onStartFlashcardReview: (Int) -> Unit = {}
 ) {
     val context = LocalContext.current
     
@@ -133,6 +139,15 @@ fun LockOverlayScreen(
                         modifier = Modifier.scale(0.8f)
                     )
                     Text("Camera", color = Color.Gray, fontSize = 12.sp)
+                    
+                    if (trackingMode == TrackingMode.CAMERA) {
+                        Spacer(modifier = Modifier.width(16.dp))
+                        TextButton(onClick = onSwitchToPocket) {
+                            Icon(Icons.Default.Lightbulb, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Poor Light? Switch to Pocket", fontSize = 12.sp)
+                        }
+                    }
                 }
             }
 
@@ -171,6 +186,28 @@ fun LockOverlayScreen(
                             Text("Launch App Now")
                         }
                     }
+                } else if (currentReq.type == "FLASHCARDS") {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                        Icon(Icons.Default.Launch, contentDescription = null, tint = Color.White.copy(alpha = 0.3f), modifier = Modifier.size(64.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        val subTitle = if (!currentReq.deckName.isNullOrEmpty()) {
+                            "Pack: ${currentReq.deckName}"
+                        } else {
+                            "You must review ${currentReq.count} cards from your decks to proceed."
+                        }
+                        Text(
+                            subTitle,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = { onStartFlashcardReview(currentReq.count) },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Text("Start Review Session")
+                        }
+                    }
                 } else if (trackingMode == TrackingMode.CAMERA) {
                     CameraPreview(
                         modifier = Modifier.fillMaxSize(),
@@ -194,7 +231,7 @@ fun LockOverlayScreen(
                     }
                 }
                 
-                if (currentReq.type != "APP_USAGE") {
+                if (currentReq.type != "APP_USAGE" && currentReq.type != "FLASHCARDS") {
                     // Rep counter overlay
                     Box(
                         modifier = Modifier
@@ -219,6 +256,7 @@ fun LockOverlayScreen(
                                     )
                                 }
                             }
+
                             Text(
                                 text = "$repCount / ${currentReq.count}",
                                 style = MaterialTheme.typography.displayMedium,

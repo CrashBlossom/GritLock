@@ -25,6 +25,18 @@ class LocksViewModel @Inject constructor(
     val gauntlets: StateFlow<List<GauntletWithHabits>> = repository.allGauntlets
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val advancedWorkouts: StateFlow<List<GauntletWithAdvancedWorkout>> = repository.allAdvancedWorkouts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val habitDefinitions: StateFlow<List<HabitDefinition>> = repository.allHabitDefinitions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val exerciseDefinitions: StateFlow<List<ExerciseDefinition>> = repository.allExerciseDefinitions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val taskDefinitions: StateFlow<List<TaskDefinition>> = repository.allTaskDefinitions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     fun toggleGroup(group: AppGroup) {
         viewModelScope.launch {
             repository.upsertGroup(group.copy(isEnabled = !group.isEnabled))
@@ -67,5 +79,41 @@ class LocksViewModel @Inject constructor(
 
     fun upsertHabit(habit: Habit) = viewModelScope.launch {
         repository.upsertHabit(habit)
+    }
+
+    fun upsertHabitDefinition(definition: HabitDefinition) = viewModelScope.launch {
+        repository.upsertHabitDefinition(definition)
+    }
+
+    fun deleteHabitDefinition(definition: HabitDefinition) = viewModelScope.launch {
+        repository.deleteHabitDefinition(definition)
+    }
+
+    fun deleteBlocksForGauntlet(gauntletId: Int) = viewModelScope.launch {
+        repository.deleteBlocksForGauntlet(gauntletId)
+    }
+
+    fun upsertWorkoutBlock(block: WorkoutBlockEntity) = viewModelScope.async {
+        repository.upsertWorkoutBlock(block)
+    }
+
+    fun upsertWorkoutExercise(exercise: WorkoutExercise) = viewModelScope.launch {
+        repository.upsertWorkoutExercise(exercise)
+    }
+
+    fun upsertExerciseDefinition(definition: ExerciseDefinition) = viewModelScope.launch {
+        repository.upsertExerciseDefinition(definition)
+    }
+
+    fun deleteExerciseDefinition(definition: ExerciseDefinition) = viewModelScope.launch {
+        repository.deleteExerciseDefinition(definition)
+    }
+
+    fun upsertTaskDefinition(definition: TaskDefinition) = viewModelScope.launch {
+        repository.upsertTaskDefinition(definition)
+    }
+
+    fun deleteTaskDefinition(definition: TaskDefinition) = viewModelScope.launch {
+        repository.deleteTaskDefinition(definition)
     }
 }

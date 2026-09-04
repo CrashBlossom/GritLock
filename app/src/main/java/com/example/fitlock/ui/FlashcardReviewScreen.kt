@@ -33,13 +33,23 @@ import java.io.File
 fun FlashcardReviewScreen(
     deckName: String,
     repository: GritLockRepository,
+    requiredCount: Int? = null,
+    onRequirementMet: () -> Unit = {},
     onFinish: () -> Unit
 ) {
-    val flashcards by repository.getFlashcardsByDeck(deckName).collectAsState(initial = emptyList())
+    val flashcards by remember(deckName) {
+        if (deckName == "ALL") repository.allFlashcards
+        else repository.getFlashcardsByDeck(deckName)
+    }.collectAsState(initial = emptyList())
     
+    // Track cards reviewed in THIS session
+    var cardsReviewedInSession by remember { mutableIntStateOf(0) }
+    var requirementOverrideMet by remember { mutableStateOf(false) }
+
     // The master list of cards that are due
-    val dueCardsBase = remember(flashcards) { 
-        flashcards.filter { it.nextReviewDate <= System.currentTimeMillis() + 60000 } // Buffer 1 min
+    val dueCardsBase = remember(flashcards, requirementOverrideMet) { 
+        if (requiredCount != null && !requirementOverrideMet) flashcards // If unlocking, show ALL cards (even if not due)
+        else flashcards.filter { it.nextReviewDate <= System.currentTimeMillis() + 60000 } // Buffer 1 min
     }
     
     // The active session queue (allows for "Again" re-insertion)
@@ -65,6 +75,39 @@ fun FlashcardReviewScreen(
 
     val scope = rememberCoroutineScope()
     val cardScrollState = rememberScrollState()
+
+    if (!requirementOverrideMet && requiredCount != null && cardsReviewedInSession >= requiredCount) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                Text("Requirement Met! 🎉", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("You've reviewed $cardsReviewedInSession cards. The blocked app is now accessible.", textAlign = TextAlign.Center)
+                
+                Spacer(modifier = Modifier.height(32.dp))
+                
+                Button(
+                    onClick = onFinish,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Return to App")
+                }
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                OutlinedButton(
+                    onClick = { 
+                        requirementOverrideMet = true 
+                        cardsReviewedInSession = 0 
+                        sessionQueue.clear() // Force re-sync with due cards only
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Keep Reviewing Due Cards")
+                }
+            }
+        }
+        return
+    }
 
     if (sessionQueue.isEmpty()) {
         if (flashcards.isNotEmpty() && dueCardsBase.isEmpty()) {
@@ -123,13 +166,19 @@ fun FlashcardReviewScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val titleText = if (requiredCount != null) {
+                "Unlocking: $cardsReviewedInSession / $requiredCount (${currentCard.deckName})"
+            } else {
+                "Reviewing: ${currentCard.deckName} (${sessionQueue.size} left)"
+            }
             Text(
-                text = "Reviewing: $deckName (${sessionQueue.size} left)",
+                text = titleText,
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 16.sp
             )
             Row(
                 horizontalArrangement = Arrangement.End,
@@ -277,10 +326,18 @@ fun FlashcardReviewScreen(
                                     showAnswer = false
                                     currentScribble = ""
                                     
+                                    if (!requirementOverrideMet && requiredCount != null && cardsReviewedInSession + 1 >= requiredCount) {
+                                        onRequirementMet()
+                                    }
+                                    
+                                    // Increment session progress
+                                    cardsReviewedInSession++
+                                    
                                     // SESSION LOGIC: 
                                     // If rating is "Again" (1), move to the end of the queue.
                                     // Otherwise, remove from current session.
                                     sessionQueue.removeAt(0)
+                                    
                                     if (rating == 1) {
                                         sessionQueue.add(updatedCard)
                                     }

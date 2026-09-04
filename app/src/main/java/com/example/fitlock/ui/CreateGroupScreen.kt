@@ -13,6 +13,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.fitlock.data.AppGroup
@@ -32,6 +34,7 @@ import com.example.fitlock.utils.AppInfoFetcher
 @Composable
 fun CreateGroupScreen(
     editingGroup: AppGroup? = null,
+    deckNames: List<String> = emptyList(),
     onBack: () -> Unit,
     onSave: (AppGroup) -> Unit
 ) {
@@ -48,8 +51,13 @@ fun CreateGroupScreen(
     var schedule by remember(editingGroup) { mutableStateOf(editingGroup?.schedule ?: emptyList()) }
     
     // Keywords state
-    var keywords by remember(editingGroup) { mutableStateOf(editingGroup?.keywords ?: emptyList()) }
+    var keywords by remember { mutableStateOf(editingGroup?.keywords ?: emptyList()) }
     var newKeyword by remember { mutableStateOf("") }
+    
+    // WiFi state
+    var restrictedWifiSsids by remember { mutableStateOf(editingGroup?.restrictedWifiSsids ?: emptyList()) }
+    var newWifiSsid by remember { mutableStateOf("") }
+    var showWifiScanner by remember { mutableStateOf(false) }
 
     val allApps = remember { AppInfoFetcher.getInstalledApps(context) }
     val filteredApps = allApps.filter { 
@@ -213,6 +221,53 @@ fun CreateGroupScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // WiFi Restriction Section
+            Text(
+                "WIFI RESTRICTION (ONLY BLOCK ON THESE NETWORKS)",
+                color = Color.Gray,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = newWifiSsid,
+                    onValueChange = { newWifiSsid = it },
+                    placeholder = { Text("e.g. Home_WiFi, Office_5G", fontSize = 14.sp) },
+                    modifier = Modifier.weight(1f),
+                    colors = TextFieldDefaults.colors(
+                        focusedContainerColor = Color(0xFF1C1C21),
+                        unfocusedContainerColor = Color(0xFF1C1C21),
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                IconButton(onClick = { showWifiScanner = true }) {
+                    Icon(Icons.Default.Wifi, contentDescription = "Scan WiFi", tint = Color(0xFFD0BCFF))
+                }
+            }
+            
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                restrictedWifiSsids.forEach { ssid ->
+                    AssistChip(
+                        onClick = { restrictedWifiSsids = restrictedWifiSsids - ssid },
+                        label = { Text(ssid, fontSize = 11.sp) },
+                        trailingIcon = { Icon(Icons.Default.Delete, null, modifier = Modifier.size(14.dp)) },
+                        colors = AssistChipDefaults.assistChipColors(
+                            labelColor = Color.White,
+                            containerColor = Color(0xFF2D2D35)
+                        ),
+                        border = null
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             // Schedule Section
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -265,7 +320,7 @@ fun CreateGroupScreen(
                     if (exerciseRequirements.size > 1) {
                         exerciseRequirements = exerciseRequirements.toMutableList().apply { removeAt(index) }
                     }
-                })
+                }, deckNames = deckNames)
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -297,6 +352,7 @@ fun CreateGroupScreen(
                             exercises = exerciseRequirements,
                             unlockDurationMinutes = unlockDuration.toIntOrNull() ?: 30,
                             schedule = schedule,
+                            restrictedWifiSsids = restrictedWifiSsids,
                             isEnabled = editingGroup?.isEnabled ?: true,
                             keywords = keywords
                         ))
@@ -310,7 +366,62 @@ fun CreateGroupScreen(
             }
             Spacer(modifier = Modifier.height(24.dp))
         }
+
+        if (showWifiScanner) {
+            WifiScannerDialog(
+                onDismiss = { showWifiScanner = false },
+                onSelect = { ssid ->
+                    if (!restrictedWifiSsids.contains(ssid)) {
+                        restrictedWifiSsids = restrictedWifiSsids + ssid
+                    }
+                    showWifiScanner = false
+                }
+            )
+        }
     }
+}
+
+@Composable
+fun WifiScannerDialog(onDismiss: () -> Unit, onSelect: (String) -> Unit) {
+    val context = LocalContext.current
+    var nearbySsids by remember { mutableStateOf<List<String>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        nearbySsids = com.example.fitlock.utils.NetworkUtils.getNearbySsids(context)
+        isLoading = false
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Available Networks") },
+        text = {
+            Column(modifier = Modifier.height(300.dp)) {
+                if (isLoading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                } else if (nearbySsids.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No nearby WiFi found. Check permissions.", color = Color.Gray, textAlign = TextAlign.Center)
+                    }
+                } else {
+                    LazyColumn {
+                        items(nearbySsids) { ssid ->
+                            ListItem(
+                                headlineContent = { Text(ssid) },
+                                modifier = Modifier.clickable { onSelect(ssid) }
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable

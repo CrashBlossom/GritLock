@@ -8,6 +8,8 @@ enum class StatType { STR, AGI, VIT, INT, SEN, CHA }
 enum class GauntletTriggerType { MANUAL, TIME_BASED }
 enum class PhysicalTriggerType { NONE, NFC, QR }
 enum class AvatarType { SEEKER, WARRIOR, MAGE, ROGUE }
+enum class HabitMediaType { NONE, IMAGE, GIF, YOUTUBE }
+enum class HabitTrackingType { TIME, REPS, CHECKLIST }
 
 @Entity(tableName = "app_groups")
 data class AppGroup(
@@ -19,6 +21,7 @@ data class AppGroup(
     val lastUnlockedTimestamp: Long = 0L,
     val isEnabled: Boolean = true,
     val schedule: List<ScheduleInterval> = emptyList(),
+    val restrictedWifiSsids: List<String> = emptyList(),
     val keywords: List<String> = emptyList(),
     val icon: String? = null
 )
@@ -39,6 +42,38 @@ data class Gauntlet(
     val delayedNudgeMinutes: Int = 5
 )
 
+@Entity(tableName = "exercise_definitions")
+data class ExerciseDefinition(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val name: String,
+    val type: String, // Links to ExerciseType name
+    val defaultSets: Int = 3,
+    val defaultTargetReps: String = "10",
+    val defaultRestSeconds: Int = 60,
+    val icon: String? = null
+)
+
+@Entity(tableName = "task_definitions")
+data class TaskDefinition(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val name: String,
+    val category: String? = "General",
+    val autoCarryOver: Boolean = true
+)
+
+@Entity(tableName = "habit_definitions")
+data class HabitDefinition(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val name: String,
+    val icon: String? = null,
+    val mediaUrl: String? = null,
+    val mediaType: HabitMediaType = HabitMediaType.NONE,
+    val trackingType: HabitTrackingType = HabitTrackingType.TIME,
+    val higherIsBetter: Boolean = true,
+    val defaultEstimatedDurationSeconds: Int? = 60,
+    val defaultSubHabits: List<String> = emptyList()
+)
+
 @Entity(
     tableName = "habits",
     foreignKeys = [
@@ -47,19 +82,48 @@ data class Gauntlet(
             parentColumns = ["id"],
             childColumns = ["gauntletId"],
             onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = HabitDefinition::class,
+            parentColumns = ["id"],
+            childColumns = ["definitionId"],
+            onDelete = ForeignKey.SET_NULL
         )
     ],
-    indices = [Index("gauntletId")]
+    indices = [Index("gauntletId"), Index("definitionId")]
 )
 data class Habit(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val gauntletId: Int,
-    val name: String,
+    val definitionId: Int? = null, // Link to library
+    val name: String, // Fallback if definitionId is null
     val orderIndex: Int,
     val estimatedDurationSeconds: Int? = 60,
     val icon: String? = null,
-    val subHabits: List<String> = emptyList()
+    val subHabits: List<String> = emptyList(),
+    val mediaUrl: String? = null,
+    val mediaType: HabitMediaType = HabitMediaType.NONE,
+    val trackingType: HabitTrackingType = HabitTrackingType.TIME,
+    val higherIsBetter: Boolean = true,
+    val lastCompletionTimestamp: Long = 0L,
+    val currentStreak: Int = 0
 )
+
+data class HabitWithDefinition(
+    @Embedded val habit: Habit,
+    @Relation(
+        parentColumn = "definitionId",
+        entityColumn = "id"
+    )
+    val definition: HabitDefinition?
+) {
+    // Helper to get effective name (from definition or local fallback)
+    val effectiveName: String get() = definition?.name ?: habit.name
+    val effectiveMediaType: HabitMediaType get() = definition?.mediaType ?: habit.mediaType
+    val effectiveMediaUrl: String? get() = definition?.mediaUrl ?: habit.mediaUrl
+    val effectiveTrackingType: HabitTrackingType get() = definition?.trackingType ?: habit.trackingType
+    val effectiveSubHabits: List<String> get() = definition?.defaultSubHabits ?: habit.subHabits
+}
 
 @Entity(tableName = "gauntlet_history")
 data class GauntletHistory(
@@ -77,16 +141,18 @@ data class HabitLog(
     val habitId: Int,
     val name: String,
     val actualDurationSeconds: Int,
-    val estimatedDurationSeconds: Int?
+    val estimatedDurationSeconds: Int?,
+    val repsCompleted: Int? = null
 )
 
 data class GauntletWithHabits(
     @Embedded val gauntlet: Gauntlet,
     @Relation(
+        entity = Habit::class,
         parentColumn = "id",
         entityColumn = "gauntletId"
     )
-    val habits: List<Habit>
+    val habits: List<HabitWithDefinition>
 )
 
 @Entity(tableName = "app_rules")
@@ -110,7 +176,10 @@ data class ExerciseRequirement(
     val type: String,
     val count: Int,
     val isExtra: Boolean = false,
-    val targetPackageNames: List<String> = emptyList() // Supports multiple apps for usage tracking
+    val targetPackageNames: List<String> = emptyList(), // Supports multiple apps for usage tracking
+    val deckName: String? = null, // For FLASHCARDS requirement: "ALL" or specific deck
+    val variantName: String? = null,
+    val familyId: String? = null
 )
 
 @Entity(tableName = "vault_items")
@@ -129,7 +198,8 @@ data class ExerciseCalibration(
     val exerciseType: String,
     val topValue: Double,
     val bottomValue: Double,
-    val thresholdValue: Double = 0.0
+    val thresholdValue: Double = 0.0,
+    val variantName: String? = null
 )
 
 // Singleton to handle real-time unlock status and bypass cache latency
@@ -204,16 +274,9 @@ data class UserStats(
     // System fields
     val bankedReps: Map<String, Int> = emptyMap(),
     val calibrations: Map<String, ExerciseCalibration> = emptyMap(),
+    val familyProgression: Map<String, Int> = emptyMap(), // familyId -> currentLevel
     val bankResetFrequency: String = "Never", 
     val lastBankReset: Long = 0L
-)
-
-@Entity(tableName = "daily_pledges")
-data class DailyPledge(
-    @PrimaryKey val date: String, // YYYY-MM-DD
-    val pledgeTimestamp: Long? = null,
-    val reviewTimestamp: Long? = null,
-    val status: String = "PENDING" // PENDING, COMMITTED, SUCCESS, RELAPSED
 )
 
 @Entity(tableName = "urge_events")

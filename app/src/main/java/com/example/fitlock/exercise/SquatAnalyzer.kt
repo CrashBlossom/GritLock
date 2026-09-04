@@ -75,12 +75,18 @@ class SquatAnalyzer(
                 if (verticalDisplacement > MOVEMENT_THRESHOLD) {
                     isDown = false
                     lastRepTime = currentTime
-                    manager.onRepDetected()
+                    // manager.onRepDetected()
                 } else {
                     isDown = false // Likely just jitter
                 }
             }
         }
+
+        manager.onMovementUpdate(
+            isMovingDown = avgKneeAngle < upThresholdAngle - 15,
+            isAtBottom = avgKneeAngle <= downThresholdAngle + 15,
+            isAtTop = avgKneeAngle >= upThresholdAngle - 15
+        )
     }
 
     private fun calculateAngle(first: PoseLandmark, mid: PoseLandmark, last: PoseLandmark): Double {

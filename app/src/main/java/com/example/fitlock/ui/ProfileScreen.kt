@@ -36,7 +36,9 @@ fun ProfileScreen(
     baselines: List<UsageBaseline>,
     onAddChallenge: (Challenge) -> Unit,
     onAddBaseline: (UsageBaseline) -> Unit,
-    onDeleteBaseline: (UsageBaseline) -> Unit
+    onDeleteBaseline: (UsageBaseline) -> Unit,
+    onForgeClick: () -> Unit,
+    forgeTabName: String = "Forge"
 ) {
     Column(
         modifier = Modifier
@@ -45,7 +47,21 @@ fun ProfileScreen(
             .padding(16.dp)
             .verticalScroll(rememberScrollState())
     ) {
-        Text("Profile", color = MaterialTheme.colorScheme.onBackground, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Profile", color = MaterialTheme.colorScheme.onBackground, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            Button(
+                onClick = onForgeClick,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+            ) {
+                Icon(Icons.Default.Architecture, null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(forgeTabName)
+            }
+        }
         Spacer(modifier = Modifier.height(24.dp))
 
         // Level and XP Progress
@@ -174,7 +190,7 @@ fun StatsHeader(stats: UserStats?) {
     val level = stats?.level ?: 1
     val xp = stats?.totalXp ?: 0
     val xpNeeded = level * 100
-    val progress = (xp.toFloat() / xpNeeded.toFloat()).coerceIn(0f, 1f)
+    val progress = if (xpNeeded > 0) (xp.toFloat() / xpNeeded.toFloat()).coerceIn(0f, 1f) else 0f
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),

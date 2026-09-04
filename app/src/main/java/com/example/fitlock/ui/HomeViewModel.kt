@@ -20,7 +20,8 @@ import javax.inject.Inject
 
 data class DeckSummary(
     val name: String,
-    val cardsDue: Int
+    val cardsDue: Int,
+    val totalCards: Int
 )
 
 @HiltViewModel
@@ -31,12 +32,28 @@ class HomeViewModel @Inject constructor(
     val challenges: StateFlow<List<Challenge>> = repository.allChallenges
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allQuests = repository.allQuests
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val unfinishedTasks = repository.unfinishedTasks
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val userStats = repository.userStats
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     val currentPledge: StateFlow<DailyPledge?> = repository.allPledges
         .map { list -> list.find { it.date == LocalDate.now().toString() } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun initDailyPledgeIfMissing() {
+        viewModelScope.launch {
+            val today = LocalDate.now().toString()
+            val existing = repository.getPledgeForDate(today)
+            if (existing == null) {
+                repository.upsertPledge(DailyPledge(date = today, status = "PENDING"))
+            }
+        }
+    }
 
     val deckSummaries: StateFlow<List<DeckSummary>> = repository.allFlashcards
         .map { cards ->
@@ -45,7 +62,8 @@ class HomeViewModel @Inject constructor(
                 .map { (name, cardsInDeck) ->
                     DeckSummary(
                         name = name,
-                        cardsDue = cardsInDeck.count { it.nextReviewDate <= now }
+                        cardsDue = cardsInDeck.count { it.nextReviewDate <= now },
+                        totalCards = cardsInDeck.size
                     )
                 }
         }

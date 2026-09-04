@@ -206,7 +206,7 @@ fun ChallengeDetailsDialog(
                 // Show progress for each requirement (e.g. 50/100 Pushups)
                 challenge.requirements.forEach { req ->
                     val progress = todayTotals[req.type] ?: 0
-                    val percent = (progress.toFloat() / req.count.toFloat()).coerceIn(0f, 1f)
+                    val percent = if (req.count > 0) (progress.toFloat() / req.count.toFloat()).coerceIn(0f, 1f) else 0f
                     
                     Column {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -416,7 +416,7 @@ fun DailyGoalsList(
                 // Fetch current progress from the todayTotals map
                 val progress = todayTotals[type.name] ?: 0
                 // Calculate percentage (0.0 to 1.0) for the progress bar
-                val percent = (progress.toFloat() / goal.toFloat()).coerceIn(0f, 1f)
+                val percent = if (goal > 0) (progress.toFloat() / goal.toFloat()).coerceIn(0f, 1f) else 0f
                 
                 Card(
                     modifier = Modifier.clickable { onExerciseClick(type, goal) },
@@ -446,6 +446,7 @@ fun DailyGoalsList(
                                 ExerciseType.PLANK -> Icons.Default.Timer
                                 ExerciseType.STEPS -> Icons.AutoMirrored.Filled.DirectionsWalk
                                 ExerciseType.APP_USAGE -> Icons.Default.Apps
+                                ExerciseType.FLASHCARDS -> Icons.Default.HistoryEdu
                             }
                             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                         }
@@ -531,7 +532,7 @@ fun ChallengeItem(
     val currentProgress = challenge.requirements.sumOf { req -> 
         (todayTotals[req.type] ?: 0).coerceAtMost(req.count)
     }
-    val overallPercent = (currentProgress.toFloat() / totalGoal.toFloat()).coerceIn(0f, 1f)
+    val overallPercent = if (totalGoal > 0) (currentProgress.toFloat() / totalGoal.toFloat()).coerceIn(0f, 1f) else 0f
 
     Card(
         modifier = Modifier

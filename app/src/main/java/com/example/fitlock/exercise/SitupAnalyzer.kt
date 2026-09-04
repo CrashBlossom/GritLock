@@ -45,9 +45,15 @@ class SitupAnalyzer(
             if (currentTime - lastRepTime > REP_COOLDOWN_MS) {
                 isUp = false
                 lastRepTime = currentTime
-                manager.onRepDetected()
+                // manager.onRepDetected()
             }
         }
+
+        manager.onMovementUpdate(
+            isMovingDown = avgHipAngle > upThresholdAngle + 15,
+            isAtBottom = avgHipAngle >= downThresholdAngle - 15,
+            isAtTop = avgHipAngle <= upThresholdAngle + 15
+        )
     }
 
     private fun calculateAngle(first: PoseLandmark, mid: PoseLandmark, last: PoseLandmark): Double {

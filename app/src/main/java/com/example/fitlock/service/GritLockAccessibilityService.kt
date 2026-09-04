@@ -9,6 +9,7 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
@@ -28,6 +29,7 @@ import com.example.fitlock.data.GritLockDatabase
 import com.example.fitlock.data.AppGroup
 import com.example.fitlock.data.ScheduleInterval
 import com.example.fitlock.data.LockStatusManager
+import com.example.fitlock.data.ExerciseRequirement
 import com.example.fitlock.exercise.ExerciseType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,6 +54,9 @@ class GritLockAccessibilityService : AccessibilityService() {
     private var countdownRunnable: Runnable? = null
     
     private var persistentSecondsLeft: Int = -1
+    private var lastOverlayTriggerTime: Long = 0
+    private val OVERLAY_COOLDOWN_MS = 5000L // 5 second cooldown to prevent flicker loops
+    private var lastTriggeredApp: String? = null
 
     // For APP_USAGE tracking
     private var activeAppUsageGroup: Int = -1
@@ -66,6 +71,11 @@ class GritLockAccessibilityService : AccessibilityService() {
     private var focusShieldActive = false
     private var focusBlockGroupId = -1
     private var focusWhitelist = emptyList<String>()
+
+    // Intermittent Lock State
+    private var intermittentLockActive = false
+    private var intermittentBlockGroupId = -1
+    private var intermittentRequirements: List<ExerciseRequirement> = emptyList()
 
     private val CHANNEL_ID = "gritlock_countdown_channel"
     private val NOTIFICATION_ID = 1001
@@ -134,16 +144,34 @@ class GritLockAccessibilityService : AccessibilityService() {
         val activeApp = currentCountdownApp ?: rootNode?.packageName?.toString()
         
         if (activeApp != null) {
-            if (activeApp == this.packageName || activeApp == "com.android.systemui" || activeApp.contains("launcher")) {
+            if (activeApp == this.packageName || 
+                activeApp == "com.android.systemui" || 
+                activeApp.contains("launcher") ||
+                activeApp.contains("inputmethod") ||
+                activeApp.contains("keyboard") ||
+                activeApp.contains("honeyboard") ||
+                activeApp.contains("clock") ||
+                activeApp.contains("alarm") ||
+                activeApp == "com.urbandroid.sleep") {
                 if (currentCountdownApp != null) removeCountdown()
                 return
+            }
+
+            // 1. Check Intermittent Lock first (highest priority enforcement)
+            if (intermittentLockActive && intermittentBlockGroupId != -1) {
+                val groupToBlock = allGroups.find { it.id == intermittentBlockGroupId }
+                if (groupToBlock != null && groupToBlock.packageNames.contains(activeApp)) {
+                    val firstReq = intermittentRequirements.firstOrNull() ?: ExerciseRequirement(ExerciseType.PUSHUP.name, 10)
+                    triggerOverlay(activeApp, firstReq.count, firstReq.type, intermittentBlockGroupId)
+                    return
+                }
             }
 
             val enabledGroups = allGroups.filter { it.isEnabled }
             val matchingGroups = enabledGroups.filter { it.packageNames.contains(activeApp) }
             
             if (matchingGroups.isNotEmpty()) {
-                val activeGroups = matchingGroups.filter { isScheduleActive(it.schedule) }
+                val activeGroups = matchingGroups.filter { isGroupActive(it) }
                 if (activeGroups.isNotEmpty()) {
                     // STACKING: Find first group that is actually locked
                     val lockedGroup = activeGroups.find { group ->
@@ -163,7 +191,7 @@ class GritLockAccessibilityService : AccessibilityService() {
             } else {
                 var keywordBlockedGroup: AppGroup? = null
                 if (rootNode != null) {
-                    val activeKeywordGroups = enabledGroups.filter { isScheduleActive(it.schedule) && it.keywords.isNotEmpty() }
+                    val activeKeywordGroups = enabledGroups.filter { isGroupActive(it) && it.keywords.isNotEmpty() }
                     val keywordsToBlock = activeKeywordGroups.flatMap { it.keywords }
                     if (keywordsToBlock.isNotEmpty()) {
                         val foundKeyword = findKeywordInNode(rootNode, keywordsToBlock)
@@ -188,6 +216,45 @@ class GritLockAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun checkMorningGate(packageName: String) {
+        val today = java.time.LocalDate.now().toString()
+        val calendar = Calendar.getInstance()
+        val hour = calendar.get(Calendar.HOUR_OF_DAY)
+        
+        // Gate is active from 4 AM onwards
+        if (hour < 4) return
+        
+        serviceScope.launch {
+            val pledge = db.dao().getPledgeForDate(today)
+            if (pledge == null || pledge.status == "PENDING") {
+                // Check whitelist (Settings, Phone, etc.)
+                val isWhitelisted = packageName == "com.android.settings" || 
+                                    packageName == "com.android.phone" || 
+                                    packageName == "com.google.android.dialer" ||
+                                    packageName.contains("clock") ||
+                                    packageName.contains("alarm") ||
+                                    packageName == "com.urbandroid.sleep" ||
+                                    packageName == this@GritLockAccessibilityService.packageName
+                
+                if (!isWhitelisted) {
+                    val now = System.currentTimeMillis()
+                    if (now - lastOverlayTriggerTime < OVERLAY_COOLDOWN_MS) return@launch
+                    if (rootInActiveWindow?.packageName?.toString() == this@GritLockAccessibilityService.packageName) return@launch
+
+                    handler.post {
+                        lastOverlayTriggerTime = System.currentTimeMillis()
+                        val intent = Intent(this@GritLockAccessibilityService, com.example.fitlock.MainActivity::class.java).apply {
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                            putExtra("navigate_to", "morning_pledge")
+                        }
+                        startActivity(intent)
+                        Toast.makeText(this@GritLockAccessibilityService, "Morning Gate: Complete your pledge to unlock.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val packageName = event.packageName?.toString() ?: ""
         
@@ -195,7 +262,18 @@ class GritLockAccessibilityService : AccessibilityService() {
             packageName == "com.android.systemui" || 
             packageName == "com.android.launcher" ||
             packageName.contains("launcher") ||
+            packageName.contains("inputmethod") ||
+            packageName.contains("keyboard") ||
+            packageName.contains("honeyboard") ||
+            packageName.contains("clock") ||
+            packageName.contains("alarm") ||
+            packageName == "com.urbandroid.sleep" ||
             packageName == "com.google.android.permissioncontroller") return
+
+        // 1. Morning Gate enforcement
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            checkMorningGate(packageName)
+        }
 
         // Focus Shield enforcement
         if (focusShieldActive && focusBlockGroupId != -1) {
@@ -203,6 +281,18 @@ class GritLockAccessibilityService : AccessibilityService() {
             if (groupToBlock != null && groupToBlock.packageNames.contains(packageName) && !focusWhitelist.contains(packageName)) {
                 triggerOverlay(packageName, 0, ExerciseType.APP_USAGE.name, focusBlockGroupId)
                 return
+            }
+        }
+
+        // Intermittent Lock enforcement
+        if (intermittentLockActive && intermittentBlockGroupId != -1) {
+            if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                val groupToBlock = allGroups.find { it.id == intermittentBlockGroupId }
+                if (groupToBlock != null && groupToBlock.packageNames.contains(packageName)) {
+                    val firstReq = intermittentRequirements.firstOrNull() ?: ExerciseRequirement(ExerciseType.PUSHUP.name, 10)
+                    triggerOverlay(packageName, firstReq.count, firstReq.type, intermittentBlockGroupId)
+                    return
+                }
             }
         }
 
@@ -228,7 +318,7 @@ class GritLockAccessibilityService : AccessibilityService() {
             val matchingGroups = allGroups.filter { it.packageNames.contains(packageName) && it.isEnabled }
             
             if (matchingGroups.isNotEmpty()) {
-                val activeGroups = matchingGroups.filter { isScheduleActive(it.schedule) }
+                val activeGroups = matchingGroups.filter { isGroupActive(it) }
                 if (activeGroups.isNotEmpty()) {
                     // DISCIPLINE STACKING: Find the first group that is NOT yet unlocked
                     val lockedGroup = activeGroups.find { group ->
@@ -258,7 +348,7 @@ class GritLockAccessibilityService : AccessibilityService() {
 
             val nodeToSearch = rootInActiveWindow ?: event.source
             if (nodeToSearch != null) {
-                val enabledGroups = allGroups.filter { it.isEnabled && isScheduleActive(it.schedule) }
+                val enabledGroups = allGroups.filter { it.isEnabled && isGroupActive(it) }
                 val keywordsToBlock = enabledGroups.flatMap { it.keywords }
                 
                 if (keywordsToBlock.isNotEmpty()) {
@@ -377,6 +467,22 @@ class GritLockAccessibilityService : AccessibilityService() {
             focusBlockGroupId = -1
             focusWhitelist = emptyList()
             Log.d("GritLockService", "Focus Shield Deactivated")
+        } else if (intent?.action == "ACTIVATE_INTERMITTENT_LOCK") {
+            intermittentLockActive = true
+            intermittentBlockGroupId = intent.getIntExtra("block_group_id", -1)
+            // Optional: pass specific requirements from worker
+            val reqType = intent.getStringExtra("exercise_type")
+            val reqCount = intent.getIntExtra("exercise_count", 10)
+            if (reqType != null) {
+                intermittentRequirements = listOf(ExerciseRequirement(reqType, reqCount))
+            }
+            Log.d("GritLockService", "Intermittent Lock Activated for group $intermittentBlockGroupId. Req: $reqType x $reqCount")
+            handler.post { checkCurrentAppStatus() }
+        } else if (intent?.action == "DEACTIVATE_INTERMITTENT_LOCK") {
+            intermittentLockActive = false
+            intermittentBlockGroupId = -1
+            intermittentRequirements = emptyList()
+            Log.d("GritLockService", "Intermittent Lock Deactivated")
         }
         return super.onStartCommand(intent, flags, startId)
     }
@@ -402,8 +508,8 @@ class GritLockAccessibilityService : AccessibilityService() {
 
     private fun handleGroupMonitoring(packageName: String, group: AppGroup) {
         val now = System.currentTimeMillis()
-        val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
         val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+        val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
         val timeSinceUnlock = now - lastUnlocked
         val isUnlocked = timeSinceUnlock < unlockDurationMs
 
@@ -414,24 +520,41 @@ class GritLockAccessibilityService : AccessibilityService() {
             }
         } else {
             val remainingMs = unlockDurationMs - timeSinceUnlock
-            updateNotification("GritLock: App Unlocked", "Access expires in ${formatTime((remainingMs/1000).toInt())}")
+            updateNotification("GritLock: ${group.name} Unlocked", "Access expires in ${formatTime((remainingMs/1000).toInt())}")
             
-            handler.removeCallbacksAndMessages(null)
-            handler.postDelayed(object : Runnable {
+            // Loop to update notification every second
+            handler.removeCallbacksAndMessages(group.name)
+            val timerRunnable = object : Runnable {
                 override fun run() {
                     if (currentCountdownApp == packageName) {
                         val updatedNow = System.currentTimeMillis()
                         val updatedRemainingMs = unlockDurationMs - (updatedNow - lastUnlocked)
                         if (updatedRemainingMs > 0) {
-                            updateNotification("GritLock: App Unlocked", "Access expires in ${formatTime((updatedRemainingMs/1000).toInt())}")
-                            handler.postDelayed(this, 1000)
+                            updateNotification("GritLock: ${group.name} Unlocked", "Access expires in ${formatTime((updatedRemainingMs/1000).toInt())}")
+                            handler.postAtTime(this, group.name, SystemClock.uptimeMillis() + 1000)
                         } else {
                             handleGroupMonitoring(packageName, group)
                         }
                     }
                 }
-            }, 1000)
+            }
+            handler.postAtTime(timerRunnable, group.name, SystemClock.uptimeMillis() + 1000)
         }
+    }
+
+    private fun isGroupActive(group: AppGroup): Boolean {
+        return isScheduleActive(group.schedule) && isWifiRestricted(group.restrictedWifiSsids)
+    }
+
+    private fun isWifiRestricted(restrictedSsids: List<String>): Boolean {
+        if (restrictedSsids.isEmpty()) return true
+        
+        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            return false // Cannot verify network, assume restriction not met
+        }
+        
+        val currentSsid = com.example.fitlock.utils.NetworkUtils.getCurrentSsid(this)
+        return currentSsid != null && restrictedSsids.contains(currentSsid)
     }
 
     private fun isScheduleActive(schedule: List<ScheduleInterval>): Boolean {
@@ -553,6 +676,18 @@ class GritLockAccessibilityService : AccessibilityService() {
     }
 
     private fun triggerOverlay(target: String, reps: Int, exercise: String, groupId: Int) {
+        val now = System.currentTimeMillis()
+        if (now - lastOverlayTriggerTime < OVERLAY_COOLDOWN_MS) return
+        
+        // Robust check: Is our own overlay already the active window?
+        val currentForeground = rootInActiveWindow?.packageName?.toString()
+        if (currentForeground == this.packageName) return
+        
+        // Prevent triggering for the same app multiple times in very quick succession
+        if (target == lastTriggeredApp && now - lastOverlayTriggerTime < 2000) return
+
+        lastOverlayTriggerTime = now
+        lastTriggeredApp = target
         serviceScope.launch {
             db.dao().insertBlockEvent(AppBlockEvent(packageName = target, reason = "Blocked by App Group"))
         }

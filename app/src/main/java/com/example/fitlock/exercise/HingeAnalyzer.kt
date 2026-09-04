@@ -40,9 +40,15 @@ class HingeAnalyzer(private val manager: ExerciseTrackerManager) {
             if (currentTime - lastRepTime > REP_COOLDOWN_MS) {
                 isBent = false
                 lastRepTime = currentTime
-                manager.onRepDetected()
+                // manager.onRepDetected()
             }
         }
+
+        manager.onMovementUpdate(
+            isMovingDown = avgHipAngle < straightThresholdAngle - 10,
+            isAtBottom = avgHipAngle <= bentThresholdAngle + 10,
+            isAtTop = avgHipAngle >= straightThresholdAngle - 5
+        )
     }
 
     private fun calculateAngle(first: PoseLandmark, mid: PoseLandmark, last: PoseLandmark): Double {

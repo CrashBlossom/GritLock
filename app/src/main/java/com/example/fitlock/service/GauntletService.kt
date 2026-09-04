@@ -9,9 +9,11 @@ import androidx.core.app.NotificationCompat
 import com.example.fitlock.MainActivity
 import com.example.fitlock.R
 import com.example.fitlock.data.GauntletHistory
+import com.example.fitlock.data.GauntletWithAdvancedWorkout
 import com.example.fitlock.data.GauntletWithHabits
 import com.example.fitlock.data.GritLockDatabase
 import com.example.fitlock.data.HabitLog
+import com.example.fitlock.data.HabitTrackingType
 import com.google.android.gms.wearable.PutDataMapRequest
 import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.*
@@ -28,28 +30,34 @@ class GauntletService : Service() {
     private lateinit var db: GritLockDatabase
     private val handler = Handler(Looper.getMainLooper())
     private var timerRunnable: Runnable? = null
-    
-    private val _sessionState = MutableStateFlow<GauntletSession?>(null)
-    val sessionState = _sessionState.asStateFlow()
 
     private val CHANNEL_ID = "gauntlet_channel"
     private val NOTIFICATION_ID = 2001
 
     data class GauntletSession(
         val gauntlet: GauntletWithHabits,
+        val advancedWorkout: GauntletWithAdvancedWorkout? = null,
         val currentHabitIndex: Int,
+        val currentBlockIndex: Int = 0,
+        val currentBlockExerciseIndex: Int = 0,
+        val currentBlockSet: Int = 1,
         val elapsedSeconds: Int,
         val isInBuffer: Boolean = false,
+        val isResting: Boolean = false,
         val bufferElapsedSeconds: Int = 0,
         val startTime: Long = System.currentTimeMillis(),
-        val habitLogs: MutableList<HabitLog> = mutableListOf()
+        val habitLogs: MutableList<HabitLog> = mutableListOf(),
+        val currentReps: Int = 0,
+        val personalBests: Map<Int, Int> = emptyMap() // Map of habit ID to PB value
     )
 
     companion object {
         const val ACTION_START = "ACTION_START"
         const val ACTION_NEXT = "ACTION_NEXT"
         const val ACTION_STOP = "ACTION_STOP"
+        const val ACTION_UPDATE_REPS = "ACTION_UPDATE_REPS"
         const val EXTRA_GAUNTLET_ID = "EXTRA_GAUNTLET_ID"
+        const val EXTRA_REPS = "EXTRA_REPS"
         
         private val _sessionState = MutableStateFlow<GauntletSession?>(null)
         val sessionState = _sessionState.asStateFlow()
@@ -62,6 +70,14 @@ class GauntletService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Immediate startForeground to prevent crash
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTIFICATION_ID, createPlaceholderNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            @Suppress("DEPRECATION")
+            startForeground(NOTIFICATION_ID, createPlaceholderNotification())
+        }
+
         when (intent?.action) {
             ACTION_START -> {
                 val gauntletId = intent.getIntExtra(EXTRA_GAUNTLET_ID, -1)
@@ -71,34 +87,57 @@ class GauntletService : Service() {
             }
             ACTION_NEXT -> nextHabit()
             ACTION_STOP -> stopGauntlet()
+            ACTION_UPDATE_REPS -> {
+                val reps = intent.getIntExtra(EXTRA_REPS, 0)
+                _sessionState.value = _sessionState.value?.copy(currentReps = reps)
+            }
         }
         return START_STICKY
     }
 
+    private fun createPlaceholderNotification(): Notification {
+        return NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle("Gauntlet Starting...")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .build()
+    }
+
     private fun startGauntlet(gauntletId: Int) {
         serviceScope.launch {
-            val gauntlet = withContext(Dispatchers.IO) {
+            val gauntletWithHabits = withContext(Dispatchers.IO) {
                 db.dao().getAllGauntletsWithHabits().first().find { it.gauntlet.id == gauntletId }
             }
+            val advancedWorkout = withContext(Dispatchers.IO) {
+                db.dao().getAdvancedWorkout(gauntletId).first()
+            }
+            
+            val allHistory = withContext(Dispatchers.IO) { db.dao().getAllHistoryList() }
+            val pbs = calculatePBs(gauntletWithHabits, allHistory)
 
-            if (gauntlet != null) {
-                _sessionState.value = GauntletSession(gauntlet, 0, 0)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    startForeground(NOTIFICATION_ID, createNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-                } else {
-                    startForeground(NOTIFICATION_ID, createNotification())
-                }
+            if (gauntletWithHabits != null) {
+                _sessionState.value = GauntletSession(
+                    gauntlet = gauntletWithHabits,
+                    advancedWorkout = advancedWorkout,
+                    currentHabitIndex = 0,
+                    elapsedSeconds = 0,
+                    personalBests = pbs
+                )
+                updateNotification() // Update with real data
                 startTimer()
                 
                 // Focus Shield
-                if (gauntlet.gauntlet.targetBlockGroupId != null) {
+                if (gauntletWithHabits.gauntlet.targetBlockGroupId != null) {
                     val shieldIntent = Intent(this@GauntletService, GritLockAccessibilityService::class.java).apply {
                         action = "ACTIVATE_FOCUS_SHIELD"
-                        putExtra("block_group_id", gauntlet.gauntlet.targetBlockGroupId)
-                        putExtra("whitelist", gauntlet.gauntlet.whitelistedPackages.toTypedArray())
+                        putExtra("block_group_id", gauntletWithHabits.gauntlet.targetBlockGroupId)
+                        putExtra("whitelist", gauntletWithHabits.gauntlet.whitelistedPackages.toTypedArray())
                     }
                     startService(shieldIntent)
                 }
+            } else {
+                stopSelf() // Stop if gauntlet not found
             }
         }
     }
@@ -121,15 +160,35 @@ class GauntletService : Service() {
                     } else {
                         _sessionState.value = current.copy(bufferElapsedSeconds = newBufferElapsed)
                     }
+                } else if (current.isResting) {
+                    val newElapsed = current.elapsedSeconds + 1
+                    val block = current.advancedWorkout?.blocks?.getOrNull(current.currentBlockIndex)
+                    val restTime = block?.block?.restAfterBlock ?: 60
+                    
+                    if (newElapsed >= restTime) {
+                        _sessionState.value = current.copy(
+                            isResting = false,
+                            elapsedSeconds = 0,
+                            isInBuffer = true // Prep for next exercise
+                        )
+                        vibrate(longArrayOf(0, 200, 100, 200))
+                    } else {
+                        _sessionState.value = current.copy(elapsedSeconds = newElapsed)
+                    }
                 } else {
                     val newElapsed = current.elapsedSeconds + 1
                     _sessionState.value = current.copy(elapsedSeconds = newElapsed)
                     
                     // Sync to Wear OS
                     val habit = current.gauntlet.habits.getOrNull(current.currentHabitIndex)
-                    syncToWear(habit?.name ?: "Routine", newElapsed)
+                    val block = current.advancedWorkout?.blocks?.getOrNull(current.currentBlockIndex)
+                    val exercise = block?.exercises?.getOrNull(current.currentBlockExerciseIndex)
+                    
+                    val activeName = exercise?.name ?: habit?.effectiveName ?: "Routine"
+                    syncToWear(activeName, newElapsed)
 
-                    if (habit?.estimatedDurationSeconds != null && newElapsed == habit.estimatedDurationSeconds) {
+                    val estimated = exercise?.targetReps?.toIntOrNull() ?: habit?.habit?.estimatedDurationSeconds
+                    if (estimated != null && newElapsed == estimated) {
                         vibrate(200L) // Short pulse when estimation reached
                     }
                 }
@@ -152,20 +211,26 @@ class GauntletService : Service() {
     }
 
     private fun vibrate(pattern: LongArray) {
-        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
-        } else {
-            vibrator.vibrate(pattern, -1)
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        if (vibrator?.hasVibrator() == true) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(pattern, -1)
+            }
         }
     }
 
     private fun vibrate(duration: Long) {
-        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            vibrator.vibrate(duration)
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        if (vibrator?.hasVibrator() == true) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                vibrator.vibrate(duration)
+            }
         }
     }
 
@@ -176,35 +241,107 @@ class GauntletService : Service() {
 
     private fun nextHabit() {
         val current = _sessionState.value ?: return
-        val habit = current.gauntlet.habits.getOrNull(current.currentHabitIndex)
         
-        if (habit != null) {
-            current.habitLogs.add(HabitLog(
-                habitId = habit.id,
-                name = habit.name,
-                actualDurationSeconds = current.elapsedSeconds,
-                estimatedDurationSeconds = habit.estimatedDurationSeconds
-            ))
-        }
+        // Handle Habit Stack first
+        if (current.currentHabitIndex < current.gauntlet.habits.size) {
+            val habitWithDef = current.gauntlet.habits.getOrNull(current.currentHabitIndex)
+            if (habitWithDef != null) {
+                val habit = habitWithDef.habit
+                current.habitLogs.add(HabitLog(
+                    habitId = habit.id,
+                    name = habitWithDef.effectiveName,
+                    actualDurationSeconds = current.elapsedSeconds,
+                    estimatedDurationSeconds = habit.estimatedDurationSeconds,
+                    repsCompleted = current.currentReps
+                ))
+                
+                serviceScope.launch(Dispatchers.IO) {
+                    val now = System.currentTimeMillis()
+                    val lastComp = habit.lastCompletionTimestamp
+                    val isWithinWindow = lastComp > 0 && (now - lastComp) < 48 * 60 * 60 * 1000L
+                    val newStreak = if (isWithinWindow) habit.currentStreak + 1 else 1
+                    db.dao().upsertHabit(habit.copy(lastCompletionTimestamp = now, currentStreak = newStreak))
+                }
+            }
 
-        if (current.currentHabitIndex < current.gauntlet.habits.size - 1) {
-            if (current.gauntlet.gauntlet.bufferSeconds > 0) {
-                _sessionState.value = current.copy(
-                    isInBuffer = true,
-                    bufferElapsedSeconds = 0,
-                    currentHabitIndex = current.currentHabitIndex + 1
-                )
-            } else {
+            if (current.currentHabitIndex < current.gauntlet.habits.size - 1) {
                 _sessionState.value = current.copy(
                     currentHabitIndex = current.currentHabitIndex + 1,
-                    elapsedSeconds = 0
+                    elapsedSeconds = 0,
+                    isInBuffer = true,
+                    currentReps = 0
                 )
+                vibrate(100L)
+                updateNotification()
+                return
+            } else if (current.advancedWorkout?.blocks?.isNotEmpty() == true) {
+                // Move to Advanced Workout blocks
+                _sessionState.value = current.copy(
+                    currentHabitIndex = current.gauntlet.habits.size,
+                    currentBlockIndex = 0,
+                    currentBlockExerciseIndex = 0,
+                    currentBlockSet = 1,
+                    elapsedSeconds = 0,
+                    isInBuffer = true,
+                    currentReps = 0
+                )
+                vibrate(100L)
+                updateNotification()
+                return
             }
-            vibrate(100L)
-            updateNotification()
-        } else {
-            stopGauntlet()
+        } else if (current.advancedWorkout != null) {
+            // Handle Advanced Workout Blocks
+            val block = current.advancedWorkout.blocks.getOrNull(current.currentBlockIndex)
+            if (block != null) {
+                val exercise = block.exercises.getOrNull(current.currentBlockExerciseIndex)
+                if (exercise != null) {
+                    current.habitLogs.add(HabitLog(
+                        habitId = -1,
+                        name = exercise.name,
+                        actualDurationSeconds = current.elapsedSeconds,
+                        estimatedDurationSeconds = exercise.targetReps.toIntOrNull(),
+                        repsCompleted = current.currentReps
+                    ))
+                }
+
+                // Logic for PAIR/TRIPLET: move to next exercise in block
+                if (current.currentBlockExerciseIndex < block.exercises.size - 1) {
+                    _sessionState.value = current.copy(
+                        currentBlockExerciseIndex = current.currentBlockExerciseIndex + 1,
+                        elapsedSeconds = 0,
+                        isInBuffer = true,
+                        currentReps = 0
+                    )
+                } else if (current.currentBlockSet < (block.exercises.firstOrNull()?.sets ?: 1)) {
+                    // Back to first exercise of block, increment set
+                    _sessionState.value = current.copy(
+                        currentBlockExerciseIndex = 0,
+                        currentBlockSet = current.currentBlockSet + 1,
+                        elapsedSeconds = 0,
+                        isResting = true,
+                        currentReps = 0
+                    )
+                } else if (current.currentBlockIndex < current.advancedWorkout.blocks.size - 1) {
+                    // Next block
+                    _sessionState.value = current.copy(
+                        currentBlockIndex = current.currentBlockIndex + 1,
+                        currentBlockExerciseIndex = 0,
+                        currentBlockSet = 1,
+                        elapsedSeconds = 0,
+                        isInBuffer = true,
+                        currentReps = 0
+                    )
+                } else {
+                    stopGauntlet()
+                    return
+                }
+                vibrate(100L)
+                updateNotification()
+                return
+            }
         }
+
+        stopGauntlet()
     }
 
     private fun stopGauntlet() {
@@ -275,20 +412,34 @@ class GauntletService : Service() {
     private fun createNotification(): Notification {
         val session = _sessionState.value ?: return NotificationCompat.Builder(this, CHANNEL_ID).build()
         
-        val content = if (session.isInBuffer) {
+        val title: String
+        val content: String
+
+        if (session.isInBuffer) {
             val remaining = session.gauntlet.gauntlet.bufferSeconds - session.bufferElapsedSeconds
-            "Prep: ${formatTime(remaining)} left"
+            title = "Transitioning..."
+            content = "Prep: ${formatTime(remaining)} left"
+        } else if (session.isResting) {
+            val block = session.advancedWorkout?.blocks?.getOrNull(session.currentBlockIndex)
+            val restTime = block?.block?.restAfterBlock ?: 60
+            val remaining = (restTime - session.elapsedSeconds).coerceAtLeast(0)
+            title = "Resting"
+            content = "Next set in ${formatTime(remaining)}"
         } else {
-            val habit = session.gauntlet.habits.getOrNull(session.currentHabitIndex) ?: return NotificationCompat.Builder(this, CHANNEL_ID).build()
+            val habit = session.gauntlet.habits.getOrNull(session.currentHabitIndex)
+            val block = session.advancedWorkout?.blocks?.getOrNull(session.currentBlockIndex)
+            val exercise = block?.exercises?.getOrNull(session.currentBlockExerciseIndex)
+            
+            val activeName = exercise?.name ?: habit?.effectiveName ?: "Routine"
             val elapsed = formatTime(session.elapsedSeconds)
-            val expected = if (habit.estimatedDurationSeconds != null) {
-                "/ ${formatTime(habit.estimatedDurationSeconds)}"
-            } else "/ -"
-            "${habit.name}: $elapsed $expected"
+            val expected = if (exercise != null) exercise.targetReps
+                           else if (habit?.habit?.estimatedDurationSeconds != null) formatTime(habit.habit.estimatedDurationSeconds)
+                           else "-"
+            
+            title = session.gauntlet.gauntlet.name
+            content = "$activeName: $elapsed / $expected"
         }
         
-        val title = if (session.isInBuffer) "Transitioning..." else session.gauntlet.gauntlet.name
-
         val nextIntent = Intent(this, GauntletService::class.java).apply { action = ACTION_NEXT }
         val nextPendingIntent = PendingIntent.getService(this, 0, nextIntent, PendingIntent.FLAG_IMMUTABLE)
 
@@ -319,6 +470,31 @@ class GauntletService : Service() {
         val m = seconds / 60
         val s = seconds % 60
         return "%d:%02d".format(m, s)
+    }
+
+    private fun calculatePBs(gauntlet: GauntletWithHabits?, history: List<GauntletHistory>): Map<Int, Int> {
+        if (gauntlet == null) return emptyMap()
+        val pbs = mutableMapOf<Int, Int>()
+        
+        gauntlet.habits.forEach { habitWithDef ->
+            val habit = habitWithDef.habit
+            val habitLogs = history.flatMap { it.habitLogs }.filter { it.habitId == habit.id }
+            
+            if (habitLogs.isNotEmpty()) {
+                val best = if (habitWithDef.habit.trackingType == HabitTrackingType.REPS) {
+                    habitLogs.mapNotNull { it.repsCompleted }.maxOrNull() ?: 0
+                } else {
+                    // For TIME, logic depends on higherIsBetter
+                    if (habitWithDef.habit.higherIsBetter) {
+                        habitLogs.maxOf { it.actualDurationSeconds }
+                    } else {
+                        habitLogs.minOf { it.actualDurationSeconds }
+                    }
+                }
+                pbs[habit.id] = best
+            }
+        }
+        return pbs
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

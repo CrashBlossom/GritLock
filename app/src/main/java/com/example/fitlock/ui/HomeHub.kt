@@ -27,19 +27,16 @@ import com.example.fitlock.exercise.ExerciseType
 @Composable
 fun HomeHub(
     userStats: UserStats?,
+    quests: List<com.example.fitlock.data.QuestWithBlocks>,
     challenges: List<Challenge>,
-    todayTotals: Map<String, Int>,
     currentPledge: DailyPledge?,
-    deckSummaries: List<DeckSummary>,
+    onQuestClick: (com.example.fitlock.data.QuestWithBlocks) -> Unit,
     onChallengeClick: (Challenge) -> Unit,
-    onExerciseClick: (ExerciseType, Int) -> Unit,
     onSettingsClick: () -> Unit,
     onUrgeClick: () -> Unit,
     onPledgeClick: () -> Unit,
     onViewLogClick: () -> Unit,
-    onImportAnkiClick: () -> Unit,
-    onDeckClick: (String) -> Unit,
-    onDeleteDeck: (String) -> Unit
+    onStartPlanning: () -> Unit
 ) {
     val themeData = com.example.fitlock.ui.theme.getThemeData(userStats?.activeTheme ?: "DEFAULT")
 
@@ -67,126 +64,67 @@ fun HomeHub(
             currentPledge = currentPledge,
             onUrgeClick = onUrgeClick,
             onPledgeClick = onPledgeClick,
-            onViewLogClick = onViewLogClick
+            onViewLogClick = onViewLogClick,
+            onStartPlanning = onStartPlanning
         )
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        CognitiveForgeSection(
-            deckSummaries = deckSummaries,
-            onDeckClick = onDeckClick,
-            onImportClick = onImportAnkiClick,
-            onDeleteDeck = onDeleteDeck
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-        
-        SectionTitle(themeData.tabAnalytics.replace("Analytics", "Daily Quest").replace("Crime Map", "Bounty").replace("Quest Log", "Main Quest").replace("Journal", "Adventure"))
-        val dailyQuest = challenges.find { it.id == "opm_classic" || it.id == "solo_leveling" }
-        if (dailyQuest != null) {
-            ChallengeItem(
-                challenge = dailyQuest,
-                todayTotals = todayTotals,
-                onClick = { onChallengeClick(dailyQuest) },
-                onLongClick = {}
-            )
-        } else {
+        val activeQuest = quests.find { it.quest.type == com.example.fitlock.data.QuestType.DAILY_COMMITMENT && !it.quest.isCompletedToday }
+        if (activeQuest != null) {
+            Spacer(modifier = Modifier.height(24.dp))
+            SectionTitle("Current Quest")
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth().clickable { onQuestClick(activeQuest) },
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
             ) {
-                Text("No quest active. Check back later!", modifier = Modifier.padding(16.dp), color = Color.Gray)
-            }
-        }
-        
-        Spacer(modifier = Modifier.height(24.dp))
-        
-        SectionTitle("Daily Goals")
-        val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences("fitlock_prefs", android.content.Context.MODE_PRIVATE)
-        DailyGoalsList(prefs, todayTotals, onExerciseClick)
-        
-        Spacer(modifier = Modifier.height(32.dp))
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun CognitiveForgeSection(
-    deckSummaries: List<DeckSummary>,
-    onDeckClick: (String) -> Unit,
-    onImportClick: () -> Unit,
-    onDeleteDeck: (String) -> Unit
-) {
-    var deckToDelete by remember { mutableStateOf<String?>(null) }
-
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            SectionTitle("Cognitive Forge")
-            IconButton(onClick = onImportClick) {
-                Icon(Icons.Default.Add, contentDescription = "Import Anki Deck")
-            }
-        }
-        
-        if (deckSummaries.isEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth().height(100.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    Text("No decks imported. Tap '+' to start.", color = Color.Gray)
-                }
-            }
-        } else {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(bottom = 8.dp)
-            ) {
-                items(deckSummaries) { deck ->
-                    Card(
-                        modifier = Modifier
-                            .width(160.dp)
-                            .height(100.dp)
-                            .combinedClickable(
-                                onClick = { onDeckClick(deck.name) },
-                                onLongClick = { deckToDelete = deck.name }
-                            ),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.Center,
-                            horizontalAlignment = Alignment.Start
-                        ) {
-                            Text(deck.name, fontWeight = FontWeight.Bold, maxLines = 1, style = MaterialTheme.typography.titleMedium)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text("${deck.cardsDue} cards due", style = MaterialTheme.typography.bodySmall)
+                Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.TaskAlt, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(activeQuest.quest.name, fontWeight = FontWeight.Bold)
+                        val completedCount = activeQuest.blocks.count { it.isCompleted }
+                        val totalBlocks = activeQuest.blocks.size
+                        Text("$completedCount / $totalBlocks blocks finished", style = MaterialTheme.typography.bodySmall)
+                        if (totalBlocks > 0) {
+                            LinearProgressIndicator(
+                                progress = { completedCount.toFloat() / totalBlocks.toFloat() },
+                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                            )
                         }
                     }
                 }
             }
         }
-    }
 
-    if (deckToDelete != null) {
-        AlertDialog(
-            onDismissRequest = { deckToDelete = null },
-            title = { Text("Delete Pack") },
-            text = { Text("Remove all cards from '${deckToDelete}'?") },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        onDeleteDeck(deckToDelete!!)
-                        deckToDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
-                ) { Text("Delete") }
-            },
-            dismissButton = { TextButton(onClick = { deckToDelete = null }) { Text("Cancel") } }
-        )
+        if (challenges.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(24.dp))
+            SectionTitle("Elite Challenges")
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                contentPadding = PaddingValues(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(challenges) { challenge ->
+                    ChallengeCard(challenge = challenge, onClick = { onChallengeClick(challenge) })
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@Composable
+fun ChallengeCard(challenge: Challenge, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.width(200.dp).clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Icon(Icons.Default.EmojiEvents, null, tint = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(challenge.title, fontWeight = FontWeight.Bold, maxLines = 1)
+            Text(challenge.description, style = MaterialTheme.typography.bodySmall, maxLines = 2, color = Color.Gray)
+        }
     }
 }
 
@@ -196,7 +134,8 @@ fun WillpowerDashboard(
     currentPledge: DailyPledge?,
     onUrgeClick: () -> Unit,
     onPledgeClick: () -> Unit,
-    onViewLogClick: () -> Unit
+    onViewLogClick: () -> Unit,
+    onStartPlanning: () -> Unit
 ) {
     val themeData = com.example.fitlock.ui.theme.getThemeData(userStats?.activeTheme ?: "DEFAULT")
     
@@ -211,7 +150,7 @@ fun WillpowerDashboard(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Icon(Icons.Default.Whatshot, null, tint = Color(0xFFFF5722))
-                    Text("${userStats?.sobrietyStreak ?: 0}", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text((userStats?.sobrietyStreak ?: 0).toString(), fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     Text("Day Streak", style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -221,7 +160,7 @@ fun WillpowerDashboard(
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Icon(Icons.Default.HistoryEdu, null)
-                    Text(themeData.tabAnalytics.replace("Analytics", "Daily Log").replace("Crime Map", "Intel Log").replace("Quest Log", "Mission Log").replace("Journal", "Travel Log"), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(themeData.logName, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text("View your progress", style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -234,7 +173,19 @@ fun WillpowerDashboard(
         ) {
             Icon(Icons.Default.FlashOn, null)
             Spacer(modifier = Modifier.width(8.dp))
-            Text(themeData.tabUrge, fontWeight = FontWeight.Bold)
+            Text(themeData.tabUrge.replace("Urge", "Grit"), fontWeight = FontWeight.Bold)
+        }
+
+        if (currentPledge == null || currentPledge.status == "PENDING") {
+            Button(
+                onClick = onStartPlanning,
+                modifier = Modifier.fillMaxWidth().height(56.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+            ) {
+                Icon(Icons.Default.EditCalendar, null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Start Planning Phase", fontWeight = FontWeight.Bold)
+            }
         }
 
         Card(
@@ -262,10 +213,17 @@ fun WillpowerDashboard(
                 Spacer(modifier = Modifier.width(16.dp))
                 Column {
                     Text(
-                        text = if (currentPledge?.status == "PENDING") "Make your Daily Pledge" else "Pledge: ${currentPledge?.status}",
-                        fontWeight = FontWeight.Bold
+                        text = if (currentPledge?.status == "PENDING") "Make your Daily Pledge" 
+                               else if (currentPledge?.mainObjective != null) "Goal: ${currentPledge.mainObjective}"
+                               else "Pledge: ${currentPledge?.status}",
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
-                    Text("Stay focused. Earn Willpower XP.", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        text = if (currentPledge?.status == "COMMITTED") "Focus on your priority today." else "Stay focused. Earn Willpower XP.", 
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }

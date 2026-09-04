@@ -47,9 +47,15 @@ class PullupAnalyzer(
             if (currentTime - lastRepTime > REP_COOLDOWN_MS) {
                 isUp = false
                 lastRepTime = currentTime
-                manager.onRepDetected()
+                // manager.onRepDetected()
             }
         }
+
+        manager.onMovementUpdate(
+            isMovingDown = avgElbowAngle > upThresholdAngle + 15,
+            isAtBottom = avgElbowAngle >= downThresholdAngle - 15,
+            isAtTop = avgElbowAngle <= upThresholdAngle + 15
+        )
     }
 
     private fun calculateAngle(first: PoseLandmark, mid: PoseLandmark, last: PoseLandmark): Double {

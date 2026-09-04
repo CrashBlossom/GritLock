@@ -35,6 +35,9 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.TaskAlt
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -96,6 +99,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private val _stepCount = mutableIntStateOf(0)
     private var healthBaseSteps = 0L
     private var bankedUsedInSession = 0
+
+    // Session State
+    private var activeRequirements by mutableStateOf<List<ExerciseRequirement>>(emptyList())
+    private var currentRequirementIndex by mutableIntStateOf(0)
+    private val _isStationary = mutableStateOf(false)
 
     /**
      * Launchers for requesting system permissions.
@@ -196,6 +204,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             movementRequest
         )
 
+        // Schedule Daily Reset
+        com.example.fitlock.service.DailyResetWorker.schedule(this)
+
         /**
          * setContent defines the UI of the app using Composable functions.
          * Everything inside here is written in declarative Compose syntax.
@@ -226,6 +237,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
             // Flashcard Import callback
             val homeViewModel: HomeViewModel = hiltViewModel()
+            LaunchedEffect(Unit) {
+                homeViewModel.initDailyPledgeIfMissing()
+            }
             onAnkiUriReceived = { uri -> homeViewModel.importAnkiDeck(this@MainActivity, uri) }
 
             // Wrap the whole UI in our custom Theme
@@ -240,6 +254,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 val groups by locksViewModel.appGroups.collectAsState()
                 val vaultItems by locksViewModel.vaultItems.collectAsState()
                 val gauntlets by locksViewModel.gauntlets.collectAsState()
+                val advancedWorkouts by locksViewModel.advancedWorkouts.collectAsState()
+                val habitDefinitions by locksViewModel.habitDefinitions.collectAsState()
                 
                 val userStats = statsState
                 val challenges by homeViewModel.challenges.collectAsState()
@@ -276,9 +292,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 // Internal navigation state (which screen are we on?)
                 var currentScreen by remember { mutableStateOf("home") }
                 var selectedDeckName by remember { mutableStateOf<String?>(null) }
+                var selectedHabitDetail by remember { mutableStateOf<HabitWithDefinition?>(null) }
                 var trackingMode by remember { mutableStateOf(TrackingMode.CAMERA) }
                 var editingGroup by remember { mutableStateOf<AppGroup?>(null) }
+                var selectedQuestId by remember { mutableStateOf<String?>(null) }
                 var calibrationExercise by remember { mutableStateOf<ExerciseType?>(null) }
+                var calibrationVariantName by remember { mutableStateOf<String?>(null) }
                 var unlockingVaultItem by remember { mutableStateOf<VaultItem?>(null) }
                 var editingGauntlet by remember { mutableStateOf<GauntletWithHabits?>(null) }
                 var activeRequirements by remember { mutableStateOf<List<ExerciseRequirement>>(emptyList()) }
@@ -287,6 +306,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 var showPostNoteDialog by remember { mutableStateOf(intent.getStringExtra("navigate_to") == "post_note") }
                 var generatedLogText by remember { mutableStateOf<String?>(null) }
                 var celebrationData by remember { mutableStateOf<Pair<String, String>?>(null) }
+                var pendingFlashcardGoal by remember { mutableIntStateOf(0) }
+                var returnPackageAfterReview by remember { mutableStateOf<String?>(null) }
+                var returnGroupIdAfterReview by remember { mutableIntStateOf(-1) }
                 
                 LaunchedEffect(userStats?.level) {
                     if (userStats != null && userStats!!.level > 1) {
@@ -295,8 +317,54 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 }
 
                 LaunchedEffect(intent) {
+                    // Handle Shortcuts and Deep Links
+                    val shortcutAction = intent.getStringExtra("shortcut_action")
+                    val data = intent.data
+                    
+                    if (shortcutAction == "morning_plan" || data?.host == "morning_plan") {
+                        currentScreen = "planning"
+                    }
+                    if (shortcutAction == "log_grit" || data?.host == "log_grit") {
+                        showUrgeNegotiation = true
+                    }
+                    if (shortcutAction == "open_forge" || data?.host == "forge") {
+                        currentScreen = "forge"
+                    }
+                    if (shortcutAction == "recommended_routine" || data?.host == "recommended_routine") {
+                        // Launch Recommended Routine Quest
+                        lifecycleScope.launch {
+                            val quests = repository.allQuests.first()
+                            val rr = quests.find { it.quest.name.contains("Recommended Routine", ignoreCase = true) }
+                            if (rr != null) {
+                                selectedQuestId = rr.quest.id
+                                currentScreen = "quest_execution"
+                            } else {
+                                Toast.makeText(this@MainActivity, "RR Quest not found. Create it in Atlas first.", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+
+                    if (data?.scheme == "fitlock") {
+                        val groupId = data.getQueryParameter("id")?.toIntOrNull()
+                        if (data.host == "enable_group" && groupId != null) {
+                            lifecycleScope.launch {
+                                val group = db.dao().getGroupById(groupId)
+                                if (group != null) db.dao().updateGroup(group.copy(isEnabled = true))
+                            }
+                        }
+                        if (data.host == "disable_group" && groupId != null) {
+                            lifecycleScope.launch {
+                                val group = db.dao().getGroupById(groupId)
+                                if (group != null) db.dao().updateGroup(group.copy(isEnabled = false))
+                            }
+                        }
+                    }
+
                     if (intent.getStringExtra("navigate_to") == "post_note") {
                         showPostNoteDialog = true
+                    }
+                    if (intent.getStringExtra("navigate_to") == "morning_pledge") {
+                        currentScreen = "planning"
                     }
                     if (intent.getBooleanExtra("START_MINI_WORKOUT", false)) {
                         val exType = intent.getStringExtra("EXERCISE_TYPE") ?: ExerciseType.SQUAT.name
@@ -305,6 +373,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         currentRequirementIndex = 0
                         unlockingVaultItem = null
                         currentScreen = "track"
+                    }
+                    if (intent.getBooleanExtra("START_FLASHCARD_REVIEW", false)) {
+                        pendingFlashcardGoal = intent.getIntExtra("FLASHCARD_COUNT", 0)
+                        selectedDeckName = intent.getStringExtra("DECK_NAME") ?: "ALL"
+                        returnPackageAfterReview = intent.getStringExtra("RETURN_PACKAGE")
+                        returnGroupIdAfterReview = intent.getIntExtra("RETURN_GROUP_ID", -1)
+                        currentScreen = "flashcard_review"
                     }
                 }
                 
@@ -341,40 +416,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 tonalElevation = 8.dp
                             ) {
                                 NavigationItem(themeData.tabHome, Icons.Default.Home, currentScreen == "home") { currentScreen = "home" }
+                                NavigationItem(themeData.tabAtlas, Icons.Default.Explore, currentScreen == "atlas") { currentScreen = "atlas" }
+                                NavigationItem(themeData.tabForge, Icons.Default.Build, currentScreen == "forge") { currentScreen = "forge" }
                                 NavigationItem(themeData.tabLocks, Icons.Default.Lock, currentScreen == "locks") { currentScreen = "locks" }
-                                
-                                // PROMINENT CENTRAL BUTTON
-                                NavigationBarItem(
-                                    selected = false,
-                                    onClick = { showUrgeNegotiation = true },
-                                    icon = { 
-                                        Box(
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .background(MaterialTheme.colorScheme.error, CircleShape),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.FlashOn,
-                                                contentDescription = null,
-                                                tint = Color.White,
-                                                modifier = Modifier.size(24.dp)
-                                            )
-                                        }
-                                    },
-                                    label = { 
-                                        Text(
-                                            text = themeData.tabUrge,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.error,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        ) 
-                                    },
-                                    alwaysShowLabel = true
-                                )
-
                                 NavigationItem(themeData.tabAnalytics, Icons.Default.Analytics, currentScreen == "analytics") { currentScreen = "analytics" }
                                 NavigationItem(themeData.tabProfile, Icons.Default.Person, currentScreen == "profile") { currentScreen = "profile" }
                             }
@@ -389,12 +433,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                          */
                         when (currentScreen) {
                             "home" -> {
+                                val quests by homeViewModel.allQuests.collectAsState()
+                                val challenges by homeViewModel.challenges.collectAsState()
                                 HomeHub(
                                     userStats = userStats,
+                                    quests = quests,
                                     challenges = challenges,
-                                    todayTotals = todayTotals,
                                     currentPledge = currentPledge,
-                                    deckSummaries = deckSummaries,
+                                    onQuestClick = { quest ->
+                                        selectedQuestId = quest.quest.id
+                                        currentScreen = "quest_execution"
+                                    },
                                     onChallengeClick = { challenge ->
                                         if (challenge.requirements.isNotEmpty()) {
                                             activeRequirements = challenge.requirements
@@ -403,45 +452,59 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             currentScreen = "track"
                                         }
                                     },
-                                    onExerciseClick = { type, goal ->
-                                        activeRequirements = listOf(ExerciseRequirement(type.name, goal))
-                                        currentRequirementIndex = 0
-                                        unlockingVaultItem = null
-                                        currentScreen = "track"
-                                    },
                                     onSettingsClick = { currentScreen = "settings" },
                                     onUrgeClick = {
                                         showUrgeNegotiation = true
                                     },
-                                    onPledgeClick = { currentScreen = "pledge" },
-                                    onViewLogClick = {
-                                        lifecycleScope.launch {
-                                            generatedLogText = com.example.fitlock.utils.MarkdownExporter(this@MainActivity).generateDailyLog(java.util.Date())
+                                    onPledgeClick = { 
+                                        if (currentPledge?.status == "COMMITTED") {
+                                            currentScreen = "evening_review"
+                                        } else {
+                                            currentScreen = "pledge" 
                                         }
                                     },
-                                    onImportAnkiClick = {
-                                        importAnkiLauncher.launch("*/*")
+                                    onViewLogClick = {
+                                        lifecycleScope.launch {
+                                            val date = java.util.Date()
+                                            val exporter = com.example.fitlock.utils.MarkdownExporter(this@MainActivity)
+                                            val logText = exporter.generateDailyLog(date)
+                                            generatedLogText = logText
+                                            
+                                            val file = exporter.saveLogToFile(logText, date)
+                                            if (file != null) {
+                                                Toast.makeText(this@MainActivity, "Log saved to: Documents/${file.name}", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
                                     },
-                                    onDeckClick = { deckName ->
-                                        selectedDeckName = deckName
-                                        currentScreen = "flashcard_review"
-                                    },
-                                    onDeleteDeck = { deckName ->
-                                        homeViewModel.deleteDeck(deckName)
-                                    }
+                                    onStartPlanning = { currentScreen = "planning" }
                                 )
                             }
                             "pledge" -> {
                                 PledgeScreen(
                                     currentPledge = currentPledge,
-                                    onCommit = {
+                                    onCommitWithObjective = { objective ->
                                         lifecycleScope.launch {
-                                            db.dao().upsertPledge(currentPledge!!.copy(status = "COMMITTED", pledgeTimestamp = System.currentTimeMillis()))
+                                            db.dao().upsertPledge(currentPledge!!.copy(
+                                                status = "COMMITTED", 
+                                                pledgeTimestamp = System.currentTimeMillis(),
+                                                mainObjective = objective
+                                            ))
                                         }
                                     },
-                                    onSuccess = {
+                                    onSuccessWithReflection = { reflection ->
                                         lifecycleScope.launch {
-                                            db.dao().upsertPledge(currentPledge!!.copy(status = "SUCCESS", reviewTimestamp = System.currentTimeMillis()))
+                                            val updated = currentPledge!!.copy(
+                                                status = "SUCCESS", 
+                                                reviewTimestamp = System.currentTimeMillis(),
+                                                eveningReflection = reflection
+                                            )
+                                            db.dao().upsertPledge(updated)
+                                            
+                                            // Add to Daily Log
+                                            if (reflection.isNotBlank()) {
+                                                db.dao().insertLogNote(DailyLogNote(content = "Evening Reflection: $reflection", type = "MANUAL"))
+                                            }
+                                            
                                             val stats = userStats ?: UserStats()
                                             db.dao().updateUserStats(stats.copy(
                                                 willpowerXp = stats.willpowerXp + 100,
@@ -450,9 +513,20 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             ))
                                         }
                                     },
-                                    onRelapse = {
+                                    onRelapseWithReflection = { reflection ->
                                         lifecycleScope.launch {
-                                            db.dao().upsertPledge(currentPledge!!.copy(status = "RELAPSED", reviewTimestamp = System.currentTimeMillis()))
+                                            val updated = currentPledge!!.copy(
+                                                status = "RELAPSED", 
+                                                reviewTimestamp = System.currentTimeMillis(),
+                                                eveningReflection = reflection
+                                            )
+                                            db.dao().upsertPledge(updated)
+                                            
+                                            // Add to Daily Log
+                                            if (reflection.isNotBlank()) {
+                                                db.dao().insertLogNote(DailyLogNote(content = "Evening Reflection (Relapse): $reflection", type = "MANUAL"))
+                                            }
+
                                             val stats = userStats ?: UserStats()
                                             db.dao().updateUserStats(stats.copy(sobrietyStreak = 0))
                                         }
@@ -514,11 +588,98 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         }
                                         startForegroundService(intent)
                                         currentScreen = "gauntlet_execution"
+                                    },
+                                    onNavigateToHabitLibrary = {
+                                        currentScreen = "habit_library"
+                                    },
+                                    onHabitClick = { habit ->
+                                        selectedHabitDetail = habit
+                                        currentScreen = "habit_details"
                                     }
                                 )
                             }
+                            "habit_details" -> {
+                                selectedHabitDetail?.let { habit ->
+                                    HabitDetailsScreen(
+                                        habit = habit,
+                                        history = gauntletHistory,
+                                        onBack = { currentScreen = "locks" }
+                                    )
+                                }
+                            }
+                            "forge" -> {
+                                val exerciseDefs by locksViewModel.exerciseDefinitions.collectAsState()
+                                val taskDefs by locksViewModel.taskDefinitions.collectAsState()
+                                val allFamilies by repository.allFamilies.collectAsState(initial = emptyList())
+                                ForgeScreen(
+                                    habitDefinitions = habitDefinitions,
+                                    onHabitUpsert = { locksViewModel.upsertHabitDefinition(it) },
+                                    onHabitDelete = { locksViewModel.deleteHabitDefinition(it) },
+                                    exerciseDefinitions = exerciseDefs,
+                                    onExerciseUpsert = { locksViewModel.upsertExerciseDefinition(it) },
+                                    onExerciseDelete = { locksViewModel.deleteExerciseDefinition(it) },
+                                    taskDefinitions = taskDefs,
+                                    onTaskUpsert = { locksViewModel.upsertTaskDefinition(it) },
+                                    onTaskDelete = { locksViewModel.deleteTaskDefinition(it) },
+                                    deckSummaries = deckSummaries,
+                                    onDeleteDeck = { homeViewModel.deleteDeck(it) },
+                                    onExerciseLog = { type, count, familyId, level, variantName ->
+                                        activeRequirements = listOf(ExerciseRequirement(type.name, count, variantName = variantName, familyId = familyId))
+                                        currentRequirementIndex = 0
+                                        unlockingVaultItem = null
+                                        currentScreen = "track"
+                                        
+                                        val calibrationKey = if (variantName != null) "${variantName}_${trackingMode.name}" else "${type.name}_${trackingMode.name}"
+                                        val calibration = userStats?.calibrations?.get(calibrationKey)
+                                        
+                                        exerciseManager.startTracking(type, trackingMode, count, calibration, "3-1-1-1", familyId, level, variantName)
+                                    },
+                                    onDeckPlay = { deckName ->
+                                        selectedDeckName = deckName
+                                        currentScreen = "flashcard_review"
+                                    },
+                                    onProgressionClick = { currentScreen = "progression" },
+                                    onAddFlashcard = { card ->
+                                        lifecycleScope.launch { repository.upsertFlashcard(card) }
+                                    },
+                                    allFamilies = allFamilies,
+                                    currentProgression = userStats?.familyProgression ?: emptyMap(),
+                                    onAiImport = { text ->
+                                        val apiKey = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE).getString("gemini_api_key", "") ?: ""
+                                        if (apiKey.isBlank()) {
+                                            Toast.makeText(this@MainActivity, "Please set Gemini API Key in Settings.", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            lifecycleScope.launch {
+                                                val aiManager = com.example.fitlock.ai.GeminiManager(apiKey)
+                                                val result = aiManager.extractFromText(text)
+                                                
+                                                // Save everything extracted
+                                                result.habits.forEach { repository.upsertHabitDefinition(it) }
+                                                result.exercises.forEach { repository.upsertExerciseDefinition(it) }
+                                                result.tasks.forEach { repository.upsertTaskDefinition(it) }
+                                                result.goals.forEach { repository.upsertGoal(it) }
+                                                result.projects.forEach { repository.upsertProject(it) }
+                                                result.quests.forEach { repository.upsertQuest(it.quest); repository.upsertQuestBlocks(it.blocks) }
+                                                
+                                                Toast.makeText(this@MainActivity, "AI Forging Complete!", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    },
+                                    title = themeData.tabForge,
+                                    onBack = { currentScreen = "profile" }
+                                )
+                            }
+                            "progression" -> {
+                                val allFamilies by repository.allFamilies.collectAsState(initial = emptyList())
+                                ProgressionScreen(
+                                    families = allFamilies,
+                                    currentProgression = userStats?.familyProgression ?: emptyMap(),
+                                    calibrations = userStats?.calibrations ?: emptyMap(),
+                                    onBack = { currentScreen = "forge" }
+                                )
+                            }
                             "analytics" -> {
-                                AnalyticsScreen(history = history)
+                                AnalyticsScreen(history = history, gauntletHistory = gauntletHistory)
                             }
                             "stats" -> {
                                 StatsScreen(
@@ -544,8 +705,201 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         lifecycleScope.launch {
                                             db.dao().deleteBaseline(baseline)
                                         }
-                                    }
+                                    },
+                                    onForgeClick = { currentScreen = "forge" },
+                                    forgeTabName = themeData.tabForge
                                 )
+                            }
+                            "planning" -> {
+                                val unfinishedTasks by homeViewModel.unfinishedTasks.collectAsState()
+                                val routines by homeViewModel.allQuests.collectAsState()
+                                val exerciseDefs by locksViewModel.exerciseDefinitions.collectAsState()
+                                val taskDefs by locksViewModel.taskDefinitions.collectAsState()
+                                val projectTasks by repository.unfinishedProjectTasks.collectAsState(initial = emptyList())
+                                currentPledge?.let { pledge ->
+                                    PlanningScreen(
+                                        currentPledge = pledge,
+                                        unfinishedTasks = unfinishedTasks,
+                                        routines = routines.filter { it.quest.type == QuestType.ROUTINE },
+                                        habitDefinitions = habitDefinitions,
+                                        exerciseDefinitions = exerciseDefs,
+                                        taskDefinitions = taskDefs,
+                                        projectTasks = projectTasks,
+                                        onCommit = { updatedPledge, blocks, lockShield ->
+                                            lifecycleScope.launch {
+                                                repository.upsertPledge(updatedPledge)
+                                                repository.createDailyQuest(blocks, lockShield)
+                                                
+                                                // Broadcast for Beeminder
+                                                broadcastEvent("com.example.fitlock.EVENT_PLEDGE_COMMITTED", mapOf(
+                                                    "date" to updatedPledge.date,
+                                                    "objective" to (updatedPledge.morning.personalGoal ?: "")
+                                                ))
+
+                                                // Auto-update the markdown log
+                                                val exporter = com.example.fitlock.utils.MarkdownExporter(this@MainActivity)
+                                                val logText = exporter.generateDailyLog(java.util.Date())
+                                                exporter.saveLogToFile(logText, java.util.Date())
+                                                
+                                                currentScreen = "home"
+                                            }
+                                        },
+                                        onBack = { currentScreen = "home" }
+                                    )
+                                }
+                            }
+                            "atlas" -> {
+                                val allQuestsWithBlocks by repository.allQuests.collectAsState(initial = emptyList())
+                                val allGoals by repository.allGoals.collectAsState(initial = emptyList())
+                                AtlasScreen(
+                                    quests = allQuestsWithBlocks,
+                                    goals = allGoals,
+                                    onAddRoutine = {
+                                        editingGauntlet = null
+                                        currentScreen = "gauntlet_editor"
+                                    },
+                                    onEditQuest = { questWithBlocks ->
+                                        // Convert Quest back to Gauntlet for the editor (temporary bridge)
+                                        // This will be fully unified in next phase
+                                        editingGauntlet = GauntletWithHabits(
+                                            gauntlet = Gauntlet(
+                                                id = questWithBlocks.quest.id.replace("daily_", "").toIntOrNull() ?: 0,
+                                                name = questWithBlocks.quest.name,
+                                                triggerType = questWithBlocks.quest.triggerType,
+                                                triggerTime = questWithBlocks.quest.triggerTime,
+                                                targetBlockGroupId = questWithBlocks.quest.targetBlockGroupId,
+                                                icon = questWithBlocks.quest.icon,
+                                                physicalTriggerType = questWithBlocks.quest.physicalTriggerType,
+                                                physicalTriggerData = questWithBlocks.quest.physicalTriggerData
+                                            ),
+                                            habits = questWithBlocks.blocks.filter { it.type == BlockType.HABIT }.map { b ->
+                                                HabitWithDefinition(
+                                                    habit = Habit(
+                                                        id = b.id.toIntOrNull() ?: 0,
+                                                        gauntletId = 0,
+                                                        name = b.name,
+                                                        orderIndex = b.orderIndex,
+                                                        estimatedDurationSeconds = b.estimatedDurationSeconds,
+                                                        mediaUrl = b.mediaUrl,
+                                                        mediaType = b.mediaType,
+                                                        trackingType = b.trackingType,
+                                                        definitionId = b.definitionId,
+                                                        currentStreak = b.currentStreak,
+                                                        lastCompletionTimestamp = b.lastDoneTimestamp
+                                                    ),
+                                                    definition = null // Will be resolved by editor if needed
+                                                )
+                                            }
+                                        )
+                                        currentScreen = "gauntlet_editor"
+                                    },
+                                    onDeleteQuest = { questWithBlocks ->
+                                        lifecycleScope.launch {
+                                            repository.deleteQuest(questWithBlocks.quest)
+                                        }
+                                    },
+                                    onToggleQuest = { /* TODO */ },
+                                    onStartQuest = { questWithBlocks ->
+                                        // Convert QuestWithBlocks to GauntletWithHabits for the existing service
+                                        // (Bridge until service is updated)
+                                        val intent = Intent(this@MainActivity, GauntletService::class.java).apply {
+                                            action = GauntletService.ACTION_START
+                                            putExtra(GauntletService.EXTRA_GAUNTLET_ID, questWithBlocks.quest.id.toIntOrNull() ?: -1)
+                                        }
+                                        startService(intent)
+                                        currentScreen = "gauntlet_execution"
+                                    },
+                                    onUpsertGoal = { goal ->
+                                        lifecycleScope.launch { 
+                                            repository.upsertGoal(goal)
+                                            if (goal.isCompleted) {
+                                                userViewModel.updateXp(goal.xpReward)
+                                                Toast.makeText(this@MainActivity, "Goal Achieved! +${goal.xpReward} XP", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    onDeleteGoal = { goal ->
+                                        lifecycleScope.launch { repository.deleteGoal(goal) }
+                                    },
+                                    onUpsertProject = { project ->
+                                        lifecycleScope.launch { repository.upsertProject(project) }
+                                    },
+                                    onDeleteProject = { project ->
+                                        lifecycleScope.launch { repository.deleteProject(project) }
+                                    },
+                                    onUpsertMilestone = { milestone ->
+                                        lifecycleScope.launch { 
+                                            repository.upsertMilestone(milestone)
+                                            if (milestone.isCompleted) {
+                                                userViewModel.updateXp(milestone.xpReward)
+                                                Toast.makeText(this@MainActivity, "Milestone Cleared! +${milestone.xpReward} XP", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    onDeleteMilestone = { milestone ->
+                                        lifecycleScope.launch { repository.deleteMilestone(milestone) }
+                                    },
+                                    onUpsertProjectTask = { task ->
+                                        lifecycleScope.launch { repository.upsertProjectTask(task) }
+                                    },
+                                    onDeleteProjectTask = { task ->
+                                        lifecycleScope.launch { repository.deleteProjectTask(task) }
+                                    },
+                                    title = themeData.tabAtlas
+                                )
+                            }
+                            "quest_execution" -> {
+                                val allQuestsWithBlocks by repository.allQuests.collectAsState(initial = emptyList())
+                                val currentQuest = allQuestsWithBlocks.find { it.quest.id == selectedQuestId }
+                                if (currentQuest != null) {
+                                    QuestExecutionScreen(
+                                        questWithBlocks = currentQuest,
+                                        onToggleBlock = { block ->
+                                            lifecycleScope.launch {
+                                                val updatedBlock = block.copy(isCompleted = !block.isCompleted, completionTimestamp = if (!block.isCompleted) System.currentTimeMillis() else null)
+                                                repository.upsertQuestBlock(updatedBlock)
+                                                
+                                                // Sync with ProjectTask if link exists
+                                                if (updatedBlock.sourceTaskId != null) {
+                                                    // This requires a helper in repository to update ProjectTask status
+                                                    repository.allGoals.first().flatMap { it.projects }.flatMap { it.tasks }
+                                                        .find { it.id == updatedBlock.sourceTaskId }?.let { pt ->
+                                                            repository.upsertProjectTask(pt.copy(isCompleted = updatedBlock.isCompleted))
+                                                        }
+                                                }
+                                            }
+                                        },
+                                        onFinish = {
+                                            lifecycleScope.launch {
+                                                repository.upsertQuest(currentQuest.quest.copy(isCompletedToday = true, lastCompletedTimestamp = System.currentTimeMillis()))
+                                                userViewModel.updateXp(currentQuest.quest.xpReward)
+                                                currentScreen = "home"
+                                            }
+                                        },
+                                        onBack = { currentScreen = "home" }
+                                    )
+                                }
+                            }
+                            "evening_review" -> {
+                                currentPledge?.let { pledge ->
+                                    RitualWizard(
+                                        isMorning = false,
+                                        pledge = pledge,
+                                        onSave = { updated ->
+                                            lifecycleScope.launch {
+                                                repository.upsertPledge(updated)
+                                                
+                                                // Auto-update the markdown log
+                                                val exporter = com.example.fitlock.utils.MarkdownExporter(this@MainActivity)
+                                                val logText = exporter.generateDailyLog(java.util.Date())
+                                                exporter.saveLogToFile(logText, java.util.Date())
+                                                
+                                                currentScreen = "home"
+                                            }
+                                        },
+                                        onBack = { currentScreen = "home" }
+                                    )
+                                }
                             }
                             "settings" -> {
                                 SettingsScreen(
@@ -562,7 +916,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         calibrationExercise = exercise
                                         currentScreen = "calibrate"
                                     },
-                                    onNavigateToQuotes = { currentScreen = "quotes" }
+                                    onNavigateToQuotes = { currentScreen = "quotes" },
+                                    groups = groups
                                 )
                             }
                             "quotes" -> {
@@ -577,8 +932,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 )
                             }
                             "create" -> {
+                                val allDeckNames by repository.allDeckNames.collectAsState(initial = emptyList())
                                 CreateGroupScreen(
                                     editingGroup = editingGroup,
+                                    deckNames = allDeckNames,
                                     onSave = { group ->
                                         locksViewModel.upsertGroup(group)
                                         currentScreen = "locks"
@@ -587,14 +944,28 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 )
                             }
                             "gauntlet_editor" -> {
+                                val currentAdvanced = editingGauntlet?.let { g -> advancedWorkouts.find { it.gauntlet.id == g.gauntlet.id } }
                                 GauntletEditor(
                                     editingGauntlet = editingGauntlet,
+                                    editingAdvanced = currentAdvanced,
                                     groups = groups,
-                                    onSave = { gauntlet, habits ->
+                                    onSave = { gauntlet, habits, blocks, tasks ->
                                         lifecycleScope.launch {
+                                            // Old way (for backward compatibility during transition)
                                             val gId = locksViewModel.upsertGauntlet(gauntlet).await().toInt()
                                             locksViewModel.deleteHabitsForGauntlet(gId)
                                             habits.forEach { locksViewModel.upsertHabit(it.copy(gauntletId = gId)) }
+                                            locksViewModel.deleteBlocksForGauntlet(gId)
+                                            blocks.forEach { blockWithExercises ->
+                                                val bId = locksViewModel.upsertWorkoutBlock(blockWithExercises.block.copy(gauntletId = gId)).await().toInt()
+                                                blockWithExercises.exercises.forEach {
+                                                    locksViewModel.upsertWorkoutExercise(it.copy(blockId = bId))
+                                                }
+                                            }
+                                            
+                                            // New way (Unified Quest System)
+                                            repository.saveGauntletAsQuest(gauntlet, habits, blocks, tasks)
+                                            
                                             currentScreen = "locks"
                                         }
                                     },
@@ -605,9 +976,16 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 gauntletSession?.let { session ->
                                     GauntletExecutionScreen(
                                         gauntlet = session.gauntlet,
+                                        advancedWorkout = session.advancedWorkout,
                                         currentHabitIndex = session.currentHabitIndex,
+                                        currentBlockIndex = session.currentBlockIndex,
+                                        currentBlockExerciseIndex = session.currentBlockExerciseIndex,
+                                        currentBlockSet = session.currentBlockSet,
                                         elapsedSeconds = session.elapsedSeconds,
+                                        currentReps = session.currentReps,
+                                        personalBests = session.personalBests,
                                         isInBuffer = session.isInBuffer,
+                                        isResting = session.isResting,
                                         bufferRemainingSeconds = session.gauntlet.gauntlet.bufferSeconds - session.bufferElapsedSeconds,
                                         onNext = {
                                             val intent = Intent(this@MainActivity, GauntletService::class.java).apply {
@@ -621,6 +999,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             }
                                             startService(intent)
                                             currentScreen = "locks"
+                                        },
+                                        onUpdateReps = { reps ->
+                                            val intent = Intent(this@MainActivity, GauntletService::class.java).apply {
+                                                action = GauntletService.ACTION_UPDATE_REPS
+                                                putExtra(GauntletService.EXTRA_REPS, reps)
+                                            }
+                                            startService(intent)
                                         }
                                     )
                                 } ?: run {
@@ -642,21 +1027,53 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 }
                             }
                             "flashcard_review" -> {
-                                selectedDeckName?.let { deckName ->
-                                    FlashcardReviewScreen(
-                                        deckName = deckName,
-                                        repository = repository,
-                                        onFinish = {
+                                val deckToReview = selectedDeckName ?: "Default"
+                                FlashcardReviewScreen(
+                                    deckName = deckToReview,
+                                    repository = repository,
+                                    requiredCount = if (pendingFlashcardGoal > 0) pendingFlashcardGoal else null,
+                                    onRequirementMet = {
+                                        val returnGId = returnGroupIdAfterReview
+                                        if (returnGId != -1) {
+                                            lifecycleScope.launch {
+                                                val now = System.currentTimeMillis()
+                                                val group = db.dao().getGroupById(returnGId)
+                                                if (group != null) {
+                                                    db.dao().updateGroup(group.copy(lastUnlockedTimestamp = now))
+                                                    LockStatusManager.updateUnlock(returnGId, now)
+                                                }
+                                            }
+                                        }
+                                    },
+                                    onFinish = {
+                                        if (pendingFlashcardGoal > 0) {
+                                            val returnPkg = returnPackageAfterReview
+                                            if (returnPkg != null) {
+                                                val launchIntent = packageManager.getLaunchIntentForPackage(returnPkg)
+                                                if (launchIntent != null) {
+                                                    startActivity(launchIntent)
+                                                }
+                                                pendingFlashcardGoal = 0
+                                                returnPackageAfterReview = null
+                                                returnGroupIdAfterReview = -1
+                                                currentScreen = "locks"
+                                            } else {
+                                                repCountState.intValue = pendingFlashcardGoal
+                                                pendingFlashcardGoal = 0
+                                                currentScreen = "track"
+                                            }
+                                        } else {
                                             currentScreen = "home"
                                             selectedDeckName = null
                                         }
-                                    )
-                                }
+                                    }
+                                )
                             }
                             "calibrate" -> {
                                 calibrationExercise?.let { type ->
                                     CalibrationScreen(
                                         exerciseType = type,
+                                        variantName = calibrationVariantName,
                                         mode = trackingMode,
                                         onCalibrationComplete = { cal ->
                                             lifecycleScope.launch {
@@ -664,10 +1081,23 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                 val newCalibrations = stats.calibrations.toMutableMap()
                                                 newCalibrations[cal.exerciseType] = cal
                                                 db.dao().updateUserStats(stats.copy(calibrations = newCalibrations))
-                                                currentScreen = "settings"
+                                                
+                                                if (activeRequirements.isNotEmpty()) {
+                                                    currentScreen = "track"
+                                                } else {
+                                                    currentScreen = "settings"
+                                                }
+                                                calibrationVariantName = null
                                             }
                                         },
-                                        onBack = { currentScreen = "settings" }
+                                        onBack = { 
+                                            if (activeRequirements.isNotEmpty()) {
+                                                currentScreen = "track"
+                                            } else {
+                                                currentScreen = "settings"
+                                            }
+                                            calibrationVariantName = null
+                                        }
                                     )
                                 }
                             }
@@ -692,7 +1122,22 @@ class MainActivity : ComponentActivity(), SensorEventListener {
 
                                         if (exerciseType != ExerciseType.APP_USAGE) {
                                             initializeAnalyzers(exerciseType, userStats)
-                                            exerciseManager.startTracking(exerciseType, trackingMode, currentGoal, userStats?.calibrations?.get("${exerciseType.name}_${trackingMode.name}"))
+                                            val calibrationKey = if (req.variantName != null) "${req.variantName}_${trackingMode.name}" else "${exerciseType.name}_${trackingMode.name}"
+                                            val calibration = userStats?.calibrations?.get(calibrationKey)
+                                            
+                                            if (calibration == null && trackingMode == TrackingMode.CAMERA) {
+                                                calibrationExercise = exerciseType
+                                                calibrationVariantName = req.variantName
+                                                currentScreen = "calibrate"
+                                            } else {
+                                                exerciseManager.startTracking(
+                                                    type = exerciseType, 
+                                                    mode = trackingMode, 
+                                                    goal = currentGoal, 
+                                                    calibration = calibration,
+                                                    variantName = req.variantName
+                                                )
+                                            }
                                         } else {
                                             exerciseManager.startTracking(ExerciseType.APP_USAGE, TrackingMode.POCKET, currentGoal)
                                         }
@@ -727,6 +1172,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                     else -> {}
                                                 }
                                             }
+                                        },
+                                        onSwitchToPocket = {
+                                            trackingMode = TrackingMode.POCKET
+                                            exerciseManager.switchToPocketMode()
                                         },
                                         onEmergencyBypass = { 
                                             currentScreen = if (unlockingVaultItem != null) "vault" else "home"
@@ -848,6 +1297,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                     startActivity(launchIntent)
                                                 }
                                             }
+                                        },
+                                        onStartFlashcardReview = { count ->
+                                            pendingFlashcardGoal = count
+                                            currentScreen = "flashcard_review"
                                         }
                                     )
                                 }
@@ -858,20 +1311,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         UrgeNegotiationDialog(
                             onDismiss = { showUrgeNegotiation = false },
                             availableQuotes = quotes,
-                            themeUrgeLabel = themeData.tabUrge,
+                            themeUrgeLabel = themeData.tabUrge.replace("Urge", "Grit"),
                             onConfirm = { event ->
                                 lifecycleScope.launch {
                                     db.dao().insertUrgeEvent(event)
                                     showUrgeNegotiation = false
                                     
-                                    // Also trigger the physical challenge as per plan
-                                    activeRequirements = listOf(
-                                        ExerciseRequirement(ExerciseType.PUSHUP.name, 15),
-                                        ExerciseRequirement(ExerciseType.SQUAT.name, 20)
-                                    )
-                                    currentRequirementIndex = 0
-                                    unlockingVaultItem = null
-                                    currentScreen = "track"
+                                    // MANDATORY CHALLENGE: Launch Overlay for "Grit Trial"
+                                    val intent = Intent(this@MainActivity, LockOverlayActivity::class.java).apply {
+                                        putExtra("target_app", "Grit Trial")
+                                        putExtra("exercise_type", ExerciseType.PUSHUP.name)
+                                        putExtra("target_reps", 15)
+                                    }
+                                    startActivity(intent)
                                 }
                             }
                         )
@@ -1055,7 +1507,15 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     ExerciseRequirement(ExerciseType.SQUAT.name, 100),
                     ExerciseRequirement(ExerciseType.SITUP.name, 100),
                     ExerciseRequirement(ExerciseType.PULLUP.name, 20)
-                ), 1000)
+                ), 1000),
+                Challenge("rr_routine", "Recommended Routine", "Full body strength following the RR protocol.", listOf(
+                    ExerciseRequirement(ExerciseType.PULLUP.name, 15),
+                    ExerciseRequirement(ExerciseType.DIP.name, 15),
+                    ExerciseRequirement(ExerciseType.SQUAT.name, 15),
+                    ExerciseRequirement(ExerciseType.HINGE.name, 15),
+                    ExerciseRequirement(ExerciseType.PUSHUP.name, 15),
+                    ExerciseRequirement(ExerciseType.ROW.name, 15)
+                ), 1500)
             )
             challenges.forEach { db.dao().upsertChallenge(it) }
         }
@@ -1086,9 +1546,76 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             onRepCountChanged = { count ->
                 onRepCount(count)
             },
-            onWorkoutComplete = { reps -> },
+            onWorkoutComplete = { reps, familyId, level -> 
+                lifecycleScope.launch {
+                    handleWorkoutSuccess(reps, familyId, level)
+                }
+            },
             onStationaryStatusChanged = onStationaryStatusChanged
         )
+    }
+
+    private suspend fun handleWorkoutSuccess(reps: Int, familyId: String?, level: Int) {
+        val stats = db.dao().getUserStats().first() ?: UserStats()
+        
+        // 1. Basic XP and History
+        val xpGained = reps * 2 
+        updateUserStats(xpGained, "GENERAL", 0) // Bridging to existing stats logic
+        
+        // Broadcast for Tasker/Beeminder
+        broadcastEvent("com.example.fitlock.EVENT_WORKOUT_COMPLETE", mapOf(
+            "reps" to reps,
+            "family" to (familyId ?: "NONE"),
+            "level" to level,
+            "xp" to xpGained
+        ))
+
+        // 2. Progression Check
+        if (familyId != null) {
+            val currentFamilyLevel = stats.familyProgression[familyId] ?: 1
+            if (level == currentFamilyLevel) {
+                val levelData = repository.getLevelData(familyId, level)
+                if (levelData != null && reps >= levelData.unlockRequirementReps) {
+                    // Level Up!
+                    val newProgression = stats.familyProgression.toMutableMap()
+                    newProgression[familyId] = level + 1
+                    repository.updateStats(stats.copy(familyProgression = newProgression))
+                    runOnUiThread {
+                        Toast.makeText(this@MainActivity, "Skill Level Up! Next variant unlocked.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        
+        // 3. Clear requirements logic
+        val currentReq = activeRequirements.getOrNull(currentRequirementIndex)
+        if (currentReq != null) {
+            if (currentRequirementIndex < activeRequirements.size - 1) {
+                currentRequirementIndex++
+            } else {
+                finishWorkoutSession()
+            }
+        }
+    }
+
+    private fun finishWorkoutSession() {
+        // Deactivate Intermittent Lock
+        val deactivateIntent = Intent(this, com.example.fitlock.service.GritLockAccessibilityService::class.java).apply {
+            action = "DEACTIVATE_INTERMITTENT_LOCK"
+        }
+        startService(deactivateIntent)
+
+        // Log to Health Connect
+        val endTime = java.time.Instant.now()
+        val startTime = endTime.minusSeconds(exerciseManager.getDurationSeconds())
+        lifecycleScope.launch {
+            activeRequirements.forEach { req ->
+                healthConnectManager.writeExerciseSession(req.type, req.count, startTime, endTime)
+            }
+            activeRequirements = emptyList()
+            currentRequirementIndex = 0
+            // Navigation handled by UI observing activeRequirements empty
+        }
     }
 
     /**
@@ -1130,6 +1657,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
+        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
         
         val missing = permissions.filter { 
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED 
@@ -1236,5 +1765,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 indicatorColor = MaterialTheme.colorScheme.primaryContainer
             )
         )
+    }
+
+    private fun broadcastEvent(action: String, extras: Map<String, Any>) {
+        val intent = Intent(action).apply {
+            extras.forEach { (key, value) ->
+                when (value) {
+                    is Int -> putExtra(key, value)
+                    is Long -> putExtra(key, value)
+                    is String -> putExtra(key, value)
+                    is Boolean -> putExtra(key, value)
+                }
+            }
+        }
+        sendBroadcast(intent)
     }
 }

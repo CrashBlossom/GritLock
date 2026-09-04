@@ -19,6 +19,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.automirrored.filled.ListAlt
+import com.example.fitlock.data.GauntletHistory
 import com.example.fitlock.data.WorkoutHistory
 import com.example.fitlock.utils.AppUsageInfo
 import com.example.fitlock.utils.UsageUtils
@@ -27,7 +29,7 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 
 @Composable
-fun AnalyticsScreen(history: List<WorkoutHistory>) {
+fun AnalyticsScreen(history: List<WorkoutHistory>, gauntletHistory: List<GauntletHistory> = emptyList()) {
     val context = LocalContext.current
     var usageStats by remember { mutableStateOf<List<AppUsageInfo>>(emptyList()) }
     val hasPermission = remember { UsageUtils.hasUsageStatsPermission(context) }
@@ -95,8 +97,14 @@ fun AnalyticsScreen(history: List<WorkoutHistory>) {
                 Tab(
                     selected = selectedTab == 2,
                     onClick = { selectedTab = 2 },
-                    text = { Text("Daily Totals") },
+                    text = { Text("Totals") },
                     icon = { Icon(Icons.Default.Language, contentDescription = null) }
+                )
+                Tab(
+                    selected = selectedTab == 3,
+                    onClick = { selectedTab = 3 },
+                    text = { Text("Routines") },
+                    icon = { Icon(Icons.AutoMirrored.Filled.ListAlt, contentDescription = null) }
                 )
             }
 
@@ -106,6 +114,7 @@ fun AnalyticsScreen(history: List<WorkoutHistory>) {
                 0 -> AppUsageList(usageStats)
                 1 -> ExerciseHistoryList(history)
                 2 -> DailyTotalsLeaderboard(history)
+                3 -> GauntletHistoryList(gauntletHistory)
             }
         }
     }
@@ -237,6 +246,69 @@ fun DailyTotalsLeaderboard(history: List<WorkoutHistory>) {
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun GauntletHistoryList(history: List<GauntletHistory>) {
+    if (history.isEmpty()) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No routine history yet.", color = Color.Gray)
+        }
+    } else {
+        Column {
+            val totalSeconds = history.sumOf { it.totalTimeSeconds }
+            val focusMinutes = totalSeconds / 60
+            
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Total Focus Time", color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 12.sp)
+                    Text("${focusMinutes} Minutes", color = MaterialTheme.colorScheme.onPrimaryContainer, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                items(history) { record ->
+                    GauntletHistoryItem(record)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GauntletHistoryItem(record: GauntletHistory) {
+    val date = remember(record.timestamp) {
+        SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(record.timestamp))
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Routine Session", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(date, color = Color.Gray, fontSize = 12.sp)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                val timeStr = if (record.totalTimeSeconds > 3600) {
+                    "${record.totalTimeSeconds / 3600}h ${(record.totalTimeSeconds % 3600) / 60}m"
+                } else {
+                    "${record.totalTimeSeconds / 60}m ${record.totalTimeSeconds % 60}s"
+                }
+                Text(timeStr, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                Text("${record.habitLogs.size} Habits", color = Color.Gray, fontSize = 10.sp)
+                Text("+${record.xpGained} XP", color = Color.Green, fontSize = 12.sp)
             }
         }
     }

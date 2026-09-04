@@ -54,7 +54,7 @@ class PushupAnalyzer(
                          (leftKnee != null && leftKnee.inFrameLikelihood > 0.5f)
 
         if (!bodyInShot) {
-            manager.provideCorrection("Step back! Ensure full body is visible.")
+            manager.provideCorrection("Step back! Let me see your full body to track your form accurately.")
             return
         }
         
@@ -93,7 +93,7 @@ class PushupAnalyzer(
                 if (verticalDisplacement > MOVEMENT_THRESHOLD) {
                     isDown = false
                     lastRepTime = currentTime
-                    manager.onRepDetected()
+                    // manager.onRepDetected() // Now handled by TempoTracker via onMovementUpdate
                 } else {
                     // It was likely just camera jitter or a non-human object "flickering"
                     // We don't trigger correction immediately to avoid noise, but we reset "isDown"
@@ -102,6 +102,13 @@ class PushupAnalyzer(
                 }
             }
         }
+
+        // Continuous reporting for TempoTracker
+        manager.onMovementUpdate(
+            isMovingDown = avgElbowAngle < maxElbowAngle - 15, // Increased lenience (was 20)
+            isAtBottom = avgElbowAngle <= minElbowAngle + 15,  // Increased lenience (was 10)
+            isAtTop = avgElbowAngle >= maxElbowAngle - 15      // Increased lenience (was 10)
+        )
     }
 
     private fun calculateAngle(first: PoseLandmark, mid: PoseLandmark, last: PoseLandmark): Double {
