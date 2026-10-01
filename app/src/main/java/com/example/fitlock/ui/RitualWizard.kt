@@ -22,11 +22,12 @@ import com.example.fitlock.data.*
 fun RitualWizard(
     isMorning: Boolean,
     pledge: DailyPledge,
-    onSave: (DailyPledge) -> Unit,
+    dailyQuest: QuestWithBlocks? = null,
+    onSave: (DailyPledge, List<QuestBlock>, List<String>) -> Unit, // updatedBlocks, newIdeas
     onBack: () -> Unit
 ) {
     var currentStep by remember { mutableIntStateOf(0) }
-    val totalSteps = if (isMorning) 5 else 6
+    val totalSteps = if (isMorning) 6 else 8
 
     // State for all fields
     var mornReflection by remember { mutableStateOf(pledge.morning.lastNightReflection ?: "") }
@@ -38,6 +39,7 @@ fun RitualWizard(
     var mornGratitude by remember { mutableStateOf(pledge.morning.gratitude ?: "") }
     var mornAwe by remember { mutableStateOf(pledge.morning.awe ?: "") }
     var mornReadLearn by remember { mutableStateOf(pledge.morning.readListen ?: "") }
+    val mornIdeas = remember { mutableStateListOf<String>().apply { addAll(pledge.morning.morningIdeas) } }
 
     var evenStory by remember { mutableStateOf(pledge.evening.story ?: "") }
     var evenAccomplishments by remember { mutableStateOf(pledge.evening.accomplishments ?: "") }
@@ -47,6 +49,14 @@ fun RitualWizard(
     var evenEnergy by remember { mutableFloatStateOf(pledge.evening.energy?.toFloat() ?: 5f) }
     var evenPeaceOfMind by remember { mutableStateOf(pledge.evening.peaceOfMindGoal ?: "") }
     var evenMeals by remember { mutableStateOf(pledge.evening.meals ?: "") }
+    val evenIdeas = remember { mutableStateListOf<String>().apply { addAll(pledge.evening.eveningIdeas) } }
+
+    // Quest Review State (Local copies of blocks to modify)
+    val questBlocks = remember(dailyQuest) { 
+        mutableStateListOf<QuestBlock>().apply { 
+            dailyQuest?.blocks?.let { addAll(it) } 
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -78,7 +88,9 @@ fun RitualWizard(
                     } else {
                         Button(
                             onClick = {
+                                val newIdeas = mutableListOf<String>()
                                 val updatedPledge = if (isMorning) {
+                                    newIdeas.addAll(mornIdeas)
                                     pledge.copy(
                                         status = "COMMITTED",
                                         pledgeTimestamp = System.currentTimeMillis(),
@@ -91,12 +103,14 @@ fun RitualWizard(
                                             solutions = mornSolutions,
                                             gratitude = mornGratitude,
                                             awe = mornAwe,
+                                            morningIdeas = mornIdeas.toList(),
                                             readListen = mornReadLearn
                                         )
                                     )
                                 } else {
+                                    newIdeas.addAll(evenIdeas)
                                     pledge.copy(
-                                        status = "SUCCESS", // Default to success, let user choose later if needed
+                                        status = "SUCCESS", 
                                         reviewTimestamp = System.currentTimeMillis(),
                                         evening = EveningRitual(
                                             story = evenStory,
@@ -106,11 +120,12 @@ fun RitualWizard(
                                             mood = evenMood.toInt(),
                                             energy = evenEnergy.toInt(),
                                             peaceOfMindGoal = evenPeaceOfMind,
+                                            eveningIdeas = evenIdeas.toList(),
                                             meals = evenMeals
                                         )
                                     )
                                 }
-                                onSave(updatedPledge)
+                                onSave(updatedPledge, questBlocks.toList(), newIdeas)
                             },
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -146,6 +161,12 @@ fun RitualWizard(
                     4 -> StepContent("Growth", "Continuous learning.") {
                         RitualTextField("Read/Listen To", mornReadLearn) { mornReadLearn = it }
                     }
+                    5 -> StepContent("Ideas & Solutions", "Brainstorm for the future.") {
+                        Text("New Ideas", style = MaterialTheme.typography.titleSmall)
+                        ListEditor(mornIdeas)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Ideas captured here will be saved to your Brainstorming backlog.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    }
                 }
             } else {
                 when (currentStep) {
@@ -176,8 +197,68 @@ fun RitualWizard(
                     5 -> StepContent("Fuel", "Log your meals.") {
                         RitualTextField("Breakfast, Lunch, Dinner", evenMeals) { evenMeals = it }
                     }
+                    6 -> StepContent("Evening Ideas", "Don't lose your insights.") {
+                        ListEditor(evenIdeas)
+                        Text("Captured ideas go to your Brainstorming project.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                    }
+                    7 -> StepContent("Quest Review", "How did you perform?") {
+                        if (questBlocks.isEmpty()) {
+                            Text("No active quest found for today.", color = Color.Gray)
+                        } else {
+                            questBlocks.forEachIndexed { index, block ->
+                                Column(modifier = Modifier.padding(vertical = 8.dp)) {
+                                    Text(block.name, fontWeight = FontWeight.Bold)
+                                    if (block.type == BlockType.TASK) {
+                                        TaskProgressSelector(
+                                            currentStatus = block.workStatus,
+                                            onStatusChange = { newStatus ->
+                                                questBlocks[index] = block.copy(
+                                                    workStatus = newStatus,
+                                                    isCompleted = newStatus == "COMPLETED",
+                                                    completionTimestamp = if (newStatus == "COMPLETED") System.currentTimeMillis() else null
+                                                )
+                                            }
+                                        )
+                                    } else {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Checkbox(
+                                                checked = block.isCompleted,
+                                                onCheckedChange = { checked ->
+                                                    questBlocks[index] = block.copy(
+                                                        isCompleted = checked,
+                                                        completionTimestamp = if (checked) System.currentTimeMillis() else null,
+                                                        workStatus = if (checked) "COMPLETED" else "NO_PROGRESS"
+                                                    )
+                                                }
+                                            )
+                                            Text(if (block.isCompleted) "Done" else "Not Done")
+                                        }
+                                    }
+                                }
+                                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
+                            }
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun TaskProgressSelector(currentStatus: String, onStatusChange: (String) -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        val options = listOf(
+            "COMPLETED" to "Done",
+            "WORKED_ON" to "Worked",
+            "NO_PROGRESS" to "Skip"
+        )
+        options.forEach { (valStr, label) ->
+            FilterChip(
+                selected = currentStatus == valStr,
+                onClick = { onStatusChange(valStr) },
+                label = { Text(label, fontSize = 10.sp) }
+            )
         }
     }
 }

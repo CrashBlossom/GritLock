@@ -5,6 +5,8 @@
     <!-- Shortcut Labels -->
     <string name="shortcut_morning_short">Morning Plan</string>
     <string name="shortcut_morning_long">Start Morning Ritual</string>
+    <string name="shortcut_evening_short">Evening Review</string>
+    <string name="shortcut_evening_long">Start Evening Review</string>
     <string name="shortcut_grit_short">Log Grit</string>
     <string name="shortcut_grit_long">Record an Urge</string>
     <string name="shortcut_rr_short">Start RR</string>

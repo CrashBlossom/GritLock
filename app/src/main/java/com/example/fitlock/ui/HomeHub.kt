@@ -1,5 +1,6 @@
 package com.example.fitlock.ui
 
+import android.content.Context
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -15,14 +16,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.fitlock.data.Challenge
 import com.example.fitlock.data.DailyPledge
 import com.example.fitlock.data.UserStats
 import com.example.fitlock.exercise.ExerciseType
+import com.example.fitlock.ui.theme.getThemeData
+import java.util.Calendar
 
 @Composable
 fun HomeHub(
@@ -137,9 +143,77 @@ fun WillpowerDashboard(
     onViewLogClick: () -> Unit,
     onStartPlanning: () -> Unit
 ) {
-    val themeData = com.example.fitlock.ui.theme.getThemeData(userStats?.activeTheme ?: "DEFAULT")
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
+    val isHangoverActive = remember { prefs.getBoolean("bedtime_hangover_active", false) }
+
+    val themeData = getThemeData(userStats?.activeTheme ?: "DEFAULT")
+    val isShieldActive = userStats?.floorTargetMetToday == true
     
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        if (isHangoverActive) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.NightsStay,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            text = "🌙 Late-Night Screen Penalty (-30 HP)",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Text(
+                            text = "Screen time past 10:30 PM deducted -30 HP from your morning health pool.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Daily Floor Target / Shield Status Card
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isShieldActive) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.tertiaryContainer
+            )
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = if (isShieldActive) Icons.Default.Shield else Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = if (isShieldActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.tertiary
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = if (isShieldActive) "🛡️ Daily Shield Active" else "⚡ Floor Target Pending",
+                        fontWeight = FontWeight.Bold,
+                        color = if (isShieldActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                    Text(
+                        text = if (isShieldActive) "Streak preserved & HP protected for today!" else "Do 3 reps / 5 cards to save your streak",
+                        fontSize = 12.sp,
+                        color = if (isShieldActive) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.8f)
+                    )
+                }
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -188,40 +262,57 @@ fun WillpowerDashboard(
             }
         }
 
+        val isEvening = Calendar.getInstance().get(Calendar.HOUR_OF_DAY) >= 17
+        val canClickPledge = currentPledge?.status == "PENDING" || (currentPledge?.status == "COMMITTED" && isEvening)
+
         Card(
-            modifier = Modifier.fillMaxWidth().clickable { onPledgeClick() },
+            modifier = Modifier.fillMaxWidth().let { 
+                if (canClickPledge) it.clickable { onPledgeClick() } else it 
+            },
             colors = CardDefaults.cardColors(
                 containerColor = if (currentPledge?.status == "PENDING") 
                     MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface
             )
         ) {
             Row(
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(16.dp).alpha(if (canClickPledge) 1f else 0.6f),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val icon = when (currentPledge?.status) {
                     "SUCCESS" -> Icons.Default.CheckCircle
                     "RELAPSED" -> Icons.Default.Error
+                    "COMMITTED" -> if (isEvening) Icons.Default.NightsStay else Icons.Default.Done
                     else -> Icons.Default.EditCalendar
                 }
                 val tint = when (currentPledge?.status) {
                     "SUCCESS" -> Color(0xFF4CAF50)
                     "RELAPSED" -> Color(0xFFF44336)
+                    "COMMITTED" -> if (isEvening) MaterialTheme.colorScheme.tertiary else Color.Gray
                     else -> MaterialTheme.colorScheme.primary
                 }
                 Icon(icon, null, tint = tint)
                 Spacer(modifier = Modifier.width(16.dp))
                 Column {
+                    val titleText = when (currentPledge?.status) {
+                        "PENDING" -> "Morning Plan Pending"
+                        "COMMITTED" -> if (isEvening) "Ready for Evening Review" else "Morning Plan Completed"
+                        "SUCCESS" -> "Day Accomplished"
+                        "RELAPSED" -> "Day Logged (Relapse)"
+                        else -> "Make your Daily Pledge"
+                    }
                     Text(
-                        text = if (currentPledge?.status == "PENDING") "Make your Daily Pledge" 
-                               else if (currentPledge?.mainObjective != null) "Goal: ${currentPledge.mainObjective}"
-                               else "Pledge: ${currentPledge?.status}",
+                        text = titleText,
                         fontWeight = FontWeight.Bold,
                         maxLines = 2,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis
                     )
+                    val subText = when (currentPledge?.status) {
+                        "PENDING" -> "Commit to your goals before starting."
+                        "COMMITTED" -> if (isEvening) "Reflect on your wins and losses." else "Goals locked in. Review opens at 17:00."
+                        else -> "Stay focused. Earn Willpower XP."
+                    }
                     Text(
-                        text = if (currentPledge?.status == "COMMITTED") "Focus on your priority today." else "Stay focused. Earn Willpower XP.", 
+                        text = subText, 
                         style = MaterialTheme.typography.bodySmall
                     )
                 }

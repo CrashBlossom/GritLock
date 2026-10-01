@@ -24,14 +24,18 @@ class MovementReminderWorker(context: Context, params: WorkerParameters) : Corou
         val isLockEnabled = prefs.getBoolean("intermittent_lock_enabled", false)
         val blockGroupId = prefs.getInt("intermittent_block_group_id", -1)
         
+        val isTravelMode = prefs.getBoolean("travel_mode_enabled", false)
         val hardStop = inputData.getBoolean("hardStop", false)
-        val (exType, exCount) = getSelectedExercise()
+        val (rawExType, rawExCount) = getSelectedExercise()
+        
+        val exType = rawExType
+        val exCount = if (isTravelMode) (rawExCount * 0.4).toInt().coerceAtLeast(3) else rawExCount
 
         if (isLockEnabled && blockGroupId != -1) {
             activateIntermittentLock(blockGroupId, exType, exCount)
         }
 
-        sendIntermittentTrainingNotification(hardStop, exType, exCount)
+        sendIntermittentTrainingNotification(hardStop, exType, exCount, isTravelMode, isLockEnabled)
         return Result.success()
     }
 
@@ -59,7 +63,13 @@ class MovementReminderWorker(context: Context, params: WorkerParameters) : Corou
         applicationContext.startService(intent)
     }
 
-    private fun sendIntermittentTrainingNotification(hardStop: Boolean, exType: String, exCount: Int) {
+    private fun sendIntermittentTrainingNotification(
+        hardStop: Boolean, 
+        exType: String, 
+        exCount: Int, 
+        isTravelMode: Boolean,
+        isLockEnabled: Boolean
+    ) {
         val channelId = "movement_reminders"
         val notificationManager = applicationContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -96,14 +106,16 @@ class MovementReminderWorker(context: Context, params: WorkerParameters) : Corou
         )
 
         val snoozeButtonLabel = if (hardStop) "Final Warning" else "SNOOZE"
+        val titlePrefix = if (isTravelMode) "[Travel Mode] " else ""
         val message = "Ready for a session? Next up: $exCount ${exType.lowercase()}s."
 
         val builder = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("Intermittent Training")
+            .setContentTitle("${titlePrefix}Intermittent Training")
             .setContentText(message)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
+            .setOngoing(isLockEnabled || hardStop)
+            .setAutoCancel(!isLockEnabled && !hardStop)
             .addAction(R.drawable.ic_launcher_foreground, "DO IT NOW", workoutPendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, snoozeButtonLabel, snoozePendingIntent)
 

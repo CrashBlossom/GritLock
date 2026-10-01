@@ -13,16 +13,13 @@ class SquatAnalyzer(
 
     private var isDown = false
     private var lastRepTime = 0L
-    private val REP_COOLDOWN_MS = 1500L
-    private val MIN_CONFIDENCE = 0.8f // Option 1: Higher confidence gate
+    private val REP_COOLDOWN_MS = 600L
+    private val MIN_CONFIDENCE = 0.35f
 
-    private var downThresholdAngle = calibration?.bottomValue ?: 100.0
-    private var upThresholdAngle = calibration?.topValue ?: 160.0
-    
-    private var baselineHipY: Float? = null
+    private var downThresholdAngle = 105.0
+    private var upThresholdAngle = 155.0
 
     fun analyzePose(pose: Pose, width: Int, height: Int) {
-        // 1. Confidence Check
         val leftHip = pose.getPoseLandmark(PoseLandmark.LEFT_HIP)
         val rightHip = pose.getPoseLandmark(PoseLandmark.RIGHT_HIP)
         val leftKnee = pose.getPoseLandmark(PoseLandmark.LEFT_KNEE)
@@ -33,23 +30,11 @@ class SquatAnalyzer(
         if (leftHip.inFrameLikelihood < MIN_CONFIDENCE || 
             leftKnee.inFrameLikelihood < MIN_CONFIDENCE ||
             leftAnkle.inFrameLikelihood < MIN_CONFIDENCE) {
-            return // Ignore jittery objects like plants
-        }
-
-        // 2. Body Shot Validation
-        val leftShoulder = pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER)
-        val rightShoulder = pose.getPoseLandmark(PoseLandmark.RIGHT_SHOULDER)
-        val rightAnkle = pose.getPoseLandmark(PoseLandmark.RIGHT_ANKLE)
-
-        val bodyInShot = leftShoulder != null && rightShoulder != null && 
-                         leftAnkle != null && rightAnkle != null
-
-        if (!bodyInShot) {
-            manager.provideCorrection("Step back! Ensure full body (shoulders to feet) is in shot.")
             return
         }
 
         val rightKnee = pose.getPoseLandmark(PoseLandmark.RIGHT_KNEE)
+        val rightAnkle = pose.getPoseLandmark(PoseLandmark.RIGHT_ANKLE)
 
         val leftAngle = calculateAngle(leftHip, leftKnee, leftAnkle)
         val rightAngle = if (rightHip != null && rightKnee != null && rightAnkle != null && rightKnee.inFrameLikelihood > MIN_CONFIDENCE) {
@@ -59,26 +44,15 @@ class SquatAnalyzer(
         }
 
         val avgKneeAngle = (leftAngle + rightAngle) / 2.0
-        
-        // 3. Motion Delta Check
-        val MOVEMENT_THRESHOLD = height * 0.15f // Squats require more movement than pushups
 
         if (!isDown && avgKneeAngle <= downThresholdAngle) {
             isDown = true
-            baselineHipY = leftHip.position.y
         } else if (isDown && avgKneeAngle >= upThresholdAngle) {
             val currentTime = System.currentTimeMillis()
             if (currentTime - lastRepTime > REP_COOLDOWN_MS) {
-                
-                val verticalDisplacement = abs(leftHip.position.y - (baselineHipY ?: 0f))
-                
-                if (verticalDisplacement > MOVEMENT_THRESHOLD) {
-                    isDown = false
-                    lastRepTime = currentTime
-                    // manager.onRepDetected()
-                } else {
-                    isDown = false // Likely just jitter
-                }
+                isDown = false
+                lastRepTime = currentTime
+                manager.onRepDetected()
             }
         }
 

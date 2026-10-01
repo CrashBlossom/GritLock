@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.example.fitlock.MainActivity
 import com.example.fitlock.data.GritLockDatabase
 import com.example.fitlock.data.LockStatusManager
 import dagger.hilt.android.AndroidEntryPoint
@@ -32,24 +33,41 @@ class ExternalCommandReceiver : BroadcastReceiver() {
 
         val command = intent.getStringExtra("command") ?: return
         val groupId = intent.getIntExtra("group_id", -1)
-        if (groupId == -1) return
 
         Log.d("ExternalCommand", "Received command: $command for group: $groupId")
 
         scope.launch {
-            val group = db.dao().getGroupById(groupId) ?: return@launch
-
             when (command) {
                 "ENABLE_GROUP" -> {
+                    if (groupId == -1) return@launch
+                    val group = db.dao().getGroupById(groupId) ?: return@launch
                     db.dao().updateGroup(group.copy(isEnabled = true))
                 }
                 "DISABLE_GROUP" -> {
+                    if (groupId == -1) return@launch
+                    val group = db.dao().getGroupById(groupId) ?: return@launch
                     db.dao().updateGroup(group.copy(isEnabled = false))
                 }
                 "UNLOCK_GROUP" -> {
+                    if (groupId == -1) return@launch
+                    val group = db.dao().getGroupById(groupId) ?: return@launch
                     val now = System.currentTimeMillis()
                     db.dao().updateGroup(group.copy(lastUnlockedTimestamp = now))
                     LockStatusManager.updateUnlock(groupId, now)
+                }
+                "START_MORNING_PLAN" -> {
+                    val startIntent = Intent(context, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        putExtra("shortcut_action", "morning_plan")
+                    }
+                    context.startActivity(startIntent)
+                }
+                "START_EVENING_REVIEW" -> {
+                    val startIntent = Intent(context, MainActivity::class.java).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        putExtra("shortcut_action", "evening_review")
+                    }
+                    context.startActivity(startIntent)
                 }
             }
         }

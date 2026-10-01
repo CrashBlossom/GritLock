@@ -92,7 +92,8 @@ data class QuestBlock(
     // Persistence & Stats
     val currentStreak: Int = 0,
     val lastDoneTimestamp: Long = 0L,
-    val higherIsBetter: Boolean = true
+    val higherIsBetter: Boolean = true,
+    val workStatus: String = "PENDING" // PENDING, WORKED_ON, COMPLETED, NO_PROGRESS
 )
 
 data class QuestWithBlocks(

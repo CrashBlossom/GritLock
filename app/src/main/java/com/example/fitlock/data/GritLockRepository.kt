@@ -1,6 +1,7 @@
 package com.example.fitlock.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 /**
  * GritLockRepository is the "Single Source of Truth" for all data.
@@ -209,4 +210,28 @@ class GritLockRepository(private val dao: GritLockDao) {
     // Progression System
     val allFamilies: Flow<List<FamilyWithLevels>> = dao.getAllFamiliesWithLevels()
     suspend fun getLevelData(familyId: String, level: Int) = dao.getLevelData(familyId, level)
+
+    suspend fun completeProjectTask(taskId: String) {
+        val allGoals = dao.getAllGoalsWithProjects().first()
+        val task = allGoals.flatMap { it.projects }.flatMap { it.tasks }.find { it.id == taskId }
+        task?.let { dao.upsertProjectTask(it.copy(isCompleted = true)) }
+    }
+
+    suspend fun saveBrainstormingTask(title: String) {
+        val allGoalsList = dao.getAllGoalsWithProjects().first()
+        val brainstormingProject = allGoalsList.flatMap { it.projects }.find { it.project.title == "Brainstorming Ideas" }
+        
+        val projectId = if (brainstormingProject == null) {
+            val generalGoal = allGoalsList.find { it.goal.title == "General Growth" }?.goal
+                ?: Goal(title = "General Growth", category = "General").also { dao.upsertGoal(it) }
+            
+            val newProj = Project(goalId = generalGoal.id, title = "Brainstorming Ideas")
+            dao.upsertProject(newProj)
+            newProj.id
+        } else {
+            brainstormingProject.project.id
+        }
+        
+        dao.upsertProjectTask(ProjectTask(projectId = projectId, title = title))
+    }
 }

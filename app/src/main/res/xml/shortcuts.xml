@@ -15,6 +15,19 @@
         <categories android:name="android.shortcut.conversation" />
     </shortcut>
     <shortcut
+        android:shortcutId="evening_review"
+        android:enabled="true"
+        android:icon="@drawable/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_evening_short"
+        android:shortcutLongLabel="@string/shortcut_evening_long">
+        <intent
+            android:action="com.example.fitlock.ACTION_SHORTCUT"
+            android:targetPackage="com.example.fitlock"
+            android:targetClass="com.example.fitlock.MainActivity">
+            <extra android:name="shortcut_action" android:value="evening_review" />
+        </intent>
+    </shortcut>
+    <shortcut
         android:shortcutId="log_grit"
         android:enabled="true"
         android:icon="@drawable/ic_launcher_foreground"

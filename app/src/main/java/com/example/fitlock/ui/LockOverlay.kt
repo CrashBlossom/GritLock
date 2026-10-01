@@ -1,5 +1,9 @@
 package com.example.fitlock.ui
 
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.speech.tts.TextToSpeech
 import androidx.activity.compose.BackHandler
 import android.util.Log
 import androidx.camera.core.CameraSelector
@@ -70,7 +74,9 @@ fun LockOverlayScreen(
     onStartFlashcardReview: (Int) -> Unit = {}
 ) {
     val context = LocalContext.current
-    
+    val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
+    val isTravelMode = remember { prefs.getBoolean("travel_mode_enabled", false) }
+
     // Intercept back button and send user to Home screen
     BackHandler {
         val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
@@ -78,6 +84,23 @@ fun LockOverlayScreen(
             flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
         }
         context.startActivity(homeIntent)
+    }
+
+    // Voice Guidance (Text-To-Speech)
+    var ttsEngine by remember { mutableStateOf<TextToSpeech?>(null) }
+    var ttsReady by remember { mutableStateOf(false) }
+
+    DisposableEffect(context) {
+        val engine = TextToSpeech(context) { status ->
+            if (status == TextToSpeech.SUCCESS) {
+                ttsReady = true
+            }
+        }
+        ttsEngine = engine
+        onDispose {
+            engine.stop()
+            engine.shutdown()
+        }
     }
 
     var currentPose by remember { mutableStateOf<Pose?>(null) }
@@ -89,6 +112,19 @@ fun LockOverlayScreen(
     val currentBanked = bankedReps[currentReq.type] ?: 0
     val isComplete = repCount >= currentReq.count
 
+    // Voice feedback on rep increments
+    LaunchedEffect(repCount) {
+        if (ttsReady && repCount > 0) {
+            if (repCount == 3 && currentReq.count >= 5) {
+                ttsEngine?.speak("Warmup complete! Keep the momentum going!", TextToSpeech.QUEUE_FLUSH, null, "rep_$repCount")
+            } else if (repCount >= currentReq.count) {
+                ttsEngine?.speak("Target reached! Well done!", TextToSpeech.QUEUE_FLUSH, null, "rep_$repCount")
+            } else {
+                ttsEngine?.speak("$repCount", TextToSpeech.QUEUE_FLUSH, null, "rep_$repCount")
+            }
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(
             modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -99,6 +135,22 @@ fun LockOverlayScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground
             )
+
+            if (isTravelMode) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(
+                        text = "✈ Travel Mode: Low-Friction Target Active",
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
+                    )
+                }
+            }
             
             Spacer(modifier = Modifier.height(8.dp))
             
@@ -126,6 +178,16 @@ fun LockOverlayScreen(
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp
             )
+
+            if (repCount < 3 && currentReq.count >= 5 && currentReq.type != "APP_USAGE" && currentReq.type != "FLASHCARDS") {
+                Text(
+                    text = "🔥 Staircase Protocol: Do 3 reps to unlock momentum!",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
 
             if (currentReq.type != "APP_USAGE") {
                 Row(
@@ -476,15 +538,6 @@ fun PoseOverlay(pose: Pose?, imageWidth: Int, imageHeight: Int, modifier: Modifi
             return Offset(mirroredX * scale + offsetX, y * scale + offsetY)
         }
 
-        pose.allPoseLandmarks.forEach { landmark ->
-            val pos = mapPoint(landmark.position.x, landmark.position.y)
-            drawCircle(
-                color = Color.Green,
-                radius = 8f,
-                center = pos
-            )
-        }
-        
         val connections = listOf(
             PoseLandmark.LEFT_SHOULDER to PoseLandmark.RIGHT_SHOULDER,
             PoseLandmark.LEFT_SHOULDER to PoseLandmark.LEFT_ELBOW,
@@ -503,14 +556,30 @@ fun PoseOverlay(pose: Pose?, imageWidth: Int, imageHeight: Int, modifier: Modifi
         connections.forEach { (start, end) ->
             val startLandmark = pose.getPoseLandmark(start)
             val endLandmark = pose.getPoseLandmark(end)
-            if (startLandmark != null && endLandmark != null) {
+            if (startLandmark != null && endLandmark != null && startLandmark.inFrameLikelihood > 0.3f && endLandmark.inFrameLikelihood > 0.3f) {
                 val startPos = mapPoint(startLandmark.position.x, startLandmark.position.y)
                 val endPos = mapPoint(endLandmark.position.x, endLandmark.position.y)
                 drawLine(
-                    color = Color.Green,
+                    color = Color(0xFF00FFCC),
                     start = startPos,
                     end = endPos,
-                    strokeWidth = 4f
+                    strokeWidth = 8f
+                )
+            }
+        }
+
+        pose.allPoseLandmarks.forEach { landmark ->
+            if (landmark.inFrameLikelihood > 0.3f) {
+                val pos = mapPoint(landmark.position.x, landmark.position.y)
+                drawCircle(
+                    color = Color.White,
+                    radius = 12f,
+                    center = pos
+                )
+                drawCircle(
+                    color = Color(0xFF00FFCC),
+                    radius = 8f,
+                    center = pos
                 )
             }
         }
@@ -525,6 +594,7 @@ fun CameraPreview(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
     AndroidView(
         factory = { ctx ->
@@ -544,7 +614,11 @@ fun CameraPreview(
                     .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                     .build()
                     .also {
-                        it.setAnalyzer(cameraExecutor, PoseAnalyzer(onPoseDetected))
+                        it.setAnalyzer(cameraExecutor, PoseAnalyzer { pose, width, height ->
+                            mainHandler.post {
+                                onPoseDetected(pose, width, height)
+                            }
+                        })
                     }
 
                 val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA

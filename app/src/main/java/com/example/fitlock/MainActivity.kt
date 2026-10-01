@@ -6,6 +6,8 @@
 package com.example.fitlock
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -64,10 +66,13 @@ import com.example.fitlock.service.MovementReminderWorker
 import com.example.fitlock.ui.*
 import com.example.fitlock.ui.theme.GritLockTheme
 import com.example.fitlock.utils.HealthConnectManager
+import com.example.fitlock.utils.MarkdownExporter
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.util.Calendar
+import java.util.Date
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -157,6 +162,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         initChallenges()
         initQuotes()
         initStats()
+        initForgeContent()
         handleGoalProgression()
         handleBankReset()
         
@@ -302,6 +308,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 var editingGauntlet by remember { mutableStateOf<GauntletWithHabits?>(null) }
                 var activeRequirements by remember { mutableStateOf<List<ExerciseRequirement>>(emptyList()) }
                 var currentRequirementIndex by remember { mutableIntStateOf(0) }
+                var isMorningPipelineActive by remember { mutableStateOf(false) }
                 var showUrgeNegotiation by remember { mutableStateOf(false) }
                 var showPostNoteDialog by remember { mutableStateOf(intent.getStringExtra("navigate_to") == "post_note") }
                 var generatedLogText by remember { mutableStateOf<String?>(null) }
@@ -323,6 +330,14 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     
                     if (shortcutAction == "morning_plan" || data?.host == "morning_plan") {
                         currentScreen = "planning"
+                    }
+                    if (shortcutAction == "evening_review" || data?.host == "evening_review") {
+                        // Start Evening Review with Lockdown
+                        val activateIntent = Intent(this@MainActivity, GritLockAccessibilityService::class.java).apply {
+                            action = "ACTIVATE_EVENING_GATE"
+                        }
+                        startService(activateIntent)
+                        currentScreen = "evening_review"
                     }
                     if (shortcutAction == "log_grit" || data?.host == "log_grit") {
                         showUrgeNegotiation = true
@@ -365,6 +380,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     }
                     if (intent.getStringExtra("navigate_to") == "morning_pledge") {
                         currentScreen = "planning"
+                    }
+                    if (intent.getStringExtra("navigate_to") == "evening_review") {
+                        currentScreen = "evening_review"
+                    }
+                    if (intent.getBooleanExtra("START_MORNING_PIPELINE", false)) {
+                        val exType = ExerciseType.PUSHUP.name
+                        val exCount = 5
+                        activeRequirements = listOf(ExerciseRequirement(exType, exCount))
+                        currentRequirementIndex = 0
+                        unlockingVaultItem = null
+                        isMorningPipelineActive = true
+                        currentScreen = "track"
                     }
                     if (intent.getBooleanExtra("START_MINI_WORKOUT", false)) {
                         val exType = intent.getStringExtra("EXERCISE_TYPE") ?: ExerciseType.SQUAT.name
@@ -458,6 +485,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     },
                                     onPledgeClick = { 
                                         if (currentPledge?.status == "COMMITTED") {
+                                            val activateIntent = Intent(this@MainActivity, GritLockAccessibilityService::class.java).apply {
+                                                action = "ACTIVATE_EVENING_GATE"
+                                            }
+                                            startService(activateIntent)
                                             currentScreen = "evening_review"
                                         } else {
                                             currentScreen = "pledge" 
@@ -644,27 +675,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     },
                                     allFamilies = allFamilies,
                                     currentProgression = userStats?.familyProgression ?: emptyMap(),
-                                    onAiImport = { text ->
-                                        val apiKey = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE).getString("gemini_api_key", "") ?: ""
-                                        if (apiKey.isBlank()) {
-                                            Toast.makeText(this@MainActivity, "Please set Gemini API Key in Settings.", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            lifecycleScope.launch {
-                                                val aiManager = com.example.fitlock.ai.GeminiManager(apiKey)
-                                                val result = aiManager.extractFromText(text)
-                                                
-                                                // Save everything extracted
-                                                result.habits.forEach { repository.upsertHabitDefinition(it) }
-                                                result.exercises.forEach { repository.upsertExerciseDefinition(it) }
-                                                result.tasks.forEach { repository.upsertTaskDefinition(it) }
-                                                result.goals.forEach { repository.upsertGoal(it) }
-                                                result.projects.forEach { repository.upsertProject(it) }
-                                                result.quests.forEach { repository.upsertQuest(it.quest); repository.upsertQuestBlocks(it.blocks) }
-                                                
-                                                Toast.makeText(this@MainActivity, "AI Forging Complete!", Toast.LENGTH_LONG).show()
-                                            }
-                                        }
-                                    },
                                     title = themeData.tabForge,
                                     onBack = { currentScreen = "profile" }
                                 )
@@ -730,6 +740,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                 repository.upsertPledge(updatedPledge)
                                                 repository.createDailyQuest(blocks, lockShield)
                                                 
+                                                // Capture Ideas from Morning Plan
+                                                updatedPledge.morning.morningIdeas.forEach { repository.saveBrainstormingTask(it) }
+
                                                 // Broadcast for Beeminder
                                                 broadcastEvent("com.example.fitlock.EVENT_PLEDGE_COMMITTED", mapOf(
                                                     "date" to updatedPledge.date,
@@ -881,19 +894,42 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 }
                             }
                             "evening_review" -> {
+                                val today = LocalDate.now().toString()
+                                val dailyQuest by repository.getQuestById("daily_$today").collectAsState(initial = null)
                                 currentPledge?.let { pledge ->
                                     RitualWizard(
                                         isMorning = false,
                                         pledge = pledge,
-                                        onSave = { updated ->
+                                        dailyQuest = dailyQuest,
+                                        onSave = { updated, blocks, ideas ->
                                             lifecycleScope.launch {
                                                 repository.upsertPledge(updated)
+                                                repository.upsertQuestBlocks(blocks)
                                                 
+                                                // Sync COMPLETED tasks back to Atlas
+                                                blocks.filter { it.type == BlockType.TASK && it.workStatus == "COMPLETED" && it.sourceTaskId != null }
+                                                    .forEach { repository.completeProjectTask(it.sourceTaskId!!) }
+                                                
+                                                ideas.forEach { repository.saveBrainstormingTask(it) }
+
+                                                // Deactivate Evening Gate
+                                                val deactivateIntent = Intent(this@MainActivity, GritLockAccessibilityService::class.java).apply {
+                                                    action = "DEACTIVATE_EVENING_GATE"
+                                                }
+                                                startService(deactivateIntent)
+
                                                 // Auto-update the markdown log
-                                                val exporter = com.example.fitlock.utils.MarkdownExporter(this@MainActivity)
-                                                val logText = exporter.generateDailyLog(java.util.Date())
-                                                exporter.saveLogToFile(logText, java.util.Date())
+                                                val exporter = MarkdownExporter(this@MainActivity)
+                                                val logText = exporter.generateDailyLog(Date())
+                                                exporter.saveLogToFile(logText, Date())
                                                 
+                                                // Copy to Clipboard for Beeminder
+                                                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                                                val clip = ClipData.newPlainText("GritLock Daily Note", logText)
+                                                clipboard.setPrimaryClip(clip)
+                                                
+                                                Toast.makeText(this@MainActivity, "Content of daily note has been copied for beeminder logging", Toast.LENGTH_LONG).show()
+
                                                 currentScreen = "home"
                                             }
                                         },
@@ -1125,19 +1161,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             val calibrationKey = if (req.variantName != null) "${req.variantName}_${trackingMode.name}" else "${exerciseType.name}_${trackingMode.name}"
                                             val calibration = userStats?.calibrations?.get(calibrationKey)
                                             
-                                            if (calibration == null && trackingMode == TrackingMode.CAMERA) {
-                                                calibrationExercise = exerciseType
-                                                calibrationVariantName = req.variantName
-                                                currentScreen = "calibrate"
-                                            } else {
-                                                exerciseManager.startTracking(
-                                                    type = exerciseType, 
-                                                    mode = trackingMode, 
-                                                    goal = currentGoal, 
-                                                    calibration = calibration,
-                                                    variantName = req.variantName
-                                                )
-                                            }
+                                            exerciseManager.startTracking(
+                                                type = exerciseType, 
+                                                mode = trackingMode, 
+                                                goal = currentGoal, 
+                                                calibration = calibration,
+                                                variantName = req.variantName
+                                            )
                                         } else {
                                             exerciseManager.startTracking(ExerciseType.APP_USAGE, TrackingMode.POCKET, currentGoal)
                                         }
@@ -1216,7 +1246,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                         db.dao().upsertVaultItem(item.copy(lastUnlockedTimestamp = System.currentTimeMillis()))
                                                         currentScreen = "vault"
                                                     } ?: run {
-                                                        currentScreen = "home"
+                                                        if (isMorningPipelineActive) {
+                                                            isMorningPipelineActive = false
+                                                            currentScreen = "planning"
+                                                        } else {
+                                                            currentScreen = "home"
+                                                        }
                                                     }
                                                     unlockingVaultItem = null
                                                 }
@@ -1518,6 +1553,80 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 ), 1500)
             )
             challenges.forEach { db.dao().upsertChallenge(it) }
+        }
+    }
+
+    private fun initForgeContent() {
+        lifecycleScope.launch {
+            // 1. Goals
+            val goals = listOf(
+                Goal(id = "goal_fitness", title = "Peak Calisthenics Performance", category = "Physical", xpReward = 1000),
+                Goal(id = "goal_mental", title = "Deep Focus Mastery", category = "Mental", xpReward = 1000),
+                Goal(id = "goal_spirit", title = "Stoic Resilience", category = "Spirit", xpReward = 1000)
+            )
+            goals.forEach { repository.upsertGoal(it) }
+
+            // 2. Projects
+            val projects = listOf(
+                Project(id = "proj_pushup", goalId = "goal_fitness", title = "The 100-Rep Pushup Challenge", xpReward = 500),
+                Project(id = "proj_meditate", goalId = "goal_spirit", title = "30-Day Mindfulness Journey", xpReward = 500),
+                Project(id = "proj_brainstorm", goalId = "goal_growth", title = "Brainstorming Ideas", xpReward = 0)
+            )
+            
+            // Ensure goal_growth exists for brainstorming
+            repository.upsertGoal(Goal(id = "goal_growth", title = "General Growth", category = "General"))
+            
+            projects.forEach { repository.upsertProject(it) }
+
+            // 3. Habit Definitions
+            val habits = listOf(
+                HabitDefinition(name = "Cold Shower", icon = "local_drink", trackingType = HabitTrackingType.TIME, defaultEstimatedDurationSeconds = 120),
+                HabitDefinition(name = "Make Bed", icon = "bed", trackingType = HabitTrackingType.CHECKLIST),
+                HabitDefinition(name = "Morning Plan", icon = "edit_calendar", trackingType = HabitTrackingType.CHECKLIST),
+                HabitDefinition(name = "Deep Work Block", icon = "psychology", trackingType = HabitTrackingType.TIME, defaultEstimatedDurationSeconds = 3000),
+                HabitDefinition(name = "Evening Review", icon = "nightlight", trackingType = HabitTrackingType.CHECKLIST),
+                HabitDefinition(name = "Journaling", icon = "edit_note", trackingType = HabitTrackingType.TIME, defaultEstimatedDurationSeconds = 300),
+                HabitDefinition(name = "Meditation", icon = "self_improvement", trackingType = HabitTrackingType.TIME, defaultEstimatedDurationSeconds = 600)
+            )
+            habits.forEach { repository.upsertHabitDefinition(it) }
+
+            // 4. Exercise Definitions
+            val exercises = listOf(
+                ExerciseDefinition(name = "Pushups", type = "PUSHUP", defaultSets = 3, defaultTargetReps = "15"),
+                ExerciseDefinition(name = "Squats", type = "SQUAT", defaultSets = 3, defaultTargetReps = "20"),
+                ExerciseDefinition(name = "Plank", type = "PLANK", defaultSets = 1, defaultTargetReps = "60"),
+                ExerciseDefinition(name = "Pullups", type = "PULLUP", defaultSets = 3, defaultTargetReps = "8")
+            )
+            exercises.forEach { repository.upsertExerciseDefinition(it) }
+            
+            // 5. Task Definitions
+            val tasks = listOf(
+                TaskDefinition(name = "Clean Workspace", category = "General"),
+                TaskDefinition(name = "Review Tomorrow", category = "General"),
+                TaskDefinition(name = "Zero Inbox", category = "Work")
+            )
+            tasks.forEach { repository.upsertTaskDefinition(it) }
+
+            // 6. Routine Templates (Quests)
+            val routineQuests = listOf(
+                Quest(id = "routine_sunrise", name = "Sunrise Power", type = QuestType.ROUTINE, icon = "wb_sunny"),
+                Quest(id = "routine_shutdown", name = "Agent Shutdown", type = QuestType.ROUTINE, icon = "power_settings_new")
+            )
+            routineQuests.forEach { repository.upsertQuest(it) }
+
+            val sunriseBlocks = listOf(
+                QuestBlock(questId = "routine_sunrise", type = BlockType.HABIT, orderIndex = 0, name = "Cold Shower", estimatedDurationSeconds = 120),
+                QuestBlock(questId = "routine_sunrise", type = BlockType.HABIT, orderIndex = 1, name = "Stretching", estimatedDurationSeconds = 300),
+                QuestBlock(questId = "routine_sunrise", type = BlockType.HABIT, orderIndex = 2, name = "Morning Plan", estimatedDurationSeconds = 300)
+            )
+            repository.upsertQuestBlocks(sunriseBlocks)
+
+            val shutdownBlocks = listOf(
+                QuestBlock(questId = "routine_shutdown", type = BlockType.TASK, orderIndex = 0, name = "Zero Inbox"),
+                QuestBlock(questId = "routine_shutdown", type = BlockType.TASK, orderIndex = 1, name = "Clear Desk"),
+                QuestBlock(questId = "routine_shutdown", type = BlockType.HABIT, orderIndex = 2, name = "Evening Review")
+            )
+            repository.upsertQuestBlocks(shutdownBlocks)
         }
     }
 

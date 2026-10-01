@@ -14,6 +14,7 @@ import com.example.fitlock.data.GritLockDatabase
 import com.example.fitlock.data.UserStats
 import com.example.fitlock.data.WorkoutHistory
 import com.example.fitlock.data.LockStatusManager
+import com.example.fitlock.data.SessionProgressManager
 import com.example.fitlock.data.ExerciseRequirement
 import com.example.fitlock.exercise.*
 import com.example.fitlock.service.GritLockAccessibilityService
@@ -31,6 +32,7 @@ class LockOverlayActivity : ComponentActivity() {
     
     private var targetApp by mutableStateOf("Unknown")
     private var groupId by mutableIntStateOf(-1)
+    private var isKeywordBlock by mutableStateOf(false)
     private var fallbackReps by mutableIntStateOf(10)
     private var fallbackExercise by mutableStateOf("PUSHUP")
 
@@ -45,7 +47,9 @@ class LockOverlayActivity : ComponentActivity() {
                 val userStats by db.dao().getUserStats().collectAsState(initial = null)
                 val allGroups by db.dao().getAllGroups().collectAsState(initial = emptyList())
                 
-                var currentExerciseIndex by remember { mutableIntStateOf(0) }
+                var currentExerciseIndex by remember { 
+                    mutableIntStateOf(if (groupId != -1) SessionProgressManager.getGroupProgress(groupId) else 0) 
+                }
                 var repCountState by remember { mutableIntStateOf(0) }
                 var isStationaryState by remember { mutableStateOf(false) }
                 var bankedRepsUsedInSession by remember { mutableIntStateOf(0) }
@@ -72,11 +76,23 @@ class LockOverlayActivity : ComponentActivity() {
                     isInitialized = true
                 }
 
-                LaunchedEffect(allGroups, groupId, targetApp) {
+                LaunchedEffect(allGroups, groupId, targetApp, isKeywordBlock) {
                     if (groupId != -1) {
                         val group = allGroups.find { it.id == groupId }
                         if (group != null) {
-                            val isStillBlocked = group.isEnabled && (group.packageNames.contains(targetApp) || group.keywords.any { targetApp.contains(it, ignoreCase = true) })
+                            val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                            val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                            val isUnlocked = (System.currentTimeMillis() - lastUnlocked) < unlockDurationMs
+                            
+                            if (isUnlocked) {
+                                Log.d("LockOverlay", "Group $groupId is now unlocked. Closing overlay.")
+                                finish()
+                                return@LaunchedEffect
+                            }
+
+                            val isPackageBlocked = group.packageNames.contains(targetApp)
+                            val isStillBlocked = group.isEnabled && (isPackageBlocked || isKeywordBlock)
+                            
                             if (!isStillBlocked) {
                                 Log.d("LockOverlay", "Group disabled or app removed. Closing overlay.")
                                 finish()
@@ -130,9 +146,11 @@ class LockOverlayActivity : ComponentActivity() {
                                 saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId)
                                 if (currentExerciseIndex == exerciseRequirements.size - 1 && repCountState >= currentReq.count) {
                                     performUnlock(groupId)
+                                    SessionProgressManager.clearGroupProgress(groupId)
                                     finish()
                                 } else if (repCountState >= currentReq.count) {
                                     currentExerciseIndex++
+                                    if (groupId != -1) SessionProgressManager.updateGroupProgress(groupId, currentExerciseIndex)
                                 }
                             }
                         },
@@ -183,12 +201,22 @@ class LockOverlayActivity : ComponentActivity() {
                                 }
 
                                 if (launchIntent != null) {
+                                    val isFinal = currentExerciseIndex == exerciseRequirements.size - 1
                                     val serviceIntent = Intent(this@LockOverlayActivity, GritLockAccessibilityService::class.java).apply {
                                         action = "START_APP_USAGE_TRACKING"
                                         putExtra("group_id", groupId)
                                         putExtra("target_packages", pkgs.toTypedArray())
                                         putExtra("seconds", currentReq.count)
+                                        putExtra("is_final", isFinal)
+                                        putExtra("label", currentReq.type)
                                     }
+                                    
+                                    if (!isFinal) {
+                                        SessionProgressManager.updateGroupProgress(groupId, currentExerciseIndex + 1)
+                                    } else {
+                                        SessionProgressManager.clearGroupProgress(groupId)
+                                    }
+
                                     startService(serviceIntent)
                                     startActivity(launchIntent)
                                     finish()
@@ -215,6 +243,7 @@ class LockOverlayActivity : ComponentActivity() {
         }
         targetApp = intent?.getStringExtra("target_app") ?: "Unknown"
         groupId = intent?.getIntExtra("group_id", -1) ?: -1
+        isKeywordBlock = intent?.getBooleanExtra("is_keyword_block", false) ?: false
         fallbackReps = intent?.getIntExtra("target_reps", 10) ?: 10
         fallbackExercise = intent?.getStringExtra("exercise_type") ?: "PUSHUP"
     }
@@ -321,12 +350,53 @@ class LockOverlayActivity : ComponentActivity() {
         if (extraReps > 0) {
             newBankedReps[exerciseType] = (newBankedReps[exerciseType] ?: 0) + extraReps
         }
+
+        val now = System.currentTimeMillis()
+        val statDates = currentStats.statLastTrainedDates.toMutableMap()
+        var strXp = currentStats.strXp
+        var agiXp = currentStats.agiXp
+        var vitXp = currentStats.vitXp
+        var intXp = currentStats.intXp
+        var senXp = currentStats.senXp
+        var willpowerXp = currentStats.willpowerXp
+
+        when (exerciseType.uppercase()) {
+            "PUSHUP", "PULLUP", "DIP", "ROW" -> {
+                strXp += xpGained
+                statDates["STR"] = now
+            }
+            "SQUAT", "HINGE", "SITUP" -> {
+                agiXp += xpGained
+                statDates["AGI"] = now
+            }
+            "PLANK" -> {
+                vitXp += xpGained
+                statDates["VIT"] = now
+            }
+            "FLASHCARDS" -> {
+                intXp += xpGained
+                statDates["INT"] = now
+            }
+            else -> {
+                senXp += xpGained
+                statDates["SEN"] = now
+            }
+        }
+
         db.dao().updateUserStats(
             currentStats.copy(
                 totalXp = newXp,
                 level = newLevel,
                 bankedReps = newBankedReps,
-                lastWorkoutDate = System.currentTimeMillis()
+                lastWorkoutDate = now,
+                floorTargetMetToday = true,
+                statLastTrainedDates = statDates,
+                strXp = strXp,
+                agiXp = agiXp,
+                vitXp = vitXp,
+                intXp = intXp,
+                senXp = senXp,
+                willpowerXp = willpowerXp
             )
         )
     }

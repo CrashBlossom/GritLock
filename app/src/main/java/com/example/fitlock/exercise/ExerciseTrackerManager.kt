@@ -140,6 +140,7 @@ class ExerciseTrackerManager(
             } else if (!isStationary && (now - lastStationaryStartTime > SETTLING_TIME_MS)) {
                 isStationary = true
                 onStationaryStatusChanged(true)
+                speak("Phone is steady. Begin exercise!")
             }
         }
     }
@@ -160,7 +161,7 @@ class ExerciseTrackerManager(
 
     fun onRepDetected() {
         if (currentMode == TrackingMode.CAMERA && !isStationary) {
-            // Movement detected or still settling, ignore the rep
+            // Require phone to be set down steadily before counting reps
             return
         }
 

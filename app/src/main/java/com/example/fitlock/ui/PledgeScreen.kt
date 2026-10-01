@@ -49,25 +49,36 @@ fun PledgeScreen(
                     )
                     Spacer(modifier = Modifier.height(24.dp))
                     
+                    val objectiveMinLength = 10
+                    val isObjectiveValid = objective.trim().length >= objectiveMinLength
+                    
                     OutlinedTextField(
                         value = objective,
                         onValueChange = { objective = it },
                         label = { Text("Main Objective of the Day") },
                         placeholder = { Text("What is your #1 priority?") },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.fillMaxWidth(),
+                        supportingText = {
+                            Text(
+                                text = if (isObjectiveValid) "Objective ready" else "${objective.trim().length}/$objectiveMinLength characters required",
+                                color = if (isObjectiveValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                        }
                     )
                     
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { onCommitWithObjective(objective) },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
-                        enabled = objective.isNotBlank()
+                        enabled = isObjectiveValid
                     ) {
                         Text("I COMMIT")
                     }
                 }
                 "COMMITTED" -> {
                     var reflection by remember { mutableStateOf("") }
+                    val reflectionMinLength = 25
+                    val isReflectionValid = reflection.trim().length >= reflectionMinLength
                     
                     Text("Daily Reflection", fontSize = 24.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(16.dp))
@@ -77,13 +88,20 @@ fun PledgeScreen(
                         onValueChange = { reflection = it },
                         label = { Text("How was your day? (Reflection)") },
                         modifier = Modifier.fillMaxWidth().height(150.dp),
-                        placeholder = { Text("Any wins, challenges, or lessons learned?") }
+                        placeholder = { Text("Any wins, challenges, or lessons learned?") },
+                        supportingText = {
+                            Text(
+                                text = if (isReflectionValid) "Reflection valid" else "${reflection.trim().length}/$reflectionMinLength characters required",
+                                color = if (isReflectionValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                            )
+                        }
                     )
                     
-                    Spacer(modifier = Modifier.height(32.dp))
+                    Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { onSuccessWithReflection(reflection) },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
+                        enabled = isReflectionValid,
                         colors = ButtonDefaults.buttonColors(containerColor = androidx.compose.ui.graphics.Color(0xFF4CAF50))
                     ) {
                         Icon(Icons.Default.CheckCircle, null)
@@ -94,6 +112,7 @@ fun PledgeScreen(
                     OutlinedButton(
                         onClick = { onRelapseWithReflection(reflection) },
                         modifier = Modifier.fillMaxWidth().height(56.dp),
+                        enabled = isReflectionValid,
                         colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     ) {
                         Text("I SLIPPED UP")

@@ -54,8 +54,9 @@ class MarkdownExporter(private val context: Context) {
         quest?.let { q ->
             sb.append("## Daily Quest: ${q.quest.name}\n")
             q.blocks.forEach { b ->
-                val status = if (b.isCompleted) "[x]" else "[ ]"
-                sb.append("$status ${b.name} (${b.type})\n")
+                val status = if (b.isCompleted) "[x]" else if (b.workStatus == "WORKED_ON") "[/]" else "[ ]"
+                val extra = if (b.workStatus != "PENDING") " (${b.workStatus.replace("_", " ").lowercase()})" else ""
+                sb.append("$status ${b.name} (${b.type})$extra\n")
             }
             sb.append("\n")
         }

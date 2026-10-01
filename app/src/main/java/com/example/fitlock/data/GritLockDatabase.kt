@@ -40,7 +40,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ExerciseFamily::class,
         ProgressionLevel::class
     ], 
-    version = 35, 
+    version = 37, 
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -50,6 +50,20 @@ abstract class GritLockDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: GritLockDatabase? = null
+
+        val MIGRATION_36_37 = object : Migration(36, 37) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE user_stats ADD COLUMN floorTargetMetToday INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE user_stats ADD COLUMN lastFloorResetDate TEXT")
+                database.execSQL("ALTER TABLE user_stats ADD COLUMN statLastTrainedDates TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        val MIGRATION_35_36 = object : Migration(35, 36) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE quest_blocks ADD COLUMN workStatus TEXT NOT NULL DEFAULT 'PENDING'")
+            }
+        }
 
         val MIGRATION_34_35 = object : Migration(34, 35) {
             override fun migrate(database: SupportSQLiteDatabase) {
@@ -380,7 +394,8 @@ abstract class GritLockDatabase : RoomDatabase() {
                     GritLockDatabase::class.java,
                     "gritlock-db"
                 )
-                .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35)
+                .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37)
+                .fallbackToDestructiveMigration(true)
                 .build()
                 INSTANCE = instance
                 instance

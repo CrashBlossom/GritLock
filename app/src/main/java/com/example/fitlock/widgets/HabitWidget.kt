@@ -1,13 +1,19 @@
 package com.example.fitlock.widgets
 
 import android.content.Context
+import android.content.Intent
+import android.content.SharedPreferences
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.glance.GlanceId
 import androidx.glance.GlanceModifier
+import androidx.glance.LocalContext
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
+import androidx.glance.appwidget.action.actionStartActivity
 import androidx.glance.appwidget.provideContent
 import androidx.glance.background
 import androidx.glance.layout.*
@@ -15,7 +21,7 @@ import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
 import androidx.glance.unit.ColorProvider
-import androidx.room.Room
+import com.example.fitlock.MainActivity
 import com.example.fitlock.data.GritLockDatabase
 import com.example.fitlock.exercise.ExerciseType
 import kotlinx.coroutines.flow.first
@@ -62,6 +68,7 @@ class HabitWidget : GlanceAppWidget() {
 
     @Composable
     private fun HabitWidgetContent(stats: List<DayStats>, prefs: android.content.SharedPreferences) {
+        val context = LocalContext.current
         val exerciseMapping = mapOf(
             ExerciseType.PUSHUP.name to "PSH",
             ExerciseType.SQUAT.name to "SQT",
@@ -81,6 +88,11 @@ class HabitWidget : GlanceAppWidget() {
             ExerciseType.PLANK.name
         )
 
+        val mainAppIntent = Intent(context, MainActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
         Column(
             modifier = GlanceModifier
                 .fillMaxSize()
@@ -89,6 +101,7 @@ class HabitWidget : GlanceAppWidget() {
         ) {
             Text(
                 text = "WEEKLY HABITS",
+                modifier = GlanceModifier.clickable(actionStartActivity(mainAppIntent)),
                 style = TextStyle(
                     color = ColorProvider(androidx.compose.ui.graphics.Color.White),
                     fontSize = 12.sp,
@@ -103,15 +116,22 @@ class HabitWidget : GlanceAppWidget() {
                     Spacer(modifier = GlanceModifier.height(16.dp)) // Offset for day names
                     selectedTypes.forEach { typeName ->
                         val label = exerciseMapping[typeName] ?: typeName.take(3)
-                        Box(modifier = GlanceModifier.height(20.dp), contentAlignment = Alignment.Center) {
-                            Text(label, style = TextStyle(color = ColorProvider(androidx.compose.ui.graphics.Color.Gray), fontSize = 8.sp))
+                        val goal = prefs.getInt("goal_$typeName", 10)
+                        val intent = createExerciseIntent(context, typeName, goal)
+                        Box(
+                            modifier = GlanceModifier
+                                .height(20.dp)
+                                .clickable(actionStartActivity(intent)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(label, style = TextStyle(color = ColorProvider(Color.White), fontSize = 8.sp, fontWeight = FontWeight.Bold))
                         }
                     }
                 }
                 
                 Row(modifier = GlanceModifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     stats.forEach { day ->
-                        DayColumn(day, selectedTypes, prefs)
+                        DayColumn(context, day, selectedTypes, prefs)
                     }
                 }
             }
@@ -119,7 +139,12 @@ class HabitWidget : GlanceAppWidget() {
     }
 
     @Composable
-    private fun DayColumn(day: DayStats, types: List<String>, prefs: android.content.SharedPreferences) {
+    private fun DayColumn(
+        context: Context,
+        day: DayStats,
+        types: List<String>,
+        prefs: SharedPreferences
+    ) {
         Column(
             modifier = GlanceModifier.padding(horizontal = 4.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -134,14 +159,17 @@ class HabitWidget : GlanceAppWidget() {
                 val color = when {
                     count >= goal && goal > 0 -> androidx.compose.ui.graphics.Color(0xFFFFD700)
                     count > 0 -> androidx.compose.ui.graphics.Color(0xFF4CAF50)
-                    else -> androidx.compose.ui.graphics.Color(0xFFF44336)
+                    else -> Color(0xFFF44336)
                 }
-                
+
+                val intent = createExerciseIntent(context, typeName, goal)
+
                 Box(
                     modifier = GlanceModifier
                         .size(18.dp)
                         .background(ColorProvider(color))
-                        .padding(2.dp),
+                        .padding(2.dp)
+                        .clickable(actionStartActivity(intent)),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -151,6 +179,16 @@ class HabitWidget : GlanceAppWidget() {
                 }
                 Spacer(modifier = GlanceModifier.height(2.dp))
             }
+        }
+    }
+
+    private fun createExerciseIntent(context: Context, typeName: String, count: Int): Intent {
+        return Intent(context, MainActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("START_MINI_WORKOUT", true)
+            putExtra("EXERCISE_TYPE", typeName)
+            putExtra("EXERCISE_COUNT", count)
         }
     }
 

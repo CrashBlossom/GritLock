@@ -99,16 +99,23 @@ fun UrgeNegotiationDialog(
                     }
                 }
 
-                if (selectedCategory == "Internal Voice") {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("What is the voice saying?", style = MaterialTheme.typography.titleSmall)
-                    OutlinedTextField(
-                        value = comment,
-                        onValueChange = { comment = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        placeholder = { Text("e.g. Just 5 more minutes...") }
-                    )
-                }
+                val commentMinLength = 20
+                val isCommentValid = comment.trim().length >= commentMinLength
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Reflection & Thought Process", style = MaterialTheme.typography.titleSmall)
+                OutlinedTextField(
+                    value = comment,
+                    onValueChange = { comment = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("e.g. Feeling tired after travel, wanting to delay...") },
+                    supportingText = {
+                        Text(
+                            text = if (isCommentValid) "Reflection valid" else "${comment.trim().length}/$commentMinLength characters required",
+                            color = if (isCommentValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                    }
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
                 
@@ -131,15 +138,20 @@ fun UrgeNegotiationDialog(
             }
         },
         confirmButton = {
-            Button(onClick = {
-                onConfirm(UrgeEvent(
-                    intensity = intensity.toInt(),
-                    category = selectedCategory,
-                    subCategory = subCategory,
-                    comment = comment,
-                    wasResisted = true
-                ))
-            }) {
+            val commentMinLength = 20
+            val isCommentValid = comment.trim().length >= commentMinLength
+            Button(
+                onClick = {
+                    onConfirm(UrgeEvent(
+                        intensity = intensity.toInt(),
+                        category = selectedCategory,
+                        subCategory = subCategory,
+                        comment = comment,
+                        wasResisted = true
+                    ))
+                },
+                enabled = isCommentValid
+            ) {
                 Text("LOG & RESIST")
             }
         },

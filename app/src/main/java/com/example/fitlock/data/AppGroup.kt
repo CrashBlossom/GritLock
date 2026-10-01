@@ -179,8 +179,13 @@ data class ExerciseRequirement(
     val targetPackageNames: List<String> = emptyList(), // Supports multiple apps for usage tracking
     val deckName: String? = null, // For FLASHCARDS requirement: "ALL" or specific deck
     val variantName: String? = null,
-    val familyId: String? = null
-)
+    val familyId: String? = null,
+    val floorCount: Int? = null
+) {
+    fun getEffectiveFloorCount(): Int {
+        return floorCount ?: (count * 0.25).toInt().coerceAtLeast(1)
+    }
+}
 
 @Entity(tableName = "vault_items")
 data class VaultItem(
@@ -213,6 +218,27 @@ object LockStatusManager {
     fun getLastUnlocked(groupId: Int, dbTimestamp: Long): Long {
         val memoryTimestamp = recentUnlocks[groupId] ?: 0L
         return if (memoryTimestamp > dbTimestamp) memoryTimestamp else dbTimestamp
+    }
+}
+
+object SessionProgressManager {
+    private val groupProgress = ConcurrentHashMap<Int, Int>() // groupId -> nextRequirementIndex
+    private val vaultProgress = ConcurrentHashMap<Int, Int>() // vaultId -> nextRequirementIndex
+
+    fun getGroupProgress(groupId: Int): Int = groupProgress[groupId] ?: 0
+    fun updateGroupProgress(groupId: Int, index: Int) {
+        groupProgress[groupId] = index
+    }
+    fun clearGroupProgress(groupId: Int) {
+        groupProgress.remove(groupId)
+    }
+
+    fun getVaultProgress(vaultId: Int): Int = vaultProgress[vaultId] ?: 0
+    fun updateVaultProgress(vaultId: Int, index: Int) {
+        vaultProgress[vaultId] = index
+    }
+    fun clearVaultProgress(vaultId: Int) {
+        vaultProgress.remove(vaultId)
     }
 }
 
@@ -276,7 +302,10 @@ data class UserStats(
     val calibrations: Map<String, ExerciseCalibration> = emptyMap(),
     val familyProgression: Map<String, Int> = emptyMap(), // familyId -> currentLevel
     val bankResetFrequency: String = "Never", 
-    val lastBankReset: Long = 0L
+    val lastBankReset: Long = 0L,
+    val floorTargetMetToday: Boolean = false,
+    val lastFloorResetDate: String? = null,
+    val statLastTrainedDates: Map<String, Long> = emptyMap()
 )
 
 @Entity(tableName = "urge_events")

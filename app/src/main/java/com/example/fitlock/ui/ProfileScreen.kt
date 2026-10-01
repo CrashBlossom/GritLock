@@ -189,8 +189,12 @@ fun BaselineSection(
 fun StatsHeader(stats: UserStats?) {
     val level = stats?.level ?: 1
     val xp = stats?.totalXp ?: 0
+    val hp = stats?.currentHp ?: 100
+    val maxHp = stats?.maxHp ?: 100
+    val isPenalty = stats?.penaltyStateActive == true
     val xpNeeded = level * 100
     val progress = if (xpNeeded > 0) (xp.toFloat() / xpNeeded.toFloat()).coerceIn(0f, 1f) else 0f
+    val hpProgress = (hp.toFloat() / maxHp.toFloat()).coerceIn(0f, 1f)
 
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -198,6 +202,20 @@ fun StatsHeader(stats: UserStats?) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (isPenalty) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.padding(bottom = 12.dp)
+                ) {
+                    Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Warning, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("BROKEN SHIELD (0 HP) — Complete a Floor Target to recover!", fontSize = 11.sp, color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .size(80.dp)
@@ -209,19 +227,37 @@ fun StatsHeader(stats: UserStats?) {
             Text("Level $level", color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 12.dp))
             Text("$xp / $xpNeeded XP", color = Color.Gray, fontSize = 14.sp)
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             
             LinearProgressIndicator(
                 progress = { progress },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(12.dp)
-                    .clip(RoundedCornerShape(6.dp)),
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(5.dp)),
                 color = MaterialTheme.colorScheme.primary,
                 trackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
             )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Health (HP) Indicator
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Health (HP)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text("$hp / $maxHp HP", fontSize = 12.sp, color = if (hp <= 25) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            LinearProgressIndicator(
+                progress = { hpProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp)),
+                color = if (hp <= 25) MaterialTheme.colorScheme.error else Color(0xFF4CAF50),
+                trackColor = Color.Gray.copy(alpha = 0.2f)
+            )
             
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 StatItem("Streak", "${stats?.currentStreak ?: 0}d", Icons.Default.Whatshot)

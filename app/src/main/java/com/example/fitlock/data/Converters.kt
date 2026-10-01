@@ -141,6 +141,20 @@ class Converters {
     fun toQuestType(value: String): QuestType = QuestType.valueOf(value)
 
     @TypeConverter
+    fun fromLongMap(map: Map<String, Long>): String {
+        return map.entries.joinToString(";") { "${it.key}:${it.value}" }
+    }
+
+    @TypeConverter
+    fun toLongMap(data: String): Map<String, Long> {
+        if (data.isBlank()) return emptyMap()
+        return data.split(";").associate {
+            val parts = it.split(":")
+            parts[0] to parts[1].toLong()
+        }
+    }
+
+    @TypeConverter
     fun fromBlockType(type: BlockType): String = type.name
 
     @TypeConverter

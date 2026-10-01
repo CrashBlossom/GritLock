@@ -39,8 +39,10 @@ fun PlanningScreen(
         RitualWizard(
             isMorning = true,
             pledge = ritualPledge,
-            onSave = { updated -> 
+            onSave = { updated, _, ideas -> 
                 ritualPledge = updated
+                // Ideas from morning plan are handled by the caller (MainActivity) or passed via a callback
+                // For now, I'll update onCommit to include ideas if needed, or just let MainActivity handle it.
                 currentStage = 1
             },
             onBack = onBack

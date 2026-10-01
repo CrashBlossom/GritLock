@@ -86,6 +86,8 @@ fun MindfulSnoozeContent(
     var snoozeMinutesText by remember { mutableStateOf("15") }
     val snoozeMinutes = snoozeMinutesText.toIntOrNull() ?: 0
     val isDurationValid = snoozeMinutes in 1..15
+    val reasonMinLength = 20
+    val isReasonValid = reason.trim().length >= reasonMinLength
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -97,7 +99,13 @@ fun MindfulSnoozeContent(
                     onValueChange = { reason = it },
                     label = { Text("Reason for delay") },
                     modifier = Modifier.fillMaxWidth(),
-                    minLines = 3
+                    minLines = 3,
+                    supportingText = {
+                        Text(
+                            text = if (isReasonValid) "Reason valid" else "${reason.trim().length}/$reasonMinLength characters required",
+                            color = if (isReasonValid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                        )
+                    }
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 
@@ -128,7 +136,7 @@ fun MindfulSnoozeContent(
         confirmButton = {
             Button(
                 onClick = { onCommit(reason, snoozeMinutes) },
-                enabled = reason.isNotBlank() && isDurationValid
+                enabled = isReasonValid && isDurationValid
             ) {
                 Text("Commit Delay")
             }

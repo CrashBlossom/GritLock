@@ -39,7 +39,6 @@ fun ForgeScreen(
     allFamilies: List<FamilyWithLevels>,
     currentProgression: Map<String, Int>,
     onAddFlashcard: (com.example.fitlock.data.Flashcard) -> Unit,
-    onAiImport: (String) -> Unit,
     title: String = "Forge",
     onBack: () -> Unit
 ) {
@@ -52,21 +51,6 @@ fun ForgeScreen(
                 title = { Text(title) },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
-                },
-                actions = {
-                    var showAiDialog by remember { mutableStateOf(false) }
-                    IconButton(onClick = { showAiDialog = true }) {
-                        Icon(Icons.Default.AutoAwesome, "AI Import", tint = MaterialTheme.colorScheme.primary)
-                    }
-                    if (showAiDialog) {
-                        AiImportDialog(
-                            onDismiss = { showAiDialog = false },
-                            onConfirm = { text ->
-                                onAiImport(text)
-                                showAiDialog = false
-                            }
-                        )
-                    }
                 }
             )
         }
@@ -448,33 +432,6 @@ fun MentalLibraryContent(
             dismissButton = { TextButton(onClick = { deckToDelete = null }) { Text("Cancel") } }
         )
     }
-}
-
-@Composable
-fun AiImportDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var text by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("AI Forge Extraction") },
-        text = {
-            Column {
-                Text("Paste a routine, goal list, or project plan. Gemini will parse it into your Forge and Atlas.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    modifier = Modifier.fillMaxWidth().height(200.dp),
-                    label = { Text("Paste Text Here") }
-                )
-            }
-        },
-        confirmButton = {
-            Button(onClick = { onConfirm(text) }, enabled = text.isNotBlank()) {
-                Text("Forge with AI")
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
-    )
 }
 
 @Composable

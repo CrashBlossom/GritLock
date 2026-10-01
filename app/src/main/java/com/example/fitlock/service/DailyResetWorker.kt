@@ -19,13 +19,52 @@ class DailyResetWorker(context: Context, params: WorkerParameters) : CoroutineWo
         dao.resetQuestCompletionStatus()
         dao.resetRecurringQuestBlocks()
         
-        // 2. Carry over unfinished tasks to today's pool
-        // We find any DAILY_COMMITMENT quest from "previous days" that wasn't finished
-        // Actually, just find ALL unfinished blocks of type TASK that are part of a DAILY_COMMITMENT
-        // and re-assign them to today's planning pool (which we will create if it doesn't exist)
-        
-        val unfinishedTasks = dao.getUnfinishedTasks().first()
+        // 2. Midnight HP Decay & Streak Shielding
         val today = LocalDate.now().toString()
+        val prefs = applicationContext.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
+        val hadLateNightViolation = prefs.getBoolean("late_night_violation_occurred", false)
+        prefs.edit().putBoolean("late_night_violation_occurred", false).apply()
+        prefs.edit().putBoolean("bedtime_hangover_active", hadLateNightViolation).apply()
+
+        val stats = dao.getUserStats().first()
+        if (stats != null) {
+            val now = System.currentTimeMillis()
+            val isShieldActive = stats.floorTargetMetToday
+            val hpGainOrLoss = if (isShieldActive) 10 else -25
+            val hangoverDeduction = if (hadLateNightViolation) 30 else 0
+            val newHp = (stats.currentHp + hpGainOrLoss - hangoverDeduction).coerceIn(0, stats.maxHp)
+            
+            val isBrokenShield = newHp == 0
+            val updatedStreak = if (isBrokenShield) 0 else stats.currentStreak
+            
+            // Apply 1% Stat Atrophy for stats not trained in > 3 days
+            val threeDaysMs = 3 * 24 * 60 * 60 * 1000L
+            val updatedStr = if (now - (stats.statLastTrainedDates["STR"] ?: 0L) > threeDaysMs) (stats.strXp * 0.99).toLong() else stats.strXp
+            val updatedAgi = if (now - (stats.statLastTrainedDates["AGI"] ?: 0L) > threeDaysMs) (stats.agiXp * 0.99).toLong() else stats.agiXp
+            val updatedVit = if (now - (stats.statLastTrainedDates["VIT"] ?: 0L) > threeDaysMs) (stats.vitXp * 0.99).toLong() else stats.vitXp
+            val updatedInt = if (now - (stats.statLastTrainedDates["INT"] ?: 0L) > threeDaysMs) (stats.intXp * 0.99).toLong() else stats.intXp
+            val updatedSen = if (now - (stats.statLastTrainedDates["SEN"] ?: 0L) > threeDaysMs) (stats.senXp * 0.99).toLong() else stats.senXp
+            val updatedCha = if (now - (stats.statLastTrainedDates["CHA"] ?: 0L) > threeDaysMs) (stats.chaXp * 0.99).toLong() else stats.chaXp
+
+            dao.updateUserStats(
+                stats.copy(
+                    currentHp = newHp,
+                    currentStreak = updatedStreak,
+                    penaltyStateActive = isBrokenShield,
+                    floorTargetMetToday = false,
+                    lastFloorResetDate = today,
+                    strXp = updatedStr,
+                    agiXp = updatedAgi,
+                    vitXp = updatedVit,
+                    intXp = updatedInt,
+                    senXp = updatedSen,
+                    chaXp = updatedCha
+                )
+            )
+        }
+
+        // 3. Carry over unfinished tasks to today's pool
+        val unfinishedTasks = dao.getUnfinishedTasks().first()
         
         // Find or create today's Daily Commitment quest
         var todayQuest = dao.getAllQuestsWithBlocks().first()

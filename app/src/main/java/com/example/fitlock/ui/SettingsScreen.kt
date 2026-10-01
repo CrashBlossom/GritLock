@@ -64,6 +64,13 @@ fun SettingsScreen(
     // Strict Mode state
     var strictMode by remember { mutableStateOf(prefs.getBoolean("strict_mode", false)) }
     
+    // Travel Mode state
+    var travelModeEnabled by remember { mutableStateOf(prefs.getBoolean("travel_mode_enabled", false)) }
+    
+    // HP Drain Mode & Bedtime Penalty states
+    var useHpDrainMode by remember { mutableStateOf(prefs.getBoolean("use_hp_drain_mode", false)) }
+    var bedtimePenaltyEnabled by remember { mutableStateOf(prefs.getBoolean("bedtime_penalty_enabled", true)) }
+    
     // Master Password state
     var masterPasswordEnabled by remember { mutableStateOf(prefs.getBoolean("master_password_enabled", false)) }
     val masterPassword = remember { prefs.getString("master_password", "") ?: "" }
@@ -320,33 +327,6 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // AI Settings Section
-        SectionHeader("Gemini AI Integration")
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                var apiKey by remember { mutableStateOf(prefs.getString("gemini_api_key", "") ?: "") }
-                Text("API Key", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                Text("Required for AI extraction and coaching.", color = Color.Gray, fontSize = 12.sp)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { 
-                        apiKey = it
-                        prefs.edit().putString("gemini_api_key", it).apply()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Enter Google AI API Key") },
-                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation()
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
         // Intermittent Discipline Checks Section
         SectionHeader("Intermittent Discipline Checks")
         Card(
@@ -452,8 +432,8 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Protection Section
-        SectionHeader("Protection & Anti-Cheat")
+        // Protection & Adaptability Section
+        SectionHeader("Protection & Travel Adaptability")
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(16.dp),
@@ -462,8 +442,56 @@ fun SettingsScreen(
             Column(modifier = Modifier.padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Strict Mode", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        Text("Prevents disabling GritLock in system settings.", color = Color.Gray, fontSize = 12.sp)
+                        Text("Travel / Low-Friction Mode", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                        Text("Scales rep targets down 60% & enables low-profile stealth micro-exercises.", color = Color.Gray, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = travelModeEnabled,
+                        onCheckedChange = { 
+                            travelModeEnabled = it
+                            prefs.edit().putBoolean("travel_mode_enabled", it).apply()
+                        }
+                    )
+                }
+
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Universal HP Drain Mode", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                        Text("Drains your Health Bar in real time when inside blocked apps or keywords.", color = Color.Gray, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = useHpDrainMode,
+                        onCheckedChange = { 
+                            useHpDrainMode = it
+                            prefs.edit().putBoolean("use_hp_drain_mode", it).apply()
+                        }
+                    )
+                }
+
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Bedtime Screen Penalty (-30 HP)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                        Text("Deducts -30 HP next morning if restricted apps are opened past 10:30 PM.", color = Color.Gray, fontSize = 12.sp)
+                    }
+                    Switch(
+                        checked = bedtimePenaltyEnabled,
+                        onCheckedChange = { 
+                            bedtimePenaltyEnabled = it
+                            prefs.edit().putBoolean("bedtime_penalty_enabled", it).apply()
+                        }
+                    )
+                }
+
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Strict Mode (Anti-Bypass)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
+                        Text("Blocks com.android.settings and Accessibility disabling during active locks.", color = Color.Gray, fontSize = 12.sp)
                     }
                     Switch(
                         checked = strictMode,
