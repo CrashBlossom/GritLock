@@ -60,7 +60,7 @@ fun GauntletEditor(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(if (editingGauntlet == null) "New Gauntlet" else "Edit Gauntlet") },
+                title = { Text(if (editingGauntlet == null) "New Quest" else "Edit Quest") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 },
@@ -221,7 +221,7 @@ fun GauntletEditor(
                         }
                     }
                 }
-                Text("This group will be blocked while the Gauntlet is running.", style = MaterialTheme.typography.bodySmall)
+                Text("This group will be blocked while this Quest is active.", style = MaterialTheme.typography.bodySmall)
 
                 Spacer(modifier = Modifier.height(24.dp))
                 

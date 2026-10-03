@@ -1,5 +1,7 @@
 package com.example.fitlock.data
 
+import android.content.Context
+import com.example.fitlock.utils.WidgetUpdater
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 
@@ -8,7 +10,7 @@ import kotlinx.coroutines.flow.first
  * It sits between the UI (MainActivity/ViewModels) and the Database (GritLockDao).
  * New coders: Always add new data logic here instead of directly in the UI.
  */
-class GritLockRepository(private val dao: GritLockDao) {
+class GritLockRepository(private val dao: GritLockDao, private val context: Context) {
 
     val allGroups: Flow<List<AppGroup>> = dao.getAllGroups()
     val userStats: Flow<UserStats?> = dao.getUserStats()
@@ -19,7 +21,10 @@ class GritLockRepository(private val dao: GritLockDao) {
     val gauntletHistory: Flow<List<GauntletHistory>> = dao.getGauntletHistory()
     val allPledges: Flow<List<DailyPledge>> = dao.getAllPledges()
 
-    suspend fun insertWorkout(workout: WorkoutHistory) = dao.insertWorkout(workout)
+    suspend fun insertWorkout(workout: WorkoutHistory) {
+        dao.insertWorkout(workout)
+        WidgetUpdater.updateAllWidgets(context)
+    }
     suspend fun updateStats(stats: UserStats) = dao.updateUserStats(stats)
     suspend fun insertUrgeEvent(event: UrgeEvent) = dao.insertUrgeEvent(event)
     suspend fun insertLogNote(note: DailyLogNote) = dao.insertLogNote(note)

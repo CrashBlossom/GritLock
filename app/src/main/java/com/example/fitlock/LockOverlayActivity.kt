@@ -21,6 +21,7 @@ import com.example.fitlock.service.GritLockAccessibilityService
 import com.example.fitlock.ui.LockOverlayScreen
 import com.example.fitlock.ui.theme.GritLockTheme
 import com.example.fitlock.utils.HealthConnectManager
+import com.example.fitlock.utils.WidgetUpdater
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -305,6 +306,7 @@ class LockOverlayActivity : ComponentActivity() {
                     xpGained = xpGained
                 )
             )
+            WidgetUpdater.updateAllWidgets(this)
             val healthConnectManager = HealthConnectManager(this)
             if (healthConnectManager.hasPermissions()) {
                 val now = java.time.Instant.now()

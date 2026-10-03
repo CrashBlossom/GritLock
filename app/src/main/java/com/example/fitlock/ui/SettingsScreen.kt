@@ -16,7 +16,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
+import kotlinx.coroutines.launch
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -30,6 +32,10 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.fitlock.ai.Gemma4Manager
+import com.example.fitlock.ai.SystemEventContext
+import com.example.fitlock.ai.SystemPromptEngine
+import com.example.fitlock.ai.SystemVoiceSynthesizer
 import com.example.fitlock.data.UserStats
 import com.example.fitlock.data.ExerciseCalibration
 import com.example.fitlock.exercise.ExerciseType
@@ -570,6 +576,12 @@ fun SettingsScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // System AI Section
+        SectionHeader("System AI Engine (Gemma On-Device)")
+        GemmaAiSettingsCard()
+
+        Spacer(modifier = Modifier.height(24.dp))
+
         // Tracking Section
         SectionHeader("Tracking")
         TrackingModeCard(trackingMode, onTrackingModeChange)
@@ -783,6 +795,108 @@ fun ExerciseTypeSettingsItem(
                     prefs.edit().putBoolean("visible_${type.name}", it).apply()
                 }
             )
+        }
+    }
+}
+
+@Composable
+fun GemmaAiSettingsCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    
+    var testResult by remember { mutableStateOf<String?>(null) }
+    var isTesting by remember { mutableStateOf(false) }
+
+    val gemmaManager = remember(context) { Gemma4Manager(context) }
+    val voiceSynthesizer = remember(context) { SystemVoiceSynthesizer(context) }
+
+    DisposableEffect(context) {
+        onDispose {
+            voiceSynthesizer.shutdown()
+            gemmaManager.close()
+        }
+    }
+
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text("Gemma On-Device LLM Engine", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                    Text(
+                        if (gemmaManager.modelFile.exists()) "Weight file loaded (Local NPU/GPU)" else "Local weights file missing (Operating in Offline Fallback Mode)",
+                        fontSize = 11.sp,
+                        color = if (gemmaManager.modelFile.exists()) Color(0xFF81C784) else Color(0xFFFFB74D)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Text(
+                "Gemma runs 100% locally on-device to synthesize cold, authoritative 'System Voice' directives and urge coaching without cloud connectivity.",
+                fontSize = 11.sp,
+                color = Color.Gray
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = {
+                    isTesting = true
+                    scope.launch {
+                        if (!gemmaManager.isInitialized) {
+                            gemmaManager.initialize()
+                        }
+                        val prompt = SystemPromptEngine.buildPrompt(
+                            playerName = "Seeker",
+                            level = 1,
+                            strXp = 100,
+                            intXp = 50,
+                            agiXp = 50,
+                            currentStreak = 1,
+                            context = SystemEventContext.DAILY_MOTIVATION
+                        )
+                        val response = gemmaManager.generateSystemVoice(prompt)
+                        testResult = response
+                        voiceSynthesizer.speak(response)
+                        isTesting = false
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+                enabled = !isTesting,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                if (isTesting) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Synthesizing System Voice...")
+                } else {
+                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Test System AI Voice")
+                }
+            }
+
+            testResult?.let { msg ->
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        msg,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
         }
     }
 }

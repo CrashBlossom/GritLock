@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.fitlock.data.Challenge
 import com.example.fitlock.data.ExerciseRequirement
+import com.example.fitlock.data.StatType
 import com.example.fitlock.data.UsageBaseline
 import com.example.fitlock.data.UserStats
 import com.example.fitlock.exercise.ExerciseType
@@ -38,7 +39,10 @@ fun ProfileScreen(
     onAddBaseline: (UsageBaseline) -> Unit,
     onDeleteBaseline: (UsageBaseline) -> Unit,
     onForgeClick: () -> Unit,
-    forgeTabName: String = "Forge"
+    forgeTabName: String = "Forge",
+    onNavigateToLocks: () -> Unit = {},
+    onNavigateToAnalytics: () -> Unit = {},
+    onNavigateToSettings: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -52,14 +56,9 @@ fun ProfileScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Profile", color = MaterialTheme.colorScheme.onBackground, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-            Button(
-                onClick = onForgeClick,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
-            ) {
-                Icon(Icons.Default.Architecture, null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(forgeTabName)
+            Text("Profile & System", color = MaterialTheme.colorScheme.onBackground, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+            IconButton(onClick = onNavigateToSettings) {
+                Icon(Icons.Default.Settings, contentDescription = "Settings", tint = MaterialTheme.colorScheme.onBackground)
             }
         }
         Spacer(modifier = Modifier.height(24.dp))
@@ -67,6 +66,44 @@ fun ProfileScreen(
         // Level and XP Progress
         StatsHeader(userStats)
         
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Quick Navigation Section
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedButton(
+                onClick = onNavigateToLocks,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("App Locks", fontSize = 12.sp)
+            }
+
+            OutlinedButton(
+                onClick = onNavigateToAnalytics,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Analytics, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Analytics", fontSize = 12.sp)
+            }
+
+            OutlinedButton(
+                onClick = onForgeClick,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("The Forge", fontSize = 12.sp)
+            }
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
 
         // Time Reclaimed Baseline Section
@@ -89,7 +126,7 @@ fun ProfileScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Your Challenges", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Your Quests", color = MaterialTheme.colorScheme.onBackground, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             var showAddDialog by remember { mutableStateOf(false) }
             IconButton(onClick = { showAddDialog = true }) {
                 Icon(Icons.Default.AddCircle, contentDescription = "Add Challenge", tint = MaterialTheme.colorScheme.primary)
@@ -326,15 +363,16 @@ fun StatRadarCard(stats: UserStats?) {
                     .padding(8.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val maxStatXp = 5000f 
-                val scores = listOf(
-                    (stats?.strXp?.toFloat()?.div(maxStatXp) ?: 0.1f).coerceIn(0.1f, 1f),
-                    (stats?.agiXp?.toFloat()?.div(maxStatXp) ?: 0.1f).coerceIn(0.1f, 1f),
-                    (stats?.vitXp?.toFloat()?.div(maxStatXp) ?: 0.1f).coerceIn(0.1f, 1f),
-                    (stats?.intXp?.toFloat()?.div(maxStatXp) ?: 0.1f).coerceIn(0.1f, 1f),
-                    (stats?.senXp?.toFloat()?.div(maxStatXp) ?: 0.1f).coerceIn(0.1f, 1f),
-                    (stats?.chaXp?.toFloat()?.div(maxStatXp) ?: 0.1f).coerceIn(0.1f, 1f)
+                val rawScores = listOf(
+                    stats?.strXp?.toFloat() ?: 0f,
+                    stats?.agiXp?.toFloat() ?: 0f,
+                    stats?.vitXp?.toFloat() ?: 0f,
+                    stats?.intXp?.toFloat() ?: 0f,
+                    stats?.senXp?.toFloat() ?: 0f,
+                    stats?.chaXp?.toFloat() ?: 0f
                 )
+                val maxVal = rawScores.maxOrNull()?.coerceAtLeast(100f) ?: 100f
+                val scores = rawScores.map { (it / maxVal).coerceIn(0.15f, 1f) }
                 
                 AbilityRadarChart(scores = scores)
             }
@@ -342,12 +380,12 @@ fun StatRadarCard(stats: UserStats?) {
             Spacer(modifier = Modifier.height(16.dp))
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StatLabel("STR", "Strength")
-                StatLabel("AGI", "Agility")
-                StatLabel("VIT", "Vitality")
-                StatLabel("INT", "Intel")
-                StatLabel("SEN", "Sense")
-                StatLabel("CHA", "Charm")
+                StatLabel("STR", "Lv. ${stats?.let { it.getStatLevel(StatType.STR) } ?: 1}")
+                StatLabel("AGI", "Lv. ${stats?.let { it.getStatLevel(StatType.AGI) } ?: 1}")
+                StatLabel("VIT", "Lv. ${stats?.let { it.getStatLevel(StatType.VIT) } ?: 1}")
+                StatLabel("INT", "Lv. ${stats?.let { it.getStatLevel(StatType.INT) } ?: 1}")
+                StatLabel("SEN", "Lv. ${stats?.let { it.getStatLevel(StatType.SEN) } ?: 1}")
+                StatLabel("CHA", "Lv. ${stats?.let { it.getStatLevel(StatType.CHA) } ?: 1}")
             }
         }
     }

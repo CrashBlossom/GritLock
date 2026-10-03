@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.fitlock.data.AppGroup
 import com.example.fitlock.data.Challenge
 import com.example.fitlock.data.DailyPledge
 import com.example.fitlock.data.UserStats
@@ -36,13 +37,16 @@ fun HomeHub(
     quests: List<com.example.fitlock.data.QuestWithBlocks>,
     challenges: List<Challenge>,
     currentPledge: DailyPledge?,
+    appGroups: List<AppGroup> = emptyList(),
     onQuestClick: (com.example.fitlock.data.QuestWithBlocks) -> Unit,
     onChallengeClick: (Challenge) -> Unit,
     onSettingsClick: () -> Unit,
     onUrgeClick: () -> Unit,
     onPledgeClick: () -> Unit,
     onViewLogClick: () -> Unit,
-    onStartPlanning: () -> Unit
+    onStartPlanning: () -> Unit,
+    onManageLocksClick: () -> Unit = {},
+    onNavigateToPortal: () -> Unit = {}
 ) {
     val themeData = com.example.fitlock.ui.theme.getThemeData(userStats?.activeTheme ?: "DEFAULT")
 
@@ -74,6 +78,48 @@ fun HomeHub(
             onStartPlanning = onStartPlanning
         )
 
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = onNavigateToPortal,
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+        ) {
+            Icon(Icons.Default.PhoneAndroid, null)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Open App Portal (Launcher)")
+        }
+
+        // Active App Locks Summary Card
+        Spacer(modifier = Modifier.height(24.dp))
+        SectionTitle("Gatekeeper App Locks")
+        val activeGroups = appGroups.filter { it.isEnabled }
+        Card(
+            modifier = Modifier.fillMaxWidth().clickable { onManageLocksClick() },
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Icon(Icons.Default.Lock, null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text("App Blocking Active", fontWeight = FontWeight.Bold)
+                        Text(
+                            if (activeGroups.isEmpty()) "No active app locks" else "${activeGroups.size} App Groups Active",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color.Gray
+                        )
+                    }
+                }
+                OutlinedButton(onClick = onManageLocksClick) {
+                    Text("Manage")
+                }
+            }
+        }
+
         val activeQuest = quests.find { it.quest.type == com.example.fitlock.data.QuestType.DAILY_COMMITMENT && !it.quest.isCompletedToday }
         if (activeQuest != null) {
             Spacer(modifier = Modifier.height(24.dp))
@@ -103,7 +149,7 @@ fun HomeHub(
 
         if (challenges.isNotEmpty()) {
             Spacer(modifier = Modifier.height(24.dp))
-            SectionTitle("Elite Challenges")
+            SectionTitle("Elite Quests")
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(vertical = 8.dp),

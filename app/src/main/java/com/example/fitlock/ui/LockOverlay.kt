@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Launch
@@ -47,6 +48,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
+import com.example.fitlock.ai.Gemma4Manager
+import com.example.fitlock.ai.SystemEventContext
+import com.example.fitlock.ai.SystemPromptEngine
+import com.example.fitlock.ai.SystemVoiceSynthesizer
 import com.example.fitlock.data.ExerciseRequirement
 import com.example.fitlock.exercise.PoseAnalyzer
 import com.example.fitlock.exercise.TrackingMode
@@ -135,6 +140,60 @@ fun LockOverlayScreen(
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onBackground
             )
+
+            // On-Device Gemma System AI Directive
+            var systemMessage by remember { mutableStateOf<String?>(null) }
+            val voiceSynthesizer = remember(context) { SystemVoiceSynthesizer(context) }
+            val gemmaManager = remember(context) { Gemma4Manager(context) }
+
+            DisposableEffect(context) {
+                onDispose {
+                    voiceSynthesizer.shutdown()
+                    gemmaManager.close()
+                }
+            }
+
+            LaunchedEffect(targetApp) {
+                val prompt = SystemPromptEngine.buildPrompt(
+                    playerName = "Seeker",
+                    level = 1,
+                    strXp = 100,
+                    intXp = 50,
+                    agiXp = 50,
+                    currentStreak = 1,
+                    triggeredApp = targetApp,
+                    screenTimeMinutes = 15,
+                    context = SystemEventContext.APP_LOCKED
+                )
+                
+                if (!gemmaManager.isInitialized) {
+                    gemmaManager.initialize()
+                }
+                
+                val response = gemmaManager.generateSystemVoice(prompt)
+                systemMessage = response
+                voiceSynthesizer.speak(response)
+            }
+
+            systemMessage?.let { msg ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.AutoAwesome, contentDescription = "System AI", tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = msg,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
 
             if (isTravelMode) {
                 Spacer(modifier = Modifier.height(4.dp))

@@ -95,6 +95,15 @@ interface GritLockDao {
     @Query("SELECT * FROM habit_definitions WHERE id = :id")
     suspend fun getHabitDefinitionById(id: Int): HabitDefinition?
 
+    @Query("DELETE FROM habit_definitions WHERE id NOT IN (SELECT MIN(id) FROM habit_definitions GROUP BY name)")
+    suspend fun purgeDuplicateHabitDefinitions()
+
+    @Query("DELETE FROM task_definitions WHERE id NOT IN (SELECT MIN(id) FROM task_definitions GROUP BY name)")
+    suspend fun purgeDuplicateTaskDefinitions()
+
+    @Query("DELETE FROM exercise_definitions WHERE id NOT IN (SELECT MIN(id) FROM exercise_definitions GROUP BY type)")
+    suspend fun purgeDuplicateExerciseDefinitions()
+
     @Query("SELECT * FROM gauntlet_history")
     suspend fun getAllHistoryList(): List<GauntletHistory>
 

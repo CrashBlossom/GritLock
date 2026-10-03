@@ -35,8 +35,11 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.fitlock.data.AppGroup
 import com.example.fitlock.data.Challenge
+import com.example.fitlock.data.ScheduleInterval
 import com.example.fitlock.data.UserStats
 import com.example.fitlock.exercise.ExerciseType
+import com.example.fitlock.utils.AppInfoFetcher
+import java.util.Locale
 
 /**
  * Main screen showing exercise groups, challenges, and daily goals.
@@ -584,6 +587,9 @@ fun GroupItem(
     onLongClick: () -> Unit,
     onDelete: () -> Unit
 ) {
+    val context = LocalContext.current
+    val installedApps = remember(context) { AppInfoFetcher.getInstalledApps(context) }
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -626,9 +632,9 @@ fun GroupItem(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "${group.packageNames.size} apps restricted",
+                            "Hold to edit details",
                             color = Color.Gray,
-                            fontSize = 11.sp
+                            fontSize = 10.sp
                         )
                     }
                 }
@@ -637,7 +643,6 @@ fun GroupItem(
                     IconButton(onClick = onDelete) {
                         Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Gray, modifier = Modifier.size(20.dp))
                     }
-                    // Switch to enable/disable the blocking rules for this group
                     Switch(
                         checked = group.isEnabled,
                         onCheckedChange = { onToggle() },
@@ -648,30 +653,115 @@ fun GroupItem(
                     )
                 }
             }
-            
-            // Show summary of blocked keywords if any
-            if (group.keywords.isNotEmpty()) {
+
+            // 1. Blocked Apps Section
+            if (group.packageNames.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("${group.keywords.size} Keywords/URLs Blocked", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp)
+                Text("Blocked Apps (${group.packageNames.size}):", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    group.packageNames.forEach { pkg ->
+                        val appName = installedApps.find { it.packageName == pkg }?.name
+                            ?: pkg.substringAfterLast('.').replaceFirstChar { if (it.isLowerCase()) it.titlecase(
+                                Locale.getDefault()) else it.toString() }
+                        AssistChip(
+                            onClick = {},
+                            leadingIcon = { Icon(Icons.Default.Apps, null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.primary) },
+                            label = { Text(appName, fontSize = 10.sp) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                labelColor = MaterialTheme.colorScheme.onSurface,
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            border = null,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
             }
 
-            // Show requirement chips (e.g. "10 pushups")
+            // 2. Blocked Keywords / URLs Section
+            if (group.keywords.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Blocked Keywords/URLs (${group.keywords.size}):", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    group.keywords.forEach { kw ->
+                        AssistChip(
+                            onClick = {},
+                            leadingIcon = { Icon(Icons.Default.Language, null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.secondary) },
+                            label = { Text(kw, fontSize = 10.sp) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                labelColor = MaterialTheme.colorScheme.secondary,
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f)
+                            ),
+                            border = null,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+            }
+
+            // 3. WiFi Restriction & 4. Schedule Section
+            if (group.restrictedWifiSsids.isNotEmpty() || group.schedule.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (group.restrictedWifiSsids.isNotEmpty()) {
+                        AssistChip(
+                            onClick = {},
+                            leadingIcon = { Icon(Icons.Default.Wifi, null, modifier = Modifier.size(12.dp), tint = Color(0xFF81C784)) },
+                            label = { Text("WiFi: ${group.restrictedWifiSsids.joinToString(", ")}", fontSize = 10.sp) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                labelColor = Color(0xFF81C784),
+                                containerColor = Color(0xFF81C784).copy(alpha = 0.15f)
+                            ),
+                            border = null,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+
+                    if (group.schedule.isNotEmpty()) {
+                        val scheduleText = formatScheduleSummary(group.schedule)
+                        AssistChip(
+                            onClick = {},
+                            leadingIcon = { Icon(Icons.Default.AccessTime, null, modifier = Modifier.size(12.dp), tint = Color(0xFFFFB74D)) },
+                            label = { Text("Schedule: $scheduleText", fontSize = 10.sp) },
+                            colors = AssistChipDefaults.assistChipColors(
+                                labelColor = Color(0xFFFFB74D),
+                                containerColor = Color(0xFFFFB74D).copy(alpha = 0.15f)
+                            ),
+                            border = null,
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+            }
+
+            // 5. Requirements Section
             if (group.exercises.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider(color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
                 Spacer(modifier = Modifier.height(8.dp))
-                Text("Requirements:", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("Unlock Requirements:", color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                 FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     group.exercises.forEach { req ->
                         AssistChip(
                             onClick = {},
-                            label = { Text("${req.count} ${req.type.lowercase()}", fontSize = 11.sp) },
+                            label = { Text("${req.count} ${req.type.lowercase()}", fontSize = 11.sp, fontWeight = FontWeight.SemiBold) },
                             colors = AssistChipDefaults.assistChipColors(
                                 labelColor = MaterialTheme.colorScheme.primary,
-                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
                             ),
                             border = null,
                             shape = RoundedCornerShape(8.dp)
@@ -681,4 +771,18 @@ fun GroupItem(
             }
         }
     }
+}
+
+fun formatScheduleSummary(schedule: List<ScheduleInterval>): String {
+    if (schedule.isEmpty()) return "Always Active"
+    val dayNames = mapOf(1 to "Sun", 2 to "Mon", 3 to "Tue", 4 to "Wed", 5 to "Thu", 6 to "Fri", 7 to "Sat")
+    
+    return schedule.take(2).joinToString("; ") { interval ->
+        val day = dayNames[interval.dayOfWeek] ?: "D${interval.dayOfWeek}"
+        val startH = interval.startMinute / 60
+        val startM = interval.startMinute % 60
+        val endH = interval.endMinute / 60
+        val endM = interval.endMinute % 60
+        String.format(java.util.Locale.US, "%s %02d:%02d-%02d:%02d", day, startH, startM, endH, endM)
+    } + if (schedule.size > 2) " (+${schedule.size - 2} more)" else ""
 }

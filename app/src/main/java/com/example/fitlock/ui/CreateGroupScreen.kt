@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import com.example.fitlock.data.AppGroup
 import com.example.fitlock.data.ExerciseRequirement
 import com.example.fitlock.data.ScheduleInterval
+import com.example.fitlock.data.StatType
 import com.example.fitlock.exercise.ExerciseType
 import com.example.fitlock.utils.AppInfoFetcher
 
@@ -59,6 +60,10 @@ fun CreateGroupScreen(
     var newWifiSsid by remember { mutableStateOf("") }
     var showWifiScanner by remember { mutableStateOf(false) }
 
+    // Positive Focus state
+    var isProductive by remember(editingGroup) { mutableStateOf(editingGroup?.isProductive ?: false) }
+    var rewardStat by remember(editingGroup) { mutableStateOf(editingGroup?.rewardStat ?: StatType.INT) }
+
     val allApps = remember { AppInfoFetcher.getInstalledApps(context) }
     val filteredApps = allApps.filter { 
         it.name.contains(searchQuery, ignoreCase = true) || 
@@ -89,7 +94,7 @@ fun CreateGroupScreen(
             OutlinedTextField(
                 value = groupName,
                 onValueChange = { groupName = it },
-                label = { Text("Group Name") },
+                label = { Text("Group Name (Auto-generated if empty)") },
                 modifier = Modifier.fillMaxWidth(),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color(0xFF1C1C21),
@@ -101,9 +106,67 @@ fun CreateGroupScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
 
+            // Group Mode Section
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C21)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                if (isProductive) "🌟 Positive Focus Group" else "🔒 Gatekeeper Lock Group",
+                                color = if (isProductive) Color(0xFF81C784) else Color(0xFFD0BCFF),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Text(
+                                if (isProductive) "Usage grants XP & levels up attributes (e.g. Duolingo, Anki, study sites)." else "Opening these apps or keywords blocks access until workout requirements are met.",
+                                color = Color.Gray,
+                                fontSize = 11.sp
+                            )
+                        }
+                        Switch(
+                            checked = isProductive,
+                            onCheckedChange = { isProductive = it },
+                            colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF81C784))
+                        )
+                    }
+
+                    if (isProductive) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        HorizontalDivider(color = Color(0xFF25252B))
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text("Attribute Rewarded for Usage:", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            StatType.entries.forEach { stat ->
+                                FilterChip(
+                                    selected = rewardStat == stat,
+                                    onClick = { rewardStat = stat },
+                                    label = { Text(stat.name, fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFF81C784),
+                                        selectedLabelColor = Color.Black
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
             // Apps Section
             Text(
-                "APPS TO BLOCK (${selectedApps.size} SELECTED)",
+                if (isProductive) "PRODUCTIVE APPS (${selectedApps.size} SELECTED)" else "APPS TO BLOCK (${selectedApps.size} SELECTED)",
                 color = Color.Gray,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
@@ -344,17 +407,25 @@ fun CreateGroupScreen(
             
             Button(
                 onClick = {
-                    if (groupName.isNotBlank() && (selectedApps.isNotEmpty() || keywords.isNotEmpty())) {
+                    val finalName = if (groupName.isNotBlank()) {
+                        groupName.trim()
+                    } else {
+                        autoGenerateBlockName(selectedApps, allApps, keywords, restrictedWifiSsids, schedule)
+                    }
+
+                    if (selectedApps.isNotEmpty() || keywords.isNotEmpty() || restrictedWifiSsids.isNotEmpty() || schedule.isNotEmpty()) {
                         onSave(AppGroup(
                             id = editingGroup?.id ?: 0,
-                            name = groupName,
+                            name = finalName,
                             packageNames = selectedApps.toList(),
                             exercises = exerciseRequirements,
                             unlockDurationMinutes = unlockDuration.toIntOrNull() ?: 30,
                             schedule = schedule,
                             restrictedWifiSsids = restrictedWifiSsids,
                             isEnabled = editingGroup?.isEnabled ?: true,
-                            keywords = keywords
+                            keywords = keywords,
+                            isProductive = isProductive,
+                            rewardStat = rewardStat
                         ))
                     }
                 },
@@ -379,6 +450,42 @@ fun CreateGroupScreen(
             )
         }
     }
+}
+
+fun autoGenerateBlockName(
+    selectedApps: Set<String>,
+    allApps: List<AppInfo>,
+    keywords: List<String>,
+    wifiSsids: List<String>,
+    schedule: List<ScheduleInterval>
+): String {
+    if (selectedApps.isNotEmpty()) {
+        val appNames = selectedApps.mapNotNull { pkg ->
+            allApps.find { it.packageName == pkg }?.name
+        }
+        if (appNames.isNotEmpty()) {
+            return when {
+                appNames.size == 1 -> "${appNames.first()} Block"
+                appNames.size <= 3 -> "${appNames.joinToString(", ")} Block"
+                else -> "${appNames.take(2).joinToString(", ")} +${appNames.size - 2} Apps Block"
+            }
+        }
+    }
+
+    if (keywords.isNotEmpty()) {
+        val firstKw = keywords.first().take(15)
+        return if (keywords.size == 1) "$firstKw Block" else "$firstKw +${keywords.size - 1} Keywords Block"
+    }
+
+    if (wifiSsids.isNotEmpty()) {
+        return "${wifiSsids.first()} Network Block"
+    }
+
+    if (schedule.isNotEmpty()) {
+        return "Scheduled Block"
+    }
+
+    return "Custom App Block"
 }
 
 @Composable

@@ -32,7 +32,7 @@ object DatabaseModule {
 
     @Provides
     @Singleton
-    fun provideRepository(dao: GritLockDao): GritLockRepository {
-        return GritLockRepository(dao)
+    fun provideRepository(dao: GritLockDao, @ApplicationContext context: Context): GritLockRepository {
+        return GritLockRepository(dao, context)
     }
 }

@@ -28,9 +28,9 @@ fun ForgeScreen(
     exerciseDefinitions: List<ExerciseDefinition>,
     onExerciseUpsert: (ExerciseDefinition) -> Unit,
     onExerciseDelete: (ExerciseDefinition) -> Unit,
-    taskDefinitions: List<TaskDefinition>,
-    onTaskUpsert: (TaskDefinition) -> Unit,
-    onTaskDelete: (TaskDefinition) -> Unit,
+    taskDefinitions: List<TaskDefinition> = emptyList(),
+    onTaskUpsert: (TaskDefinition) -> Unit = {},
+    onTaskDelete: (TaskDefinition) -> Unit = {},
     deckSummaries: List<DeckSummary>,
     onDeleteDeck: (String) -> Unit,
     onExerciseLog: (ExerciseType, Int, String?, Int, String?) -> Unit, // type, reps, familyId, level, variantName
@@ -39,11 +39,11 @@ fun ForgeScreen(
     allFamilies: List<FamilyWithLevels>,
     currentProgression: Map<String, Int>,
     onAddFlashcard: (com.example.fitlock.data.Flashcard) -> Unit,
-    title: String = "Forge",
+    title: String = "The Forge (Training)",
     onBack: () -> Unit
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Habits", "Exercises", "Tasks", "Mental")
+    val tabs = listOf("Habit Quests", "Physical Exercises", "Mental (INT)")
 
     Scaffold(
         topBar = {
@@ -69,8 +69,7 @@ fun ForgeScreen(
             when (selectedTab) {
                 0 -> HabitLibraryContent(habitDefinitions, onHabitUpsert, onHabitDelete)
                 1 -> ExerciseLibraryContent(exerciseDefinitions, onExerciseUpsert, onExerciseDelete, onExerciseLog, onProgressionClick, allFamilies, currentProgression)
-                2 -> TaskLibraryContent(taskDefinitions, onTaskUpsert, onTaskDelete)
-                3 -> MentalLibraryContent(deckSummaries, onDeleteDeck, onDeckPlay, onAddFlashcard)
+                2 -> MentalLibraryContent(deckSummaries, onDeleteDeck, onDeckPlay, onAddFlashcard)
             }
         }
     }

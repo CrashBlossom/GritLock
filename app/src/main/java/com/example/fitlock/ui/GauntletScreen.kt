@@ -43,7 +43,7 @@ fun GauntletScreen(
                     Icon(Icons.Default.LibraryBooks, contentDescription = "Habit Library")
                 }
                 FloatingActionButton(onClick = onAdd, containerColor = MaterialTheme.colorScheme.primary) {
-                    Icon(Icons.Default.Add, contentDescription = "Add Gauntlet")
+                    Icon(Icons.Default.Add, contentDescription = "Add Quest")
                 }
             }
         },
@@ -51,7 +51,7 @@ fun GauntletScreen(
     ) { padding ->
         if (gauntlets.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                Text("No routines found. Build your first Gauntlet!", style = MaterialTheme.typography.bodyLarge)
+                Text("No quests found. Build your first Quest!", style = MaterialTheme.typography.bodyLarge)
             }
         } else {
             LazyColumn(

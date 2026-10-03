@@ -40,7 +40,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ExerciseFamily::class,
         ProgressionLevel::class
     ], 
-    version = 37, 
+    version = 39, 
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -50,6 +50,27 @@ abstract class GritLockDatabase : RoomDatabase() {
     companion object {
         @Volatile
         private var INSTANCE: GritLockDatabase? = null
+
+        val MIGRATION_38_39 = object : Migration(38, 39) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // 1. Purge existing duplicates first to prevent UNIQUE constraint failures
+                database.execSQL("DELETE FROM habit_definitions WHERE id NOT IN (SELECT MIN(id) FROM habit_definitions GROUP BY name)")
+                database.execSQL("DELETE FROM task_definitions WHERE id NOT IN (SELECT MIN(id) FROM task_definitions GROUP BY name)")
+                database.execSQL("DELETE FROM exercise_definitions WHERE id NOT IN (SELECT MIN(id) FROM exercise_definitions GROUP BY type)")
+
+                // 2. Create unique indexes safely
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_habit_definitions_name ON habit_definitions(name)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_task_definitions_name ON task_definitions(name)")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_exercise_definitions_type ON exercise_definitions(type)")
+            }
+        }
+
+        val MIGRATION_37_38 = object : Migration(37, 38) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE app_groups ADD COLUMN isProductive INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE app_groups ADD COLUMN rewardStat TEXT NOT NULL DEFAULT 'INT'")
+            }
+        }
 
         val MIGRATION_36_37 = object : Migration(36, 37) {
             override fun migrate(database: SupportSQLiteDatabase) {
@@ -394,7 +415,7 @@ abstract class GritLockDatabase : RoomDatabase() {
                     GritLockDatabase::class.java,
                     "gritlock-db"
                 )
-                .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37)
+                .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39)
                 .fallbackToDestructiveMigration(true)
                 .build()
                 INSTANCE = instance

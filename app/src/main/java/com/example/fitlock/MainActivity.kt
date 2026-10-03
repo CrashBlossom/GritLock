@@ -32,6 +32,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.FlashOn
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Lock
@@ -67,6 +68,7 @@ import com.example.fitlock.ui.*
 import com.example.fitlock.ui.theme.GritLockTheme
 import com.example.fitlock.utils.HealthConnectManager
 import com.example.fitlock.utils.MarkdownExporter
+import com.example.fitlock.utils.WidgetUpdater
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -442,12 +444,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 contentColor = MaterialTheme.colorScheme.onSurface,
                                 tonalElevation = 8.dp
                             ) {
-                                NavigationItem(themeData.tabHome, Icons.Default.Home, currentScreen == "home") { currentScreen = "home" }
-                                NavigationItem(themeData.tabAtlas, Icons.Default.Explore, currentScreen == "atlas") { currentScreen = "atlas" }
-                                NavigationItem(themeData.tabForge, Icons.Default.Build, currentScreen == "forge") { currentScreen = "forge" }
-                                NavigationItem(themeData.tabLocks, Icons.Default.Lock, currentScreen == "locks") { currentScreen = "locks" }
-                                NavigationItem(themeData.tabAnalytics, Icons.Default.Analytics, currentScreen == "analytics") { currentScreen = "analytics" }
-                                NavigationItem(themeData.tabProfile, Icons.Default.Person, currentScreen == "profile") { currentScreen = "profile" }
+                                NavigationItem("Dashboard", Icons.Default.Dashboard, currentScreen == "home") { currentScreen = "home" }
+                                NavigationItem("The Forge", Icons.Default.Build, currentScreen == "forge") { currentScreen = "forge" }
+                                NavigationItem("Profile", Icons.Default.Person, currentScreen == "profile") { currentScreen = "profile" }
                             }
                         }
                     }
@@ -462,9 +461,11 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             "home" -> {
                                 val quests by homeViewModel.allQuests.collectAsState()
                                 val challenges by homeViewModel.challenges.collectAsState()
-                                HomeHub(
+                                val appGroups by repository.allGroups.collectAsState(initial = emptyList())
+                                SoloLauncherScreen(
                                     userStats = userStats,
                                     quests = quests,
+                                    appGroups = appGroups,
                                     challenges = challenges,
                                     currentPledge = currentPledge,
                                     onQuestClick = { quest ->
@@ -480,34 +481,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         }
                                     },
                                     onSettingsClick = { currentScreen = "settings" },
-                                    onUrgeClick = {
-                                        showUrgeNegotiation = true
-                                    },
-                                    onPledgeClick = { 
-                                        if (currentPledge?.status == "COMMITTED") {
-                                            val activateIntent = Intent(this@MainActivity, GritLockAccessibilityService::class.java).apply {
-                                                action = "ACTIVATE_EVENING_GATE"
-                                            }
-                                            startService(activateIntent)
-                                            currentScreen = "evening_review"
-                                        } else {
-                                            currentScreen = "pledge" 
-                                        }
-                                    },
-                                    onViewLogClick = {
-                                        lifecycleScope.launch {
-                                            val date = java.util.Date()
-                                            val exporter = com.example.fitlock.utils.MarkdownExporter(this@MainActivity)
-                                            val logText = exporter.generateDailyLog(date)
-                                            generatedLogText = logText
-                                            
-                                            val file = exporter.saveLogToFile(logText, date)
-                                            if (file != null) {
-                                                Toast.makeText(this@MainActivity, "Log saved to: Documents/${file.name}", Toast.LENGTH_LONG).show()
-                                            }
-                                        }
-                                    },
-                                    onStartPlanning = { currentScreen = "planning" }
+                                    onForgeClick = { currentScreen = "forge" }
                                 )
                             }
                             "pledge" -> {
@@ -717,7 +691,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         }
                                     },
                                     onForgeClick = { currentScreen = "forge" },
-                                    forgeTabName = themeData.tabForge
+                                    forgeTabName = themeData.tabForge,
+                                    onNavigateToLocks = { currentScreen = "locks" },
+                                    onNavigateToAnalytics = { currentScreen = "analytics" },
+                                    onNavigateToSettings = { currentScreen = "settings" }
+                                )
+                            }
+                            "portal" -> {
+                                val appGroups by repository.allGroups.collectAsState(initial = emptyList())
+                                LauncherPortalScreen(
+                                    appGroups = appGroups,
+                                    onBack = { currentScreen = "home" }
                                 )
                             }
                             "planning" -> {
@@ -886,6 +870,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             lifecycleScope.launch {
                                                 repository.upsertQuest(currentQuest.quest.copy(isCompletedToday = true, lastCompletedTimestamp = System.currentTimeMillis()))
                                                 userViewModel.updateXp(currentQuest.quest.xpReward)
+                                                
+                                                val stats = statsState ?: UserStats()
+                                                val xpBonus = currentQuest.quest.xpReward * 5
+                                                db.dao().updateUserStats(
+                                                    stats.copy(
+                                                        floorTargetMetToday = true,
+                                                        totalXp = stats.totalXp + xpBonus,
+                                                        strXp = stats.strXp + xpBonus,
+                                                        intXp = stats.intXp + xpBonus
+                                                    )
+                                                )
                                                 currentScreen = "home"
                                             }
                                         },
@@ -1227,6 +1222,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                             xpGained = xpGained
                                                         )
                                                     )
+                                                    WidgetUpdater.updateAllWidgets(this@MainActivity)
                                                     updateUserStats(xpGained, currentExerciseType!!.name, physicalReps)
                                                     
                                                     val now = java.time.Instant.now()
@@ -1273,6 +1269,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                             xpGained = xpGained
                                                         )
                                                     )
+                                                    WidgetUpdater.updateAllWidgets(this@MainActivity)
                                                     updateUserStats(xpGained, currentExerciseType!!.name, physicalReps)
                                                     
                                                     val now = java.time.Instant.now()

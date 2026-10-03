@@ -65,6 +65,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
 
+    // MediaPipe Tasks GenAI for local LLM inference (Gemma)
+    implementation("com.google.mediapipe:tasks-genai:0.10.35")
+
     // ML Kit
     implementation(libs.mlkit.pose.detection)
     implementation(libs.mlkit.pose.detection.accurate)

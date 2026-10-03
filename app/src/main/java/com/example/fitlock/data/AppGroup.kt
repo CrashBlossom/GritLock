@@ -23,7 +23,9 @@ data class AppGroup(
     val schedule: List<ScheduleInterval> = emptyList(),
     val restrictedWifiSsids: List<String> = emptyList(),
     val keywords: List<String> = emptyList(),
-    val icon: String? = null
+    val icon: String? = null,
+    val isProductive: Boolean = false, // If true, usage grants XP & Attribute growth instead of locking
+    val rewardStat: StatType = StatType.INT // The attribute rewarded for positive usage (e.g. INT for Duolingo/Anki)
 )
 
 @Entity(tableName = "gauntlets")
@@ -42,7 +44,10 @@ data class Gauntlet(
     val delayedNudgeMinutes: Int = 5
 )
 
-@Entity(tableName = "exercise_definitions")
+@Entity(
+    tableName = "exercise_definitions",
+    indices = [Index(value = ["type"], unique = true)]
+)
 data class ExerciseDefinition(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
@@ -53,7 +58,10 @@ data class ExerciseDefinition(
     val icon: String? = null
 )
 
-@Entity(tableName = "task_definitions")
+@Entity(
+    tableName = "task_definitions",
+    indices = [Index(value = ["name"], unique = true)]
+)
 data class TaskDefinition(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
@@ -61,7 +69,10 @@ data class TaskDefinition(
     val autoCarryOver: Boolean = true
 )
 
-@Entity(tableName = "habit_definitions")
+@Entity(
+    tableName = "habit_definitions",
+    indices = [Index(value = ["name"], unique = true)]
+)
 data class HabitDefinition(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
     val name: String,
@@ -306,7 +317,35 @@ data class UserStats(
     val floorTargetMetToday: Boolean = false,
     val lastFloorResetDate: String? = null,
     val statLastTrainedDates: Map<String, Long> = emptyMap()
-)
+) {
+    fun getStatLevel(statType: StatType): Int {
+        val xp = when (statType) {
+            StatType.STR -> strXp
+            StatType.AGI -> agiXp
+            StatType.VIT -> vitXp
+            StatType.INT -> intXp
+            StatType.SEN -> senXp
+            StatType.CHA -> chaXp
+        }
+        return (1 + Math.sqrt(xp / 50.0)).toInt()
+    }
+
+    fun getStatProgress(statType: StatType): Float {
+        val xp = when (statType) {
+            StatType.STR -> strXp
+            StatType.AGI -> agiXp
+            StatType.VIT -> vitXp
+            StatType.INT -> intXp
+            StatType.SEN -> senXp
+            StatType.CHA -> chaXp
+        }
+        val currentLvl = getStatLevel(statType)
+        val prevXpNeeded = 50.0 * (currentLvl - 1) * (currentLvl - 1)
+        val nextXpNeeded = 50.0 * currentLvl * currentLvl
+        val range = (nextXpNeeded - prevXpNeeded).coerceAtLeast(1.0)
+        return ((xp - prevXpNeeded) / range).toFloat().coerceIn(0f, 1f)
+    }
+}
 
 @Entity(tableName = "urge_events")
 data class UrgeEvent(
