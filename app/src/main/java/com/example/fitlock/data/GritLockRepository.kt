@@ -36,6 +36,7 @@ class GritLockRepository(private val dao: GritLockDao, private val context: Cont
     // Motivational Quotes
     val allQuotes: Flow<List<MotivationalQuote>> = dao.getAllQuotes()
     suspend fun upsertQuote(quote: MotivationalQuote) = dao.upsertQuote(quote)
+    suspend fun deleteQuote(quote: MotivationalQuote) = dao.deleteQuote(quote)
 
     // Gauntlet Management
     suspend fun upsertGauntlet(gauntlet: Gauntlet) = dao.upsertGauntlet(gauntlet)
@@ -215,6 +216,11 @@ class GritLockRepository(private val dao: GritLockDao, private val context: Cont
     // Progression System
     val allFamilies: Flow<List<FamilyWithLevels>> = dao.getAllFamiliesWithLevels()
     suspend fun getLevelData(familyId: String, level: Int) = dao.getLevelData(familyId, level)
+
+    // Date Countdowns / Countups
+    val allCountdowns: Flow<List<DateCountdown>> = dao.getAllCountdowns()
+    suspend fun upsertCountdown(countdown: DateCountdown) = dao.upsertCountdown(countdown)
+    suspend fun deleteCountdown(countdown: DateCountdown) = dao.deleteCountdown(countdown)
 
     suspend fun completeProjectTask(taskId: String) {
         val allGoals = dao.getAllGoalsWithProjects().first()

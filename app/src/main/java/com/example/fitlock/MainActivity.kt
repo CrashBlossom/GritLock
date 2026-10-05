@@ -68,6 +68,7 @@ import com.example.fitlock.ui.*
 import com.example.fitlock.ui.theme.GritLockTheme
 import com.example.fitlock.utils.HealthConnectManager
 import com.example.fitlock.utils.MarkdownExporter
+import com.example.fitlock.utils.VitalityMetrics
 import com.example.fitlock.utils.WidgetUpdater
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.first
@@ -276,8 +277,21 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 val gauntletHistory by db.dao().getGauntletHistory().collectAsState(initial = emptyList())
                 val baselines by db.dao().getAllBaselines().collectAsState(initial = emptyList())
                 val quotes by db.dao().getAllQuotes().collectAsState(initial = emptyList())
+                val allPledges by repository.allPledges.collectAsState(initial = emptyList())
+                val countdowns by repository.allCountdowns.collectAsState(initial = emptyList())
                 
                 val todayDate = remember { java.time.LocalDate.now().toString() }
+
+                val vitalityMetrics by produceState(initialValue = VitalityMetrics()) {
+                    if (healthConnectManager.hasPermissions()) {
+                        value = VitalityMetrics(
+                            sleepHours = healthConnectManager.readTodaySleepHours(),
+                            waterLiters = healthConnectManager.readTodayWaterLiters(),
+                            foodCalories = healthConnectManager.readTodayNutritionCalories(),
+                            steps = healthConnectManager.readTodaySteps()
+                        )
+                    }
+                }
 
                 // Calculate today's workout totals for the progress bars
                 val todayTotals = remember(history, _stepCount.intValue) {
@@ -434,23 +448,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                  * Scaffold is a layout helper that provides slots for common UI parts
                  * like a TopBar, BottomBar, or FloatingActionButton.
                  */
-                Scaffold(
-                    bottomBar = {
-                        // Hide the bottom bar on specific screens
-                        val hideBottomBar = listOf("track", "create", "calibrate", "gauntlet_editor", "gauntlet_execution")
-                        if (currentScreen !in hideBottomBar) {
-                            NavigationBar(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                                contentColor = MaterialTheme.colorScheme.onSurface,
-                                tonalElevation = 8.dp
-                            ) {
-                                NavigationItem("Dashboard", Icons.Default.Dashboard, currentScreen == "home") { currentScreen = "home" }
-                                NavigationItem("The Forge", Icons.Default.Build, currentScreen == "forge") { currentScreen = "forge" }
-                                NavigationItem("Profile", Icons.Default.Person, currentScreen == "profile") { currentScreen = "profile" }
-                            }
-                        }
-                    }
-                ) { innerPadding ->
+                Scaffold { innerPadding ->
                     // Padding is provided by Scaffold to avoid overlapping with bars
                     Box(modifier = Modifier.padding(innerPadding)) {
                         /**
@@ -462,12 +460,101 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 val quests by homeViewModel.allQuests.collectAsState()
                                 val challenges by homeViewModel.challenges.collectAsState()
                                 val appGroups by repository.allGroups.collectAsState(initial = emptyList())
+                                val unfinishedTasks by homeViewModel.unfinishedTasks.collectAsState()
                                 SoloLauncherScreen(
                                     userStats = userStats,
                                     quests = quests,
                                     appGroups = appGroups,
                                     challenges = challenges,
                                     currentPledge = currentPledge,
+                                    vitalityMetrics = vitalityMetrics,
+                                    unfinishedTasks = unfinishedTasks,
+                                    countdowns = countdowns,
+                                    deckSummaries = deckSummaries,
+                                    quotes = quotes,
+                                    history = history,
+                                    pledges = allPledges,
+                                    onAddWater = { liters ->
+                                        lifecycleScope.launch {
+                                            healthConnectManager.writeWaterIntake(liters)
+                                        }
+                                    },
+                                    onAddCountdown = { countdown ->
+                                        lifecycleScope.launch {
+                                            repository.upsertCountdown(countdown)
+                                        }
+                                    },
+                                    onDeleteCountdown = { countdown ->
+                                        lifecycleScope.launch {
+                                            repository.deleteCountdown(countdown)
+                                        }
+                                    },
+                                    onAddQuote = { quote ->
+                                        lifecycleScope.launch {
+                                            repository.upsertQuote(quote)
+                                        }
+                                    },
+                                    onUpdateQuote = { quote ->
+                                        lifecycleScope.launch {
+                                            repository.upsertQuote(quote)
+                                        }
+                                    },
+                                    onDeleteQuote = { quote ->
+                                        lifecycleScope.launch {
+                                            repository.deleteQuote(quote)
+                                        }
+                                    },
+                                    onQuickExerciseClick = { type, count ->
+                                        activeRequirements = listOf(ExerciseRequirement(type.name, count))
+                                        currentRequirementIndex = 0
+                                        unlockingVaultItem = null
+                                        currentScreen = "track"
+                                        exerciseManager.startTracking(type, trackingMode, count, null, "3-1-1-1", null, 1, null)
+                                    },
+                                    onQuickFlashcardClick = {
+                                        currentScreen = "flashcard_review"
+                                    },
+                                    onToggleTask = { task ->
+                                        lifecycleScope.launch {
+                                            val updated = task.copy(isCompleted = !task.isCompleted)
+                                            repository.upsertQuestBlock(updated)
+                                        }
+                                    },
+                                    onDeckPlay = { deckName ->
+                                        selectedDeckName = deckName
+                                        currentScreen = "flashcard_review"
+                                    },
+                                    onUrgeClick = {
+                                        showUrgeNegotiation = true
+                                    },
+                                    onPledgeClick = {
+                                        if (currentPledge?.status == "COMMITTED") {
+                                            val activateIntent = Intent(this@MainActivity, GritLockAccessibilityService::class.java).apply {
+                                                action = "ACTIVATE_EVENING_GATE"
+                                            }
+                                            startService(activateIntent)
+                                            currentScreen = "evening_review"
+                                        } else {
+                                            currentScreen = "pledge"
+                                        }
+                                    },
+                                    onViewLogClick = {
+                                        lifecycleScope.launch {
+                                            val date = Date()
+                                            val exporter = MarkdownExporter(this@MainActivity)
+                                            val logText = exporter.generateDailyLog(date)
+                                            generatedLogText = logText
+                                            
+                                            val file = exporter.saveLogToFile(logText, date)
+                                            if (file != null) {
+                                                Toast.makeText(this@MainActivity, "Log saved to: Documents/${file.name}", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    },
+                                    onStartPlanning = { currentScreen = "planning" },
+                                    onNavigateToLocks = { currentScreen = "locks" },
+                                    onNavigateToVault = { currentScreen = "vault" },
+                                    onNavigateToAnalytics = { currentScreen = "analytics" },
                                     onQuestClick = { quest ->
                                         selectedQuestId = quest.quest.id
                                         currentScreen = "quest_execution"

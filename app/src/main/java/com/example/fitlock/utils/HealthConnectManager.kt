@@ -12,9 +12,23 @@ import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.health.connect.client.units.Energy
 import androidx.health.connect.client.records.metadata.Metadata as HealthMetadata
+import androidx.health.connect.client.records.SleepSessionRecord
+import androidx.health.connect.client.records.HydrationRecord
+import androidx.health.connect.client.records.NutritionRecord
+import androidx.health.connect.client.request.ReadRecordsRequest
+import androidx.health.connect.client.units.Volume
+import java.time.Duration
 import java.time.Instant
 import java.time.ZonedDateTime
 import java.time.ZoneId
+
+data class VitalityMetrics(
+    val sleepHours: Double = 0.0,
+    val waterLiters: Double = 0.0,
+    val foodCalories: Double = 0.0,
+    val steps: Long = 0L,
+    val workoutRepsToday: Int = 0
+)
 
 class HealthConnectManager(private val context: Context) {
     private val healthConnectClient by lazy { HealthConnectClient.getOrCreate(context) }
@@ -27,7 +41,11 @@ class HealthConnectManager(private val context: Context) {
         HealthPermission.getWritePermission(StepsRecord::class),
         HealthPermission.getReadPermission(ExerciseSessionRecord::class),
         HealthPermission.getWritePermission(ExerciseSessionRecord::class),
-        HealthPermission.getWritePermission(TotalCaloriesBurnedRecord::class)
+        HealthPermission.getWritePermission(TotalCaloriesBurnedRecord::class),
+        HealthPermission.getReadPermission(SleepSessionRecord::class),
+        HealthPermission.getReadPermission(HydrationRecord::class),
+        HealthPermission.getWritePermission(HydrationRecord::class),
+        HealthPermission.getReadPermission(NutritionRecord::class)
     )
 
     suspend fun hasPermissions(): Boolean {
@@ -37,6 +55,88 @@ class HealthConnectManager(private val context: Context) {
         } catch (e: Exception) {
             Log.e("HealthConnect", "Error checking permissions", e)
             false
+        }
+    }
+
+    suspend fun readTodaySleepHours(): Double {
+        return try {
+            val zoneId = ZoneId.systemDefault()
+            val now = ZonedDateTime.now(zoneId)
+            val startTime = now.minusDays(1).toLocalDate().atStartOfDay(zoneId).toInstant()
+            val endTime = now.toInstant()
+
+            val response = healthConnectClient.readRecords(
+                ReadRecordsRequest(
+                    recordType = SleepSessionRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
+                )
+            )
+            val totalSeconds = response.records.sumOf { 
+                Duration.between(it.startTime, it.endTime).seconds
+            }
+            totalSeconds / 3600.0
+        } catch (e: Exception) {
+            Log.e("HealthConnect", "Error reading sleep", e)
+            0.0
+        }
+    }
+
+    suspend fun readTodayWaterLiters(): Double {
+        return try {
+            val zoneId = ZoneId.systemDefault()
+            val now = ZonedDateTime.now(zoneId)
+            val startTime = now.toLocalDate().atStartOfDay(zoneId).toInstant()
+            val endTime = now.toInstant()
+
+            val response = healthConnectClient.aggregate(
+                AggregateRequest(
+                    metrics = setOf(HydrationRecord.VOLUME_TOTAL),
+                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
+                )
+            )
+            val volume = response[HydrationRecord.VOLUME_TOTAL]
+            volume?.inLiters ?: 0.0
+        } catch (e: Exception) {
+            Log.e("HealthConnect", "Error reading hydration", e)
+            0.0
+        }
+    }
+
+    suspend fun readTodayNutritionCalories(): Double {
+        return try {
+            val zoneId = ZoneId.systemDefault()
+            val now = ZonedDateTime.now(zoneId)
+            val startTime = now.toLocalDate().atStartOfDay(zoneId).toInstant()
+            val endTime = now.toInstant()
+
+            val response = healthConnectClient.aggregate(
+                AggregateRequest(
+                    metrics = setOf(NutritionRecord.ENERGY_TOTAL),
+                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
+                )
+            )
+            val energy = response[NutritionRecord.ENERGY_TOTAL]
+            energy?.inKilocalories ?: 0.0
+        } catch (e: Exception) {
+            Log.e("HealthConnect", "Error reading nutrition", e)
+            0.0
+        }
+    }
+
+    suspend fun writeWaterIntake(liters: Double) {
+        try {
+            val now = Instant.now()
+            val record = HydrationRecord(
+                startTime = now.minusSeconds(60),
+                endTime = now,
+                startZoneOffset = ZonedDateTime.now().offset,
+                endZoneOffset = ZonedDateTime.now().offset,
+                volume = Volume.liters(liters),
+                metadata = HealthMetadata.manualEntry()
+            )
+            healthConnectClient.insertRecords(listOf(record))
+        } catch (e: Exception) {
+            Log.e("HealthConnect", "Error writing hydration", e)
         }
     }
 

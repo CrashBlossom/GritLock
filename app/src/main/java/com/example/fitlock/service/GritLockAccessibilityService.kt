@@ -34,6 +34,9 @@ import com.example.fitlock.data.ExerciseRequirement
 import com.example.fitlock.exercise.ExerciseType
 import com.example.fitlock.utils.NetworkUtils
 import com.example.fitlock.data.UserStats
+import com.example.fitlock.data.WorkoutHistory
+import com.example.fitlock.data.StatType
+import com.example.fitlock.utils.WidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -345,6 +348,8 @@ class GritLockAccessibilityService : AccessibilityService() {
             event.eventType == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) {
             
             val nodeToSearch = rootInActiveWindow ?: event.source
+            checkPositiveFocusApp(packageName, nodeToSearch)
+
             val targetGroup = evaluateAppBlocking(packageName, nodeToSearch)
 
             if (targetGroup != null) {
@@ -843,8 +848,57 @@ class GritLockAccessibilityService : AccessibilityService() {
         }
     }
 
+    private var lastPositiveTickTime = 0L
+
+    private fun checkPositiveFocusApp(packageName: String, rootNode: AccessibilityNodeInfo?) {
+        val enabledPositiveGroups = allGroups.filter { it.isEnabled && it.isProductive && isGroupActive(it) }
+        
+        val matchingGroup = enabledPositiveGroups.find { group ->
+            val matchesPackage = group.packageNames.contains(packageName)
+            if (group.keywords.isNotEmpty() && rootNode != null) {
+                val kw = findKeywordInNode(rootNode, group.keywords)
+                matchesPackage || kw != null
+            } else {
+                matchesPackage
+            }
+        }
+
+        if (matchingGroup != null) {
+            val now = System.currentTimeMillis()
+            if (now - lastPositiveTickTime >= 60_000L) {
+                lastPositiveTickTime = now
+                serviceScope.launch {
+                    val exerciseType = when {
+                        packageName == "com.duolingo" || matchingGroup.name.contains("French", ignoreCase = true) -> "FRENCH_STUDY"
+                        packageName == "com.ichi2.anki" || matchingGroup.name.contains("Anki", ignoreCase = true) || matchingGroup.name.contains("Flashcard", ignoreCase = true) -> "FLASHCARDS"
+                        else -> matchingGroup.rewardStat.name
+                    }
+
+                    db.dao().insertWorkout(
+                        WorkoutHistory(
+                            exerciseType = exerciseType,
+                            repsCompleted = 1,
+                            appGroupId = matchingGroup.id,
+                            xpGained = 10
+                        )
+                    )
+
+                    val stats = db.dao().getUserStats().first() ?: UserStats()
+                    val updatedInt = if (exerciseType == "FRENCH_STUDY" || exerciseType == "FLASHCARDS" || matchingGroup.rewardStat == StatType.INT) stats.intXp + 10 else stats.intXp
+                    db.dao().updateUserStats(stats.copy(totalXp = stats.totalXp + 10, intXp = updatedInt))
+                    
+                    handler.post {
+                        Toast.makeText(applicationContext, "[SYSTEM: +10 XP / +10 ${matchingGroup.rewardStat} earned for ${matchingGroup.name}]", Toast.LENGTH_SHORT).show()
+                    }
+
+                    WidgetUpdater.updateAllWidgets(applicationContext)
+                }
+            }
+        }
+    }
+
     private fun evaluateAppBlocking(activeApp: String, rootNode: AccessibilityNodeInfo?): AppGroup? {
-        val enabledActiveGroups = allGroups.filter { it.isEnabled && isGroupActive(it) }
+        val enabledActiveGroups = allGroups.filter { it.isEnabled && isGroupActive(it) && !it.isProductive }
         
         // 1. Full Package Groups (Package matches activeApp, and NO keywords specified)
         val fullPackageGroups = enabledActiveGroups.filter { it.packageNames.contains(activeApp) && it.keywords.isEmpty() }

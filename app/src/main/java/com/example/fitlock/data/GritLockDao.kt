@@ -141,6 +141,9 @@ interface GritLockDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertQuote(quote: MotivationalQuote)
 
+    @Delete
+    suspend fun deleteQuote(quote: MotivationalQuote)
+
     @Query("SELECT * FROM motivational_quotes WHERE category = :category")
     fun getQuotesByCategory(category: String): Flow<List<MotivationalQuote>>
 
@@ -303,4 +306,14 @@ interface GritLockDao {
 
     @Query("SELECT * FROM progression_levels WHERE familyId = :familyId AND level = :level")
     suspend fun getLevelData(familyId: String, level: Int): ProgressionLevel?
+
+    // Date Countdowns / Countups
+    @Query("SELECT * FROM date_countdowns ORDER BY targetDate ASC")
+    fun getAllCountdowns(): Flow<List<DateCountdown>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertCountdown(countdown: DateCountdown)
+
+    @Delete
+    suspend fun deleteCountdown(countdown: DateCountdown)
 }

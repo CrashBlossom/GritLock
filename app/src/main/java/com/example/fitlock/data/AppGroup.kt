@@ -388,3 +388,12 @@ data class UsageBaseline(
     @PrimaryKey val packageName: String,
     val baselineMinutesPerDay: Int
 )
+
+@Entity(tableName = "date_countdowns")
+data class DateCountdown(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val targetDate: String, // YYYY-MM-DD
+    val icon: String = "event",
+    val isCountup: Boolean = false
+)
