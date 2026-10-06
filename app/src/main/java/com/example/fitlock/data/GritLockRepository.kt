@@ -87,6 +87,8 @@ class GritLockRepository(private val dao: GritLockDao, private val context: Cont
     suspend fun upsertQuestBlocks(blocks: List<QuestBlock>) = dao.upsertQuestBlocks(blocks)
     suspend fun deleteBlocksForQuest(questId: String) = dao.deleteBlocksForQuest(questId)
     val unfinishedTasks: Flow<List<QuestBlock>> = dao.getUnfinishedTasks()
+    val completedTasks: Flow<List<QuestBlock>> = dao.getCompletedTasks()
+    suspend fun deleteQuestBlock(block: QuestBlock) = dao.deleteQuestBlock(block)
 
     // Forge Management
     val allExerciseDefinitions: Flow<List<ExerciseDefinition>> = dao.getAllExerciseDefinitions()

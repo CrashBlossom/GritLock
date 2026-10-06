@@ -76,6 +76,21 @@ val CozyTheme = GritLockThemeData(
     primaryColor = Color(0xFF8B4513) // Saddle Brown
 )
 
+val WinterArcTheme = GritLockThemeData(
+    id = "WINTER_ARC",
+    name = "Winter Arc (Ice & Dark Sky)",
+    tabHome = "Citadel",
+    tabAtlas = "Ice Map",
+    tabLocks = "Glacier",
+    tabForge = "Frost Forge",
+    tabUrge = "DISCIPLINE",
+    tabAnalytics = "Frost Logs",
+    tabProfile = "Monk",
+    logName = "Winter Log",
+    primaryColor = Color(0xFF81D4FA), // Icy Blue Accent
+    surfaceColor = Color(0xFF0D1B2A)  // Dark Midnight Sky
+)
+
 val DefaultGritTheme = GritLockThemeData(
     id = "DEFAULT",
     name = "Default",
@@ -91,6 +106,7 @@ fun getThemeData(id: String): GritLockThemeData {
         "AGENT" -> AgentTheme
         "SOLO" -> SoloLevelerTheme
         "COZY" -> CozyTheme
+        "WINTER_ARC" -> WinterArcTheme
         else -> DefaultGritTheme
     }
 }

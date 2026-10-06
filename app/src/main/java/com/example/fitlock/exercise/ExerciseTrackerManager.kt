@@ -68,7 +68,7 @@ class ExerciseTrackerManager(
         onStationaryStatusChanged(false)
 
         if (mode == TrackingMode.CAMERA) {
-            tempoTracker = TempoTracker(tempo, ::speak, ::onRepDetected)
+            tempoTracker = TempoTracker(tempo, ::speak, {})
             tempoTracker?.start()
         }
         

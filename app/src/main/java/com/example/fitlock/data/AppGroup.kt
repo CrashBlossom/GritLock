@@ -5,7 +5,7 @@ import java.util.concurrent.ConcurrentHashMap
 
 enum class StatType { STR, AGI, VIT, INT, SEN, CHA }
 
-enum class GauntletTriggerType { MANUAL, TIME_BASED }
+enum class GauntletTriggerType { MANUAL, TIME_BASED, WIFI, TIME_AND_WIFI }
 enum class PhysicalTriggerType { NONE, NFC, QR }
 enum class AvatarType { SEEKER, WARRIOR, MAGE, ROGUE }
 enum class HabitMediaType { NONE, IMAGE, GIF, YOUTUBE }

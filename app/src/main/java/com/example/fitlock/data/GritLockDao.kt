@@ -238,6 +238,12 @@ interface GritLockDao {
     @Query("SELECT * FROM quest_blocks WHERE type = 'TASK' AND isCompleted = 0")
     fun getUnfinishedTasks(): Flow<List<QuestBlock>>
 
+    @Query("SELECT * FROM quest_blocks WHERE type = 'TASK' AND isCompleted = 1 ORDER BY completionTimestamp DESC")
+    fun getCompletedTasks(): Flow<List<QuestBlock>>
+
+    @Delete
+    suspend fun deleteQuestBlock(block: QuestBlock)
+
     // Exercise Library
     @Query("SELECT * FROM exercise_definitions")
     fun getAllExerciseDefinitions(): Flow<List<ExerciseDefinition>>

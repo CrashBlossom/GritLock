@@ -95,6 +95,25 @@ fun GritLockTheme(
         } else {
             lightColorScheme(primary = archetype.primaryColor, background = Color(0xFFFFF8E1), surface = Color(0xFFFFFFFF))
         }
+        "WINTER_ARC" -> if (isDarkMode) {
+            darkColorScheme(
+                primary = archetype.primaryColor,
+                background = Color(0xFF070F18),
+                surface = Color(0xFF0D1B2A),
+                surfaceVariant = Color(0xFF1B263B),
+                onBackground = Color(0xFFE0F7FA),
+                onSurface = Color(0xFFE0F7FA)
+            )
+        } else {
+            lightColorScheme(
+                primary = archetype.primaryColor,
+                background = Color(0xFFE0F7FA),
+                surface = Color(0xFFB2EBF2),
+                surfaceVariant = Color(0xFF80DEEA),
+                onBackground = Color(0xFF0D1B2A),
+                onSurface = Color(0xFF0D1B2A)
+            )
+        }
         else -> when (themeName) {
             "Emerald" -> if (isDarkMode) DarkEmerald else LightEmerald
             "Crimson" -> if (isDarkMode) DarkCrimson else LightCrimson

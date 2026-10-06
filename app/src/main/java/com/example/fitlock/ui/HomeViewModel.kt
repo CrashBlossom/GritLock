@@ -38,6 +38,9 @@ class HomeViewModel @Inject constructor(
     val unfinishedTasks = repository.unfinishedTasks
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val completedTasks = repository.completedTasks
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val userStats = repository.userStats
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 

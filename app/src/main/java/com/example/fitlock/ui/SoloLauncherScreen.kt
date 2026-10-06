@@ -2,9 +2,11 @@ package com.example.fitlock.ui
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,6 +28,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -40,6 +43,7 @@ import com.example.fitlock.data.*
 import com.example.fitlock.exercise.ExerciseType
 import com.example.fitlock.utils.AppInfoFetcher
 import com.example.fitlock.utils.VitalityMetrics
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -56,6 +60,8 @@ fun SoloLauncherScreen(
     currentPledge: DailyPledge?,
     vitalityMetrics: VitalityMetrics = VitalityMetrics(),
     unfinishedTasks: List<QuestBlock> = emptyList(),
+    completedTasks: List<QuestBlock> = emptyList(),
+    unfinishedProjectTasks: List<ProjectTask> = emptyList(),
     countdowns: List<DateCountdown> = emptyList(),
     deckSummaries: List<DeckSummary> = emptyList(),
     quotes: List<MotivationalQuote> = emptyList(),
@@ -67,7 +73,13 @@ fun SoloLauncherScreen(
     onAddQuote: (MotivationalQuote) -> Unit = {},
     onUpdateQuote: (MotivationalQuote) -> Unit = {},
     onDeleteQuote: (MotivationalQuote) -> Unit = {},
+    onAddTask: (String, Int, String) -> Unit = { _, _, _ -> },
     onToggleTask: (QuestBlock) -> Unit = {},
+    onStartTaskTracking: (QuestBlock) -> Unit = {},
+    onStopTaskTracking: (QuestBlock) -> Unit = {},
+    onDeleteTask: (QuestBlock) -> Unit = {},
+    onUpdateTask: (QuestBlock) -> Unit = {},
+    onDeleteProjectTask: (ProjectTask) -> Unit = {},
     onDeckPlay: (String) -> Unit = {},
     onQuickExerciseClick: (ExerciseType, Int) -> Unit = { _, _ -> },
     onQuickFlashcardClick: () -> Unit = {},
@@ -94,8 +106,13 @@ fun SoloLauncherScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(MaterialTheme.colorScheme.background)
     ) {
+        // Winter Arc Frosted Snow Effect Overlay
+        if (isWinterArc) {
+            FrostedSnowOverlay()
+        }
+
         Column(modifier = Modifier.fillMaxSize()) {
             // Minimal Page Indicator Dots Header
             Row(
@@ -112,7 +129,7 @@ fun SoloLauncherScreen(
                             .padding(horizontal = 2.5.dp)
                             .size(if (isSelected) 8.dp else 4.dp)
                             .background(
-                                if (isSelected) Color(0xFFD0BCFF) else Color.Gray.copy(alpha = 0.3f),
+                                if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f),
                                 CircleShape
                             )
                     )
@@ -158,10 +175,18 @@ fun SoloLauncherScreen(
 
                     4 -> SoloCalendarTasksTab(
                         unfinishedTasks = unfinishedTasks,
+                        completedTasks = completedTasks,
+                        unfinishedProjectTasks = unfinishedProjectTasks,
                         countdowns = countdowns,
                         onAddCountdown = onAddCountdown,
                         onDeleteCountdown = onDeleteCountdown,
-                        onToggleTask = onToggleTask
+                        onAddTask = onAddTask,
+                        onToggleTask = onToggleTask,
+                        onStartTaskTracking = onStartTaskTracking,
+                        onStopTaskTracking = onStopTaskTracking,
+                        onDeleteTask = onDeleteTask,
+                        onUpdateTask = onUpdateTask,
+                        onDeleteProjectTask = onDeleteProjectTask
                     )
 
                     5 -> SoloMentalVaultTab(
@@ -184,10 +209,29 @@ fun SoloLauncherScreen(
 
                     7 -> SoloChallengesTab(
                         challenges = challenges,
+                        history = history,
                         onChallengeClick = onChallengeClick
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun FrostedSnowOverlay() {
+    Canvas(modifier = Modifier.fillMaxSize()) {
+        val random = Random(101)
+        for (i in 0 until 50) {
+            val x = random.nextFloat() * size.width
+            val y = random.nextFloat() * size.height
+            val radius = random.nextFloat() * 2.5.dp.toPx() + 1.dp.toPx()
+            val alpha = random.nextFloat() * 0.45f + 0.15f
+            drawCircle(
+                color = Color(0xFFE0F7FA).copy(alpha = alpha),
+                radius = radius,
+                center = Offset(x, y)
+            )
         }
     }
 }
@@ -245,23 +289,23 @@ fun SoloMainHabitsTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(MaterialTheme.colorScheme.background)
             .padding(12.dp)
             .verticalScroll(rememberScrollState())
     ) {
         // System Ticker Header
         Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.AutoAwesome, null, tint = Color(0xFFD0BCFF))
+                Icon(Icons.Default.AutoAwesome, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         if (isWinterArc) "❄️ [WINTER ARC PROTOCOL ACTIVE]" else "[SYSTEM DIRECTIVE: DAILY QUEST]",
-                        color = if (isWinterArc) Color(0xFF81D4FA) else Color(0xFFD0BCFF),
+                        color = MaterialTheme.colorScheme.primary,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold
                     )
@@ -292,12 +336,12 @@ fun SoloMainHabitsTab(
 
         // Daily Target Goals Progress Card
         Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
-                Text("TODAY'S AIM & TARGET GOALS", color = Color(0xFFD0BCFF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text("TODAY'S AIM & TARGET GOALS", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
 
                 DailyGoalProgressRow("💪 Pushups", todayPushups, targetPushups, "reps") {
@@ -315,13 +359,14 @@ fun SoloMainHabitsTab(
                 DailyGoalProgressRow("🧠 Anki Cards", todayFlashcards, targetFlashcards, "cards") {
                     onQuickFlashcardClick()
                 }
+                DailyGoalProgressRow("🚣 Rowing", vitalityMetrics.rowingMinutes.toInt(), 20, "mins")
                 DailyGoalProgressRow("💧 Water Drink", vitalityMetrics.waterLiters.toInt(), targetWater.toInt(), "L")
                 DailyGoalProgressRow("👟 Steps", vitalityMetrics.steps.toInt(), targetSteps.toInt(), "steps")
             }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
-        Text("QUICK TRAINING PORTALS (DAILY EXERCISE LINKS)", color = Color(0xFFD0BCFF), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Text("QUICK TRAINING PORTALS (DAILY EXERCISE LINKS)", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(6.dp))
 
         Row(
@@ -353,7 +398,7 @@ fun SoloMainHabitsTab(
 
         if (activeQuests.isEmpty()) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -363,11 +408,11 @@ fun SoloMainHabitsTab(
             activeQuests.forEach { q ->
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { onQuestClick(q) },
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(12.dp)
                 ) {
                     Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.TaskAlt, null, tint = Color(0xFFD0BCFF))
+                        Icon(Icons.Default.TaskAlt, null, tint = MaterialTheme.colorScheme.primary)
                         Spacer(modifier = Modifier.width(12.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(q.quest.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -387,7 +432,7 @@ fun SoloMainHabitsTab(
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C1C21)),
             shape = RoundedCornerShape(10.dp)
         ) {
-            Icon(Icons.Default.Build, null, tint = Color(0xFFD0BCFF), modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.Build, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("Open The Forge (Training Library)", color = Color.White, fontSize = 12.sp)
         }
@@ -423,7 +468,7 @@ fun DailyGoalProgressRow(
         LinearProgressIndicator(
             progress = { progress },
             modifier = Modifier.fillMaxWidth().height(4.dp),
-            color = if (isMet) Color(0xFF81C784) else Color(0xFFD0BCFF),
+            color = if (isMet) Color(0xFF81C784) else MaterialTheme.colorScheme.primary,
             trackColor = Color(0xFF2C2C35)
         )
     }
@@ -454,15 +499,21 @@ fun QuickTrainingCard(title: String, icon: ImageVector, color: Color, modifier: 
 @Composable
 fun SoloChallengesTab(
     challenges: List<Challenge>,
+    history: List<WorkoutHistory>,
     onChallengeClick: (Challenge) -> Unit
 ) {
     val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     val context = LocalContext.current
 
+    val todayHistory = remember(history) {
+        val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
+        history.filter { it.timestamp >= cal.timeInMillis }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(MaterialTheme.colorScheme.background)
             .padding(12.dp)
             .verticalScroll(rememberScrollState())
     ) {
@@ -471,16 +522,16 @@ fun SoloChallengesTab(
 
         // Time Window Banner Card
         Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.AccessTime, null, tint = Color(0xFFD0BCFF))
+                Icon(Icons.Default.AccessTime, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text("Current System Time: $currentHour:00 Hours", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text("Some challenges are time-gated to specific morning/evening hours.", color = Color.Gray, fontSize = 10.sp)
+                    Text("Challenges complete automatically as you perform exercises throughout the day.", color = Color.Gray, fontSize = 10.sp)
                 }
             }
         }
@@ -491,7 +542,7 @@ fun SoloChallengesTab(
 
         if (challenges.isEmpty()) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -508,6 +559,17 @@ fun SoloChallengesTab(
                     else -> true
                 }
 
+                val isCompleted = challenge.isCompletedToday || challenge.requirements.all { req ->
+                    val done = todayHistory
+                        .filter { 
+                            it.exerciseType.equals(req.type, ignoreCase = true) || 
+                            (req.type.equals("FLASHCARDS", ignoreCase = true) && (it.exerciseType.contains("ANKI", ignoreCase = true) || it.exerciseType.equals("FLASHCARDS", ignoreCase = true))) ||
+                            (req.type.equals("FRENCH_STUDY", ignoreCase = true) && (it.exerciseType.contains("FRENCH", ignoreCase = true) || it.exerciseType.contains("DUOLINGO", ignoreCase = true)))
+                        }
+                        .sumOf { it.repsCompleted }
+                    done >= req.count
+                }
+
                 val timeWindowText = when {
                     isMorningChallenge -> "Time Window: Morning (04:00 - 12:00)"
                     isEveningChallenge -> "Time Window: Evening (18:00 - 23:59)"
@@ -519,7 +581,9 @@ fun SoloChallengesTab(
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
                         .clickable {
-                            if (isTimeAllowed) {
+                            if (isCompleted) {
+                                Toast.makeText(context, "Challenge already cleared for today!", Toast.LENGTH_SHORT).show()
+                            } else if (isTimeAllowed) {
                                 onChallengeClick(challenge)
                             } else {
                                 Toast.makeText(
@@ -530,10 +594,18 @@ fun SoloChallengesTab(
                             }
                         },
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isTimeAllowed) Color(0xFF14141B) else Color(0xFF1C1215)
+                        containerColor = when {
+                            isCompleted -> Color(0xFF14221A)
+                            isTimeAllowed -> MaterialTheme.colorScheme.surface
+                            else -> Color(0xFF1C1215)
+                        }
                     ),
                     shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, if (isTimeAllowed) Color(0xFFD0BCFF).copy(alpha = 0.3f) else Color(0xFFEF5350).copy(alpha = 0.4f))
+                    border = BorderStroke(1.dp, when {
+                        isCompleted -> Color(0xFF81C784).copy(alpha = 0.5f)
+                        isTimeAllowed -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        else -> Color(0xFFEF5350).copy(alpha = 0.4f)
+                    })
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
                         Row(
@@ -543,12 +615,24 @@ fun SoloChallengesTab(
                         ) {
                             Text(challenge.title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             Surface(
-                                color = (if (isTimeAllowed) Color(0xFF81C784) else Color(0xFFEF5350)).copy(alpha = 0.2f),
+                                color = (when {
+                                    isCompleted -> Color(0xFF81C784)
+                                    isTimeAllowed -> Color(0xFF64B5F6)
+                                    else -> Color(0xFFEF5350)
+                                }).copy(alpha = 0.2f),
                                 shape = RoundedCornerShape(6.dp)
                             ) {
                                 Text(
-                                    text = if (isTimeAllowed) "UNLOCKED" else "TIME-LOCKED",
-                                    color = if (isTimeAllowed) Color(0xFF81C784) else Color(0xFFEF5350),
+                                    text = when {
+                                        isCompleted -> "CLEARED ✓"
+                                        isTimeAllowed -> "UNLOCKED"
+                                        else -> "TIME-LOCKED"
+                                    },
+                                    color = when {
+                                        isCompleted -> Color(0xFF81C784)
+                                        isTimeAllowed -> Color(0xFF64B5F6)
+                                        else -> Color(0xFFEF5350)
+                                    },
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -557,12 +641,33 @@ fun SoloChallengesTab(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(challenge.description, color = Color.Gray, fontSize = 11.sp)
+                        
+                        Spacer(modifier = Modifier.height(6.dp))
+                        // Requirements breakdown
+                        challenge.requirements.forEach { req ->
+                            val done = todayHistory
+                                .filter { 
+                                    it.exerciseType.equals(req.type, ignoreCase = true) || 
+                                    (req.type.equals("FLASHCARDS", ignoreCase = true) && (it.exerciseType.contains("ANKI", ignoreCase = true) || it.exerciseType.equals("FLASHCARDS", ignoreCase = true))) ||
+                                    (req.type.equals("FRENCH_STUDY", ignoreCase = true) && (it.exerciseType.contains("FRENCH", ignoreCase = true) || it.exerciseType.contains("DUOLINGO", ignoreCase = true)))
+                                }
+                                .sumOf { it.repsCompleted }
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("• ${req.type}:", color = Color.Gray, fontSize = 10.sp)
+                                Text("$done / ${req.count}", color = if (done >= req.count) Color(0xFF81C784) else Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text(timeWindowText, color = Color(0xFFD0BCFF), fontSize = 10.sp)
+                            Text(timeWindowText, color = MaterialTheme.colorScheme.primary, fontSize = 10.sp)
                             Text("+${challenge.xpReward} XP", color = Color(0xFFFFB74D), fontWeight = FontWeight.Bold, fontSize = 11.sp)
                         }
                     }
@@ -582,12 +687,20 @@ fun SoloPortalsTab(
     onNavigateToVault: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
     var searchQuery by remember { mutableStateOf("") }
-    val allApps = remember { AppInfoFetcher.getInstalledApps(context) }
-    val filteredApps = allApps.filter { 
-        it.name.contains(searchQuery, ignoreCase = true) || 
-        it.packageName.contains(searchQuery, ignoreCase = true) 
+    var selectedAppForAction by remember { mutableStateOf<AppInfo?>(null) }
+    var hiddenApps by remember { 
+        mutableStateOf(prefs.getStringSet("hidden_apps", emptySet()) ?: emptySet()) 
     }
+
+    val allApps = remember { AppInfoFetcher.getInstalledApps(context) }
+    val filteredApps = allApps
+        .filter { !hiddenApps.contains(it.packageName) }
+        .filter { 
+            it.name.contains(searchQuery, ignoreCase = true) || 
+            it.packageName.contains(searchQuery, ignoreCase = true) 
+        }
 
     val sortedApps = filteredApps.sortedWith(compareBy({ app ->
         val group = appGroups.find { g -> g.isEnabled && g.packageNames.contains(app.packageName) }
@@ -601,7 +714,7 @@ fun SoloPortalsTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(MaterialTheme.colorScheme.background)
             .padding(12.dp)
     ) {
         Text("DUNGEON GATES (APP PORTALS)", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -619,8 +732,8 @@ fun SoloPortalsTab(
                 leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray, modifier = Modifier.size(16.dp)) },
                 shape = RoundedCornerShape(10.dp),
                 colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Color(0xFF14141B),
-                    unfocusedContainerColor = Color(0xFF14141B)
+                    focusedContainerColor = MaterialTheme.colorScheme.surface,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surface
                 )
             )
 
@@ -630,9 +743,9 @@ fun SoloPortalsTab(
                 onClick = onNavigateToLocks,
                 modifier = Modifier
                     .size(42.dp)
-                    .background(Color(0xFF14141B), RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
             ) {
-                Icon(Icons.Default.Lock, contentDescription = "App Blocks", tint = Color(0xFFD0BCFF), modifier = Modifier.size(18.dp))
+                Icon(Icons.Default.Lock, contentDescription = "App Blocks", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
             }
 
             Spacer(modifier = Modifier.width(4.dp))
@@ -641,7 +754,7 @@ fun SoloPortalsTab(
                 onClick = onNavigateToVault,
                 modifier = Modifier
                     .size(42.dp)
-                    .background(Color(0xFF14141B), RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
             ) {
                 Icon(Icons.Default.Key, contentDescription = "Secret Vault", tint = Color(0xFF81C784), modifier = Modifier.size(18.dp))
             }
@@ -686,20 +799,82 @@ fun SoloPortalsTab(
                                 context.startActivity(launchIntent)
                             }
                         }
+                    },
+                    onLongClick = {
+                        selectedAppForAction = app
                     }
                 )
             }
         }
     }
+
+    selectedAppForAction?.let { app ->
+        AlertDialog(
+            onDismissRequest = { selectedAppForAction = null },
+            title = { Text("Manage Portal: ${app.name}") },
+            text = { Text("Choose an action for this app portal:") },
+            confirmButton = {
+                Column {
+                    Button(
+                        onClick = {
+                            onNavigateToLocks()
+                            selectedAppForAction = null
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Lock, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Create App Block")
+                    }
+                    Button(
+                        onClick = {
+                            val newSet = hiddenApps.toMutableSet()
+                            newSet.add(app.packageName)
+                            hiddenApps = newSet
+                            prefs.edit().putStringSet("hidden_apps", newSet).apply()
+                            selectedAppForAction = null
+                            Toast.makeText(context, "${app.name} hidden from launcher portals", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C2C35)),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.VisibilityOff, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Hide App from Launcher")
+                    }
+                    Button(
+                        onClick = {
+                            val uninstallIntent = Intent(Intent.ACTION_DELETE, Uri.parse("package:${app.packageName}"))
+                            context.startActivity(uninstallIntent)
+                            selectedAppForAction = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF5C1C1C)),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Uninstall App", color = Color.Red)
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { selectedAppForAction = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun DungeonGateCard(
     app: AppInfo,
     matchingGroup: AppGroup?,
     isLocked: Boolean,
     isProductive: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onLongClick: () -> Unit = {}
 ) {
     val rankColor = when {
         isProductive -> Color(0xFF81C784)
@@ -715,12 +890,15 @@ fun DungeonGateCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onClick() },
+            .combinedClickable(
+                onClick = onClick,
+                onLongClick = onLongClick
+            ),
         colors = CardDefaults.cardColors(
             containerColor = when {
                 isProductive -> Color(0xFF14221A)
                 isLocked -> Color(0xFF1C1215)
-                else -> Color(0xFF14141B)
+                else -> MaterialTheme.colorScheme.surface
             }
         ),
         shape = RoundedCornerShape(12.dp),
@@ -837,7 +1015,7 @@ fun SoloWeeklyMatrixTab(
             val pushups = dayHistory.filter { it.exerciseType.equals("PUSHUP", ignoreCase = true) }.sumOf { it.repsCompleted }
             val squats = dayHistory.filter { it.exerciseType.equals("SQUAT", ignoreCase = true) }.sumOf { it.repsCompleted }
             val flashcards = dayHistory.filter { it.exerciseType.equals("FLASHCARDS", ignoreCase = true) || it.exerciseType.contains("ANKI", ignoreCase = true) }.sumOf { it.repsCompleted }
-            val frenchStudy = dayHistory.filter { it.exerciseType.contains("FRENCH", ignoreCase = true) || it.exerciseType.contains("DUOLINGO", ignoreCase = true) }.sumOf { it.repsCompleted }
+            val rowingMinutes = dayHistory.filter { it.exerciseType.equals("ROWING", ignoreCase = true) || it.exerciseType.contains("ERG", ignoreCase = true) }.sumOf { it.repsCompleted }
             
             val morningDone = dayPledge?.pledgeTimestamp != null || dayPledge?.status == "COMMITTED" || dayPledge?.status == "SUCCESS"
             val eveningDone = dayPledge?.reviewTimestamp != null || dayPledge?.eveningReflection?.isNotBlank() == true || dayPledge?.status == "SUCCESS"
@@ -853,14 +1031,14 @@ fun SoloWeeklyMatrixTab(
                 else -> ""
             }
 
-            WeeklyDayStats(dayName, pushups, squats, flashcards, frenchStudy, morningDone, eveningDone)
+            WeeklyDayStats(dayName, pushups, squats, flashcards, rowingMinutes, morningDone, eveningDone)
         }.reversed()
     }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(MaterialTheme.colorScheme.background)
             .padding(12.dp)
             .verticalScroll(rememberScrollState())
     ) {
@@ -868,7 +1046,7 @@ fun SoloWeeklyMatrixTab(
         Spacer(modifier = Modifier.height(8.dp))
 
         Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -877,7 +1055,7 @@ fun SoloWeeklyMatrixTab(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
-                    Text("HABIT TARGET", color = Color(0xFFD0BCFF), fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(2.2f))
+                    Text("HABIT TARGET", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(2.2f))
                     last7Days.forEach { day ->
                         Text(day.dayName, color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
                     }
@@ -887,8 +1065,8 @@ fun SoloWeeklyMatrixTab(
 
                 WeeklyMatrixRow("💪 Pushups (15)", last7Days.map { Pair(it.pushups, if (it.pushups >= 15) MatrixCellState.GOLD else if (it.pushups > 0) MatrixCellState.GREEN else MatrixCellState.MISSED) })
                 WeeklyMatrixRow("🦵 Squats (20)", last7Days.map { Pair(it.squats, if (it.squats >= 20) MatrixCellState.GOLD else if (it.squats > 0) MatrixCellState.GREEN else MatrixCellState.MISSED) })
-                WeeklyMatrixRow("🧠 Flashcards", last7Days.map { Pair(it.flashcards, if (it.flashcards >= 10) MatrixCellState.GOLD else if (it.flashcards > 0) MatrixCellState.GREEN else MatrixCellState.MISSED) })
-                WeeklyMatrixRow("🇫🇷 French Study", last7Days.map { Pair(it.frenchStudy, if (it.frenchStudy > 0) MatrixCellState.GREEN else MatrixCellState.MISSED) })
+                WeeklyMatrixRow("🧠 Anki Cards", last7Days.map { Pair(it.flashcards, if (it.flashcards >= 10) MatrixCellState.GOLD else if (it.flashcards > 0) MatrixCellState.GREEN else MatrixCellState.MISSED) })
+                WeeklyMatrixRow("🚣 Rowing (20m)", last7Days.map { Pair(it.rowingMinutes, if (it.rowingMinutes >= 20) MatrixCellState.GOLD else if (it.rowingMinutes >= 5) MatrixCellState.GREEN else MatrixCellState.MISSED) })
                 WeeklyMatrixRow("☀️ Morn. Journal", last7Days.map { Pair(if (it.morningDone) 1 else 0, if (it.morningDone) MatrixCellState.GREEN else MatrixCellState.MISSED) })
                 WeeklyMatrixRow("🌙 Eve. Review", last7Days.map { Pair(if (it.eveningDone) 1 else 0, if (it.eveningDone) MatrixCellState.GREEN else MatrixCellState.MISSED) })
             }
@@ -901,7 +1079,7 @@ data class WeeklyDayStats(
     val pushups: Int,
     val squats: Int,
     val flashcards: Int,
-    val frenchStudy: Int,
+    val rowingMinutes: Int,
     val morningDone: Boolean,
     val eveningDone: Boolean
 )
@@ -956,7 +1134,7 @@ fun SoloStatsVitalityTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(MaterialTheme.colorScheme.background)
             .padding(12.dp)
             .verticalScroll(rememberScrollState())
     ) {
@@ -978,7 +1156,7 @@ fun SoloStatsVitalityTab(
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C1C21)),
             shape = RoundedCornerShape(10.dp)
         ) {
-            Icon(Icons.Default.Analytics, contentDescription = null, tint = Color(0xFFD0BCFF), modifier = Modifier.size(16.dp))
+            Icon(Icons.Default.Analytics, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(8.dp))
             Text("View Full Workout History & Analytics", color = Color.White, fontSize = 12.sp)
         }
@@ -991,7 +1169,7 @@ fun VitalityHubCard(
     onAddWater: (Double) -> Unit
 ) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
@@ -1048,22 +1226,37 @@ fun VitalityMetricItem(label: String, value: String, icon: ImageVector, color: C
 // ---------------------------------------------------------------------------
 // PAGE 4: DAILY CALENDAR, COUNTDOWNS & TO-DO CHECKLIST
 // ---------------------------------------------------------------------------
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SoloCalendarTasksTab(
     unfinishedTasks: List<QuestBlock>,
+    completedTasks: List<QuestBlock> = emptyList(),
+    unfinishedProjectTasks: List<ProjectTask> = emptyList(),
     countdowns: List<DateCountdown> = emptyList(),
     onAddCountdown: (DateCountdown) -> Unit = {},
     onDeleteCountdown: (DateCountdown) -> Unit = {},
-    onToggleTask: (QuestBlock) -> Unit
+    onAddTask: (String, Int, String) -> Unit = { _, _, _ -> },
+    onToggleTask: (QuestBlock) -> Unit = {},
+    onStartTaskTracking: (QuestBlock) -> Unit = {},
+    onStopTaskTracking: (QuestBlock) -> Unit = {},
+    onDeleteTask: (QuestBlock) -> Unit = {},
+    onUpdateTask: (QuestBlock) -> Unit = {},
+    onDeleteProjectTask: (ProjectTask) -> Unit = {}
 ) {
     val today = remember { LocalDate.now() }
     val formattedDate = remember(today) { today.format(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy")) }
-    var showAddDialog by remember { mutableStateOf(false) }
+    var showAddCountdownDialog by remember { mutableStateOf(false) }
+    var showAddTaskDialog by remember { mutableStateOf(false) }
+    var showBrainstormDialog by remember { mutableStateOf(false) }
+    var selectedTaskForAction by remember { mutableStateOf<QuestBlock?>(null) }
+    var taskToEdit by remember { mutableStateOf<QuestBlock?>(null) }
+
+    val activeTrackingTask = unfinishedTasks.find { it.isCurrentlyTracking }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(MaterialTheme.colorScheme.background)
             .padding(12.dp)
             .verticalScroll(rememberScrollState())
     ) {
@@ -1072,16 +1265,82 @@ fun SoloCalendarTasksTab(
 
         // Date Header Card
         Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Today, null, tint = Color(0xFFD0BCFF))
+                Icon(Icons.Default.Today, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(formattedDate, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Text("Daily Agenda & System To-Do Items", color = Color.Gray, fontSize = 10.sp)
+                }
+            }
+        }
+
+        // Active Task Tracking Card (If currently tracking)
+        activeTrackingTask?.let { task ->
+            Spacer(modifier = Modifier.height(12.dp))
+            val startMs = task.trackingStartTimestamp ?: System.currentTimeMillis()
+            var elapsedSecs by remember { mutableStateOf((System.currentTimeMillis() - startMs) / 1000) }
+
+            LaunchedEffect(startMs) {
+                while (true) {
+                    delay(1000)
+                    elapsedSecs = (System.currentTimeMillis() - startMs) / 1000
+                }
+            }
+
+            val predictedMins = (task.estimatedDurationSeconds ?: 600) / 60
+            val elapsedMins = elapsedSecs / 60
+            val elapsedRemSecs = elapsedSecs % 60
+
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1B2A1E)),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFF81C784)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Timer, null, tint = Color(0xFF81C784), modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("TASK IN PROGRESS", color = Color(0xFF81C784), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                        }
+                        Text(
+                            String.format(Locale.US, "%02d:%02d / %dm", elapsedMins, elapsedRemSecs, predictedMins),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(task.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = { onStopTaskTracking(task) }) {
+                            Text("Stop", color = Color.Gray, fontSize = 11.sp)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = { onToggleTask(task) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E5938))
+                        ) {
+                            Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Mark Complete", color = Color.White, fontSize = 11.sp)
+                        }
+                    }
                 }
             }
         }
@@ -1095,16 +1354,16 @@ fun SoloCalendarTasksTab(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text("COUNTDOWNS & MILESTONES", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            TextButton(onClick = { showAddDialog = true }, modifier = Modifier.height(24.dp), contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Default.Add, contentDescription = null, tint = Color(0xFFD0BCFF), modifier = Modifier.size(14.dp))
+            TextButton(onClick = { showAddCountdownDialog = true }, modifier = Modifier.height(24.dp), contentPadding = PaddingValues(0.dp)) {
+                Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
                 Spacer(modifier = Modifier.width(2.dp))
-                Text("Add Event", fontSize = 10.sp, color = Color(0xFFD0BCFF))
+                Text("Add Event", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
             }
         }
 
         if (countdowns.isEmpty()) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -1123,7 +1382,7 @@ fun SoloCalendarTasksTab(
 
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Row(
@@ -1157,22 +1416,54 @@ fun SoloCalendarTasksTab(
         }
 
         Spacer(modifier = Modifier.height(14.dp))
-        Text("SYSTEM TO-DO CHECKLIST", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("SYSTEM TO-DO CHECKLIST", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Row {
+                TextButton(onClick = { showBrainstormDialog = true }, modifier = Modifier.height(24.dp), contentPadding = PaddingValues(0.dp)) {
+                    Icon(Icons.Default.Lightbulb, contentDescription = null, tint = Color(0xFFFFB74D), modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text("Backlog", fontSize = 10.sp, color = Color(0xFFFFB74D))
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                TextButton(onClick = { showAddTaskDialog = true }, modifier = Modifier.height(24.dp), contentPadding = PaddingValues(0.dp)) {
+                    Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                    Spacer(modifier = Modifier.width(2.dp))
+                    Text("Add Task", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        }
         Spacer(modifier = Modifier.height(6.dp))
 
         if (unfinishedTasks.isEmpty()) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("No pending tasks for today.", color = Color(0xFF81C784), modifier = Modifier.padding(12.dp), fontSize = 12.sp)
+                Text("No pending tasks for today. Add new tasks above!", color = Color(0xFF81C784), modifier = Modifier.padding(12.dp), fontSize = 12.sp)
             }
         } else {
             unfinishedTasks.forEach { task ->
+                val priorityColor = when (task.priority.uppercase()) {
+                    "HIGH" -> Color(0xFFEF5350)
+                    "LOW" -> Color(0xFF64B5F6)
+                    else -> Color(0xFFFFB74D)
+                }
+                val estMins = (task.estimatedDurationSeconds ?: 600) / 60
+
                 Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp)
+                        .combinedClickable(
+                            onClick = { onToggleTask(task) },
+                            onLongClick = { selectedTaskForAction = task }
+                        ),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Row(
@@ -1182,12 +1473,58 @@ fun SoloCalendarTasksTab(
                         Checkbox(
                             checked = task.isCompleted,
                             onCheckedChange = { onToggleTask(task) },
-                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFFD0BCFF))
+                            colors = CheckboxDefaults.colors(checkedColor = MaterialTheme.colorScheme.primary)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(task.name, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                            Text(task.type.name, color = Color.Gray, fontSize = 10.sp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "[${task.priority}]",
+                                    color = priorityColor,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Predicted: ${estMins}m (Hold to manage)", color = Color.Gray, fontSize = 9.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // COMPLETED TASKS HISTORY SECTION
+        if (completedTasks.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(16.dp))
+            Text("COMPLETED TASKS HISTORY", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Spacer(modifier = Modifier.height(6.dp))
+
+            completedTasks.take(5).forEach { task ->
+                val estMins = (task.estimatedDurationSeconds ?: 600) / 60
+                val actualSecs = task.actualDurationSeconds ?: (estMins * 60)
+                val actualMins = actualSecs / 60
+
+                val diffMins = estMins - actualMins
+                val comparisonText = when {
+                    diffMins > 0 -> "🟢 ${diffMins}m faster than prediction"
+                    diffMins < 0 -> "🟡 ${Math.abs(diffMins)}m over prediction"
+                    else -> "🟢 Exact prediction match"
+                }
+
+                Card(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF101C14)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("${task.name} ✓", color = Color(0xFF81C784), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            Text("Took ${actualMins}m (Predicted: ${estMins}m) • $comparisonText", color = Color.Gray, fontSize = 9.sp)
                         }
                     }
                 }
@@ -1195,15 +1532,218 @@ fun SoloCalendarTasksTab(
         }
     }
 
-    if (showAddDialog) {
+    if (showAddCountdownDialog) {
         AddCountdownDialog(
-            onDismiss = { showAddDialog = false },
+            onDismiss = { showAddCountdownDialog = false },
             onConfirm = { countdown ->
                 onAddCountdown(countdown)
-                showAddDialog = false
+                showAddCountdownDialog = false
             }
         )
     }
+
+    if (showAddTaskDialog) {
+        AddTaskDialog(
+            onDismiss = { showAddTaskDialog = false },
+            onConfirm = { title, estMins, priority ->
+                onAddTask(title, estMins, priority)
+                showAddTaskDialog = false
+            }
+        )
+    }
+
+    if (showBrainstormDialog) {
+        BrainstormingBacklogDialog(
+            tasks = unfinishedProjectTasks,
+            onDismiss = { showBrainstormDialog = false },
+            onConvertToTask = { taskTitle ->
+                onAddTask(taskTitle, 15, "MEDIUM")
+                showBrainstormDialog = false
+            },
+            onDeleteTask = { task -> onDeleteProjectTask(task) }
+        )
+    }
+
+    selectedTaskForAction?.let { task ->
+        AlertDialog(
+            onDismissRequest = { selectedTaskForAction = null },
+            title = { Text("Manage Task") },
+            text = { Text("Choose an action for '${task.name}':") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onStartTaskTracking(task)
+                        selectedTaskForAction = null
+                    }
+                ) {
+                    Text("Start Tracking ⏱️")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            taskToEdit = task
+                            selectedTaskForAction = null
+                        }
+                    ) {
+                        Text("Edit ✏️")
+                    }
+                    TextButton(
+                        onClick = {
+                            onDeleteTask(task)
+                            selectedTaskForAction = null
+                        }
+                    ) {
+                        Text("Delete", color = Color.Red)
+                    }
+                }
+            }
+        )
+    }
+
+    taskToEdit?.let { task ->
+        var editedName by remember { mutableStateOf(task.name) }
+        var editedEstMins by remember { mutableStateOf(((task.estimatedDurationSeconds ?: 600) / 60).toString()) }
+        var editedPriority by remember { mutableStateOf(task.priority) }
+
+        AlertDialog(
+            onDismissRequest = { taskToEdit = null },
+            title = { Text("Edit Task") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = editedName,
+                        onValueChange = { editedName = it },
+                        label = { Text("Task Description") }
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = editedEstMins,
+                        onValueChange = { editedEstMins = it },
+                        label = { Text("Predicted Duration (minutes)") }
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    OutlinedTextField(
+                        value = editedPriority,
+                        onValueChange = { editedPriority = it },
+                        label = { Text("Priority (HIGH, MEDIUM, LOW)") }
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (editedName.isNotBlank()) {
+                            val estSecs = (editedEstMins.toIntOrNull() ?: 10) * 60
+                            onUpdateTask(task.copy(name = editedName, estimatedDurationSeconds = estSecs, priority = editedPriority))
+                            taskToEdit = null
+                        }
+                    }
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { taskToEdit = null }) { Text("Cancel") }
+            }
+        )
+    }
+}
+
+@Composable
+fun BrainstormingBacklogDialog(
+    tasks: List<ProjectTask>,
+    onDismiss: () -> Unit,
+    onConvertToTask: (String) -> Unit,
+    onDeleteTask: (ProjectTask) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Brainstorming Ideas Backlog 💡") },
+        text = {
+            if (tasks.isEmpty()) {
+                Text("No ideas in backlog. Ideas captured during Morning Journal and Evening Review appear here!", color = Color.Gray)
+            } else {
+                LazyColumn(modifier = Modifier.heightIn(max = 300.dp)) {
+                    items(tasks) { task ->
+                        Card(
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(task.title, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+                                TextButton(onClick = { onConvertToTask(task.title) }) {
+                                    Text("+ To-Do", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                }
+                                IconButton(onClick = { onDeleteTask(task) }, modifier = Modifier.size(24.dp)) {
+                                    Icon(Icons.Default.Close, null, tint = Color.Gray, modifier = Modifier.size(14.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        }
+    )
+}
+
+@Composable
+fun AddTaskDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String, Int, String) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var estMinsText by remember { mutableStateOf("15") }
+    var priority by remember { mutableStateOf("MEDIUM") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add New To-Do Task") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Task Description") }
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = estMinsText,
+                    onValueChange = { estMinsText = it },
+                    label = { Text("Predicted Duration (minutes)") }
+                )
+                Spacer(modifier = Modifier.height(10.dp))
+                OutlinedTextField(
+                    value = priority,
+                    onValueChange = { priority = it },
+                    label = { Text("Priority (HIGH, MEDIUM, LOW)") }
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        val estMins = estMinsText.toIntOrNull() ?: 15
+                        onConfirm(title, estMins, priority)
+                    }
+                }
+            ) {
+                Text("Add Task")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable
@@ -1271,20 +1811,66 @@ fun SoloMentalVaultTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(MaterialTheme.colorScheme.background)
             .padding(12.dp)
             .verticalScroll(rememberScrollState())
     ) {
         Text("THE MENTAL VAULT & INT TRAINING", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
 
+        // MOVED TO TOP: STOIC MOTIVATIONAL MAXIMS
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("STOIC MOTIVATIONAL MAXIMS", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            TextButton(onClick = { showAddQuoteDialog = true }, modifier = Modifier.height(24.dp), contentPadding = PaddingValues(0.dp)) {
+                Icon(Icons.Default.Add, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(2.dp))
+                Text("Add Quote", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+
+        if (quotes.isEmpty()) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("No motivational quotes added yet. Add maxims above!", color = Color.Gray, modifier = Modifier.padding(12.dp), fontSize = 12.sp)
+            }
+        } else {
+            quotes.reversed().forEach { quote ->
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 3.dp)
+                        .combinedClickable(
+                            onClick = {},
+                            onLongClick = { selectedQuoteForAction = quote }
+                        ),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text("\"${quote.text}\"", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Text("Category: ${quote.category} (Long-press to edit/delete)", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp))
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         Card(
-            colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(12.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Psychology, null, tint = Color(0xFFD0BCFF))
+                Icon(Icons.Default.Psychology, null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text("Flashcard Decks & Cognitive Training", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -1299,7 +1885,7 @@ fun SoloMentalVaultTab(
 
         if (deckSummaries.isEmpty()) {
             Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -1309,7 +1895,7 @@ fun SoloMentalVaultTab(
             deckSummaries.forEach { deck ->
                 Card(
                     modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { onDeckPlay(deck.name) },
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     shape = RoundedCornerShape(10.dp)
                 ) {
                     Row(
@@ -1330,50 +1916,6 @@ fun SoloMentalVaultTab(
                         ) {
                             Text("Review", color = Color(0xFF81C784), fontSize = 11.sp)
                         }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("STOIC MOTIVATIONAL MAXIMS", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-            TextButton(onClick = { showAddQuoteDialog = true }, modifier = Modifier.height(24.dp), contentPadding = PaddingValues(0.dp)) {
-                Icon(Icons.Default.Add, null, tint = Color(0xFFD0BCFF), modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(2.dp))
-                Text("Add Quote", fontSize = 10.sp, color = Color(0xFFD0BCFF))
-            }
-        }
-        Spacer(modifier = Modifier.height(6.dp))
-
-        if (quotes.isEmpty()) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("No motivational quotes added yet. Add maxims above!", color = Color.Gray, modifier = Modifier.padding(12.dp), fontSize = 12.sp)
-            }
-        } else {
-            quotes.reversed().forEach { quote ->
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 3.dp)
-                        .combinedClickable(
-                            onClick = {},
-                            onLongClick = { selectedQuoteForAction = quote }
-                        ),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF14141B)),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Text("\"${quote.text}\"", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
-                        Text("Category: ${quote.category} (Long-press to edit/delete)", color = Color(0xFFD0BCFF), fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp))
                     }
                 }
             }
@@ -1521,7 +2063,7 @@ fun SoloWillpowerShrineTab(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF09090C))
+            .background(MaterialTheme.colorScheme.background)
             .padding(12.dp)
             .verticalScroll(rememberScrollState())
     ) {

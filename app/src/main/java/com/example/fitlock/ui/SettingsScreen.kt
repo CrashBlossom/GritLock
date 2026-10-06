@@ -281,7 +281,7 @@ fun SettingsScreen(
                 
                 Text("App Archetype (Total Conversion)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(12.dp))
-                val themes = listOf("DEFAULT", "SUPERHERO", "AGENT", "SOLO", "COZY")
+                val themes = listOf("DEFAULT", "SUPERHERO", "AGENT", "SOLO", "COZY", "WINTER_ARC")
                 themes.forEach { themeId ->
                     val data = com.example.fitlock.ui.theme.getThemeData(themeId)
                     val isSelected = (userStats?.activeTheme ?: "DEFAULT") == themeId

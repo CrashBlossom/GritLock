@@ -93,7 +93,13 @@ data class QuestBlock(
     val currentStreak: Int = 0,
     val lastDoneTimestamp: Long = 0L,
     val higherIsBetter: Boolean = true,
-    val workStatus: String = "PENDING" // PENDING, WORKED_ON, COMPLETED, NO_PROGRESS
+    val workStatus: String = "PENDING", // PENDING, WORKED_ON, COMPLETED, NO_PROGRESS
+    
+    // Enhanced Task Tracking & Time Predictions
+    val priority: String = "MEDIUM", // HIGH, MEDIUM, LOW
+    val actualDurationSeconds: Int? = null,
+    val isCurrentlyTracking: Boolean = false,
+    val trackingStartTimestamp: Long? = null
 )
 
 data class QuestWithBlocks(

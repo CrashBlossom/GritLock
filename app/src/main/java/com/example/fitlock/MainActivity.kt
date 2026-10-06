@@ -76,6 +76,7 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.util.Calendar
 import java.util.Date
+import java.util.UUID
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -311,6 +312,32 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                     mutableTotals
                 }
 
+                LaunchedEffect(history, challenges) {
+                    val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
+                    val todayStart = cal.timeInMillis
+                    val todayHistory = history.filter { it.timestamp >= todayStart }
+
+                    challenges.forEach { challenge ->
+                        val allRequirementsMet = challenge.requirements.all { req ->
+                            val totalDone = todayHistory
+                                .filter { 
+                                    it.exerciseType.equals(req.type, ignoreCase = true) || 
+                                    (req.type.equals("FLASHCARDS", ignoreCase = true) && (it.exerciseType.contains("ANKI", ignoreCase = true) || it.exerciseType.equals("FLASHCARDS", ignoreCase = true))) ||
+                                    (req.type.equals("FRENCH_STUDY", ignoreCase = true) && (it.exerciseType.contains("FRENCH", ignoreCase = true) || it.exerciseType.contains("DUOLINGO", ignoreCase = true)))
+                                }
+                                .sumOf { it.repsCompleted }
+                            totalDone >= req.count
+                        }
+
+                        if (allRequirementsMet && !challenge.isCompletedToday) {
+                            val updated = challenge.copy(isCompletedToday = true, lastCompletedTimestamp = System.currentTimeMillis())
+                            db.dao().upsertChallenge(updated)
+                            userViewModel.updateXp(challenge.xpReward)
+                            Toast.makeText(this@MainActivity, "[SYSTEM: CHALLENGE CLEARED] ${challenge.title} (+${challenge.xpReward} XP)", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+
                 // Internal navigation state (which screen are we on?)
                 var currentScreen by remember { mutableStateOf("home") }
                 var selectedDeckName by remember { mutableStateOf<String?>(null) }
@@ -461,6 +488,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 val challenges by homeViewModel.challenges.collectAsState()
                                 val appGroups by repository.allGroups.collectAsState(initial = emptyList())
                                 val unfinishedTasks by homeViewModel.unfinishedTasks.collectAsState()
+                                val completedTasks by homeViewModel.completedTasks.collectAsState()
                                 SoloLauncherScreen(
                                     userStats = userStats,
                                     quests = quests,
@@ -469,6 +497,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     currentPledge = currentPledge,
                                     vitalityMetrics = vitalityMetrics,
                                     unfinishedTasks = unfinishedTasks,
+                                    completedTasks = completedTasks,
                                     countdowns = countdowns,
                                     deckSummaries = deckSummaries,
                                     quotes = quotes,
@@ -504,6 +533,49 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                             repository.deleteQuote(quote)
                                         }
                                     },
+                                    onAddTask = { title, estMins, priority ->
+                                        lifecycleScope.launch {
+                                            val today = LocalDate.now().toString()
+                                            val questId = "daily_$today"
+                                            val newBlock = QuestBlock(
+                                                id = "task_${UUID.randomUUID()}",
+                                                questId = questId,
+                                                type = BlockType.TASK,
+                                                orderIndex = 999,
+                                                name = title,
+                                                estimatedDurationSeconds = estMins * 60,
+                                                priority = priority,
+                                                isCompleted = false
+                                            )
+                                            repository.upsertQuestBlock(newBlock)
+                                        }
+                                    },
+                                    onStartTaskTracking = { task ->
+                                        lifecycleScope.launch {
+                                            val updated = task.copy(
+                                                isCurrentlyTracking = true,
+                                                trackingStartTimestamp = System.currentTimeMillis()
+                                            )
+                                            repository.upsertQuestBlock(updated)
+                                            Toast.makeText(this@MainActivity, "[TASK IN PROGRESS]: ${task.name}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    onStopTaskTracking = { task ->
+                                        lifecycleScope.launch {
+                                            val updated = task.copy(isCurrentlyTracking = false)
+                                            repository.upsertQuestBlock(updated)
+                                        }
+                                    },
+                                    onDeleteTask = { task ->
+                                        lifecycleScope.launch {
+                                            repository.deleteQuestBlock(task)
+                                        }
+                                    },
+                                    onUpdateTask = { task ->
+                                        lifecycleScope.launch {
+                                            repository.upsertQuestBlock(task)
+                                        }
+                                    },
                                     onQuickExerciseClick = { type, count ->
                                         activeRequirements = listOf(ExerciseRequirement(type.name, count))
                                         currentRequirementIndex = 0
@@ -516,8 +588,24 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     },
                                     onToggleTask = { task ->
                                         lifecycleScope.launch {
-                                            val updated = task.copy(isCompleted = !task.isCompleted)
+                                            val now = System.currentTimeMillis()
+                                            val actualSecs = if (task.isCurrentlyTracking && task.trackingStartTimestamp != null) {
+                                                ((now - task.trackingStartTimestamp) / 1000).toInt()
+                                            } else task.actualDurationSeconds ?: task.estimatedDurationSeconds
+
+                                            val updated = task.copy(
+                                                isCompleted = !task.isCompleted,
+                                                completionTimestamp = if (!task.isCompleted) now else null,
+                                                isCurrentlyTracking = false,
+                                                actualDurationSeconds = actualSecs
+                                            )
                                             repository.upsertQuestBlock(updated)
+                                            if (updated.sourceTaskId != null) {
+                                                repository.allGoals.first().flatMap { it.projects }.flatMap { it.tasks }
+                                                    .find { it.id == updated.sourceTaskId }?.let { pt ->
+                                                        repository.upsertProjectTask(pt.copy(isCompleted = updated.isCompleted))
+                                                    }
+                                            }
                                         }
                                     },
                                     onDeckPlay = { deckName ->
@@ -703,6 +791,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 val exerciseDefs by locksViewModel.exerciseDefinitions.collectAsState()
                                 val taskDefs by locksViewModel.taskDefinitions.collectAsState()
                                 val allFamilies by repository.allFamilies.collectAsState(initial = emptyList())
+                                val allQuests by homeViewModel.allQuests.collectAsState()
+                                val unfinishedTasks by homeViewModel.unfinishedTasks.collectAsState()
+                                val projectTasks by repository.unfinishedProjectTasks.collectAsState(initial = emptyList())
                                 ForgeScreen(
                                     habitDefinitions = habitDefinitions,
                                     onHabitUpsert = { locksViewModel.upsertHabitDefinition(it) },
@@ -713,6 +804,13 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     taskDefinitions = taskDefs,
                                     onTaskUpsert = { locksViewModel.upsertTaskDefinition(it) },
                                     onTaskDelete = { locksViewModel.deleteTaskDefinition(it) },
+                                    quests = allQuests,
+                                    onUpsertQuest = { lifecycleScope.launch { repository.upsertQuest(it) } },
+                                    onDeleteQuest = { lifecycleScope.launch { repository.deleteQuest(it) } },
+                                    onUpsertQuestBlock = { lifecycleScope.launch { repository.upsertQuestBlock(it) } },
+                                    onDeleteQuestBlock = { lifecycleScope.launch { repository.deleteQuestBlock(it) } },
+                                    unfinishedTasks = unfinishedTasks,
+                                    brainstormingTasks = projectTasks,
                                     deckSummaries = deckSummaries,
                                     onDeleteDeck = { homeViewModel.deleteDeck(it) },
                                     onExerciseLog = { type, count, familyId, level, variantName ->
@@ -731,6 +829,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         currentScreen = "flashcard_review"
                                     },
                                     onProgressionClick = { currentScreen = "progression" },
+                                    onStartPlanning = { currentScreen = "planning" },
                                     onAddFlashcard = { card ->
                                         lifecycleScope.launch { repository.upsertFlashcard(card) }
                                     },

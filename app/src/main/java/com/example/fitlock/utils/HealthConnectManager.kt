@@ -27,6 +27,7 @@ data class VitalityMetrics(
     val waterLiters: Double = 0.0,
     val foodCalories: Double = 0.0,
     val steps: Long = 0L,
+    val rowingMinutes: Double = 0.0,
     val workoutRepsToday: Int = 0
 )
 
@@ -119,6 +120,34 @@ class HealthConnectManager(private val context: Context) {
             energy?.inKilocalories ?: 0.0
         } catch (e: Exception) {
             Log.e("HealthConnect", "Error reading nutrition", e)
+            0.0
+        }
+    }
+
+    suspend fun readTodayRowingMinutes(): Double {
+        return try {
+            val zoneId = ZoneId.systemDefault()
+            val now = ZonedDateTime.now(zoneId)
+            val startTime = now.toLocalDate().atStartOfDay(zoneId).toInstant()
+            val endTime = now.toInstant()
+
+            val response = healthConnectClient.readRecords(
+                ReadRecordsRequest(
+                    recordType = ExerciseSessionRecord::class,
+                    timeRangeFilter = TimeRangeFilter.between(startTime, endTime)
+                )
+            )
+            val rowingSessions = response.records.filter { 
+                it.exerciseType == ExerciseSessionRecord.EXERCISE_TYPE_ROWING || 
+                it.title?.contains("Rowing", ignoreCase = true) == true ||
+                it.title?.contains("Erg", ignoreCase = true) == true
+            }
+            val totalSeconds = rowingSessions.sumOf { 
+                Duration.between(it.startTime, it.endTime).seconds
+            }
+            totalSeconds / 60.0
+        } catch (e: Exception) {
+            Log.e("HealthConnect", "Error reading rowing minutes", e)
             0.0
         }
     }
