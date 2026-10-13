@@ -42,7 +42,8 @@ fun ProfileScreen(
     forgeTabName: String = "Forge",
     onNavigateToLocks: () -> Unit = {},
     onNavigateToAnalytics: () -> Unit = {},
-    onNavigateToSettings: () -> Unit = {}
+    onNavigateToSettings: () -> Unit = {},
+    onNavigateToAchievements: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -100,8 +101,21 @@ fun ProfileScreen(
             ) {
                 Icon(Icons.Default.Build, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("The Forge", fontSize = 12.sp)
+                Text("The Gress", fontSize = 12.sp)
             }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Button(
+            onClick = onNavigateToAchievements,
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            shape = RoundedCornerShape(12.dp)
+        ) {
+            Icon(Icons.Default.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("Hall of Ascendance (Trophies & Badges)", color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold, fontSize = 13.sp)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -365,11 +379,17 @@ fun StatRadarCard(stats: UserStats?) {
             ) {
                 val rawScores = listOf(
                     stats?.strXp?.toFloat() ?: 0f,
-                    stats?.agiXp?.toFloat() ?: 0f,
-                    stats?.vitXp?.toFloat() ?: 0f,
+                    stats?.dexXp?.toFloat() ?: 0f,
+                    stats?.conXp?.toFloat() ?: 0f,
+                    stats?.movXp?.toFloat() ?: 0f,
                     stats?.intXp?.toFloat() ?: 0f,
-                    stats?.senXp?.toFloat() ?: 0f,
-                    stats?.chaXp?.toFloat() ?: 0f
+                    stats?.wisXp?.toFloat() ?: 0f,
+                    stats?.wilXp?.toFloat() ?: 0f,
+                    stats?.sanXp?.toFloat() ?: 0f,
+                    stats?.chaXp?.toFloat() ?: 0f,
+                    stats?.wthXp?.toFloat() ?: 0f,
+                    stats?.tecXp?.toFloat() ?: 0f,
+                    stats?.lckXp?.toFloat() ?: 0f
                 )
                 val maxVal = rawScores.maxOrNull()?.coerceAtLeast(100f) ?: 100f
                 val scores = rawScores.map { (it / maxVal).coerceIn(0.15f, 1f) }
@@ -381,11 +401,20 @@ fun StatRadarCard(stats: UserStats?) {
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 StatLabel("STR", "Lv. ${stats?.let { it.getStatLevel(StatType.STR) } ?: 1}")
-                StatLabel("AGI", "Lv. ${stats?.let { it.getStatLevel(StatType.AGI) } ?: 1}")
-                StatLabel("VIT", "Lv. ${stats?.let { it.getStatLevel(StatType.VIT) } ?: 1}")
+                StatLabel("DEX", "Lv. ${stats?.let { it.getStatLevel(StatType.DEX) } ?: 1}")
+                StatLabel("CON", "Lv. ${stats?.let { it.getStatLevel(StatType.CON) } ?: 1}")
+                StatLabel("MOV", "Lv. ${stats?.let { it.getStatLevel(StatType.MOV) } ?: 1}")
                 StatLabel("INT", "Lv. ${stats?.let { it.getStatLevel(StatType.INT) } ?: 1}")
-                StatLabel("SEN", "Lv. ${stats?.let { it.getStatLevel(StatType.SEN) } ?: 1}")
+                StatLabel("WIS", "Lv. ${stats?.let { it.getStatLevel(StatType.WIS) } ?: 1}")
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                StatLabel("WIL", "Lv. ${stats?.let { it.getStatLevel(StatType.WIL) } ?: 1}")
+                StatLabel("SAN", "Lv. ${stats?.let { it.getStatLevel(StatType.SAN) } ?: 1}")
                 StatLabel("CHA", "Lv. ${stats?.let { it.getStatLevel(StatType.CHA) } ?: 1}")
+                StatLabel("WTH", "Lv. ${stats?.let { it.getStatLevel(StatType.WTH) } ?: 1}")
+                StatLabel("TEC", "Lv. ${stats?.let { it.getStatLevel(StatType.TEC) } ?: 1}")
+                StatLabel("LCK", "Lv. ${stats?.let { it.getStatLevel(StatType.LCK) } ?: 1}")
             }
         }
     }
@@ -397,11 +426,11 @@ fun AbilityRadarChart(scores: List<Float>) {
     Canvas(modifier = Modifier.fillMaxSize()) {
         val center = Offset(size.width / 2, size.height / 2)
         val radius = size.width / 2
-        val angleStep = (2 * Math.PI / 6).toFloat()
+        val angleStep = (2 * Math.PI / 12).toFloat()
         for (i in 1..4) {
             val r = radius * (i / 4f)
             val path = Path()
-            for (j in 0..5) {
+            for (j in 0..11) {
                 val angle = j * angleStep - Math.PI.toFloat() / 2
                 val x = center.x + r * Math.cos(angle.toDouble()).toFloat()
                 val y = center.y + r * Math.sin(angle.toDouble()).toFloat()

@@ -7,6 +7,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import com.example.fitlock.data.ExerciseCalibration
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 class SensorTracker(
     context: Context,
@@ -16,30 +17,14 @@ class SensorTracker(
 ) : SensorEventListener {
 
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
-    private val accelerometer = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
-    private val gravitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_GRAVITY)
+    private val sensor = sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION) 
+        ?: sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
 
-    private var isDown = false
     private var lastRepTime = 0L
-    private var downStartTime = 0L
-    private val REP_COOLDOWN_MS = 1000L
-    
-    // Default thresholds for Pocket Mode (Linear Acceleration in m/s^2)
-    private var downThreshold = (calibration?.bottomValue?.toFloat()) ?: -2.5f 
-    private var upThreshold = (calibration?.topValue?.toFloat()) ?: 3.5f
-    
-    // Smoothing buffer
-    private val bufferSize = 5
-    private val accelerationBuffer = FloatArray(bufferSize)
-    private var bufferIndex = 0
-
-    private var currentGravity = FloatArray(3)
+    private val REP_COOLDOWN_MS = 800L
 
     fun start() {
-        accelerometer?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
-        }
-        gravitySensor?.let {
+        sensor?.let {
             sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
         }
     }
@@ -50,43 +35,21 @@ class SensorTracker(
 
     override fun onSensorChanged(event: SensorEvent?) {
         if (event == null) return
+        val currentTime = System.currentTimeMillis()
 
-        if (event.sensor.type == Sensor.TYPE_GRAVITY) {
-            currentGravity = event.values.clone()
-            return
-        }
-
-        if (event.sensor.type != Sensor.TYPE_LINEAR_ACCELERATION) return
-
-        // Check positioning if we have a target orientation (simplified for now)
-        // For Squats in pocket, Y-axis gravity should be high (phone vertical)
-        if (exerciseType == ExerciseType.SQUAT) {
-            if (abs(currentGravity[1]) < 5f) { // roughly 45 degrees
-                // manager.provideCorrection("Keep your phone vertical in your pocket!")
+        if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+            val x = event.values[0]
+            val y = event.values[1]
+            val z = event.values[2]
+            val magnitude = sqrt((x * x + y * y + z * z).toDouble())
+            val delta = abs(magnitude - 9.8)
+            if (delta > 2.0 && currentTime - lastRepTime > REP_COOLDOWN_MS) {
+                lastRepTime = currentTime
+                manager.onRepDetected()
             }
-        }
-
-        // We use Y-axis (length of phone) as it usually aligns with the thigh/body
-        val yAcc = event.values[1] 
-
-        // Apply a simple moving average to filter noise
-        accelerationBuffer[bufferIndex] = yAcc
-        bufferIndex = (bufferIndex + 1) % bufferSize
-        val smoothY = accelerationBuffer.sum() / bufferSize
-
-        // State Machine with Tempo Tracking
-        if (!isDown && smoothY < downThreshold) {
-            isDown = true
-            downStartTime = System.currentTimeMillis()
-        } else if (isDown && smoothY > upThreshold) {
-            val currentTime = System.currentTimeMillis()
-            if (currentTime - lastRepTime > REP_COOLDOWN_MS) {
-                val repDuration = currentTime - downStartTime
-                
-                // Example Tempo Logic: If it took > 2s, maybe it's a "Slow Rep"
-                // manager.onRepDetected(repDuration)
-
-                isDown = false
+        } else if (event.sensor.type == Sensor.TYPE_LINEAR_ACCELERATION) {
+            val yAcc = event.values[1]
+            if (abs(yAcc) > 1.8 && currentTime - lastRepTime > REP_COOLDOWN_MS) {
                 lastRepTime = currentTime
                 manager.onRepDetected()
             }

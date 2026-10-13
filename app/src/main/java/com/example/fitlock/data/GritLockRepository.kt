@@ -15,6 +15,7 @@ class GritLockRepository(private val dao: GritLockDao, private val context: Cont
     val allGroups: Flow<List<AppGroup>> = dao.getAllGroups()
     val userStats: Flow<UserStats?> = dao.getUserStats()
     val allChallenges: Flow<List<Challenge>> = dao.getChallenges()
+    val allAchievements: Flow<List<Achievement>> = dao.getAllAchievements()
     val allVaultItems: Flow<List<VaultItem>> = dao.getAllVaultItems()
     val allGauntlets: Flow<List<GauntletWithHabits>> = dao.getAllGauntletsWithHabits()
     val allAdvancedWorkouts: Flow<List<GauntletWithAdvancedWorkout>> = dao.getAllGauntletsWithAdvancedWorkouts()
@@ -26,6 +27,21 @@ class GritLockRepository(private val dao: GritLockDao, private val context: Cont
         WidgetUpdater.updateAllWidgets(context)
     }
     suspend fun updateStats(stats: UserStats) = dao.updateUserStats(stats)
+    suspend fun upsertAchievement(achievement: Achievement) = dao.upsertAchievement(achievement)
+    suspend fun upsertAchievements(achievements: List<Achievement>) = dao.upsertAchievements(achievements)
+    suspend fun initAchievementsIfMissing() {
+        val existing = dao.getAllAchievements().first()
+        val defaultList = com.example.fitlock.utils.AchievementsManager.getDefaultAchievements()
+        if (existing.isEmpty()) {
+            dao.upsertAchievements(defaultList)
+        } else {
+            val existingIds = existing.map { it.id }.toSet()
+            val missing = defaultList.filter { !existingIds.contains(it.id) }
+            if (missing.isNotEmpty()) {
+                dao.upsertAchievements(missing)
+            }
+        }
+    }
     suspend fun insertUrgeEvent(event: UrgeEvent) = dao.insertUrgeEvent(event)
     suspend fun insertLogNote(note: DailyLogNote) = dao.insertLogNote(note)
     

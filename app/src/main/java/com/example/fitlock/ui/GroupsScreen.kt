@@ -449,7 +449,7 @@ fun DailyGoalsList(
                                 ExerciseType.PLANK -> Icons.Default.Timer
                                 ExerciseType.STEPS -> Icons.AutoMirrored.Filled.DirectionsWalk
                                 ExerciseType.APP_USAGE -> Icons.Default.Apps
-                                ExerciseType.FLASHCARDS -> Icons.Default.HistoryEdu
+                                ExerciseType.BREATHWORK -> Icons.Default.SelfImprovement
                             }
                             Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                         }

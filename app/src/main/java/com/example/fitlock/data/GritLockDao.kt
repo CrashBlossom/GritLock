@@ -322,4 +322,14 @@ interface GritLockDao {
 
     @Delete
     suspend fun deleteCountdown(countdown: DateCountdown)
+
+    // Achievements / Trophies
+    @Query("SELECT * FROM achievements")
+    fun getAllAchievements(): Flow<List<Achievement>>
+
+    @Upsert
+    suspend fun upsertAchievement(achievement: Achievement)
+
+    @Upsert
+    suspend fun upsertAchievements(achievements: List<Achievement>)
 }

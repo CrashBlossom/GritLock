@@ -63,7 +63,6 @@ fun SoloLauncherScreen(
     completedTasks: List<QuestBlock> = emptyList(),
     unfinishedProjectTasks: List<ProjectTask> = emptyList(),
     countdowns: List<DateCountdown> = emptyList(),
-    deckSummaries: List<DeckSummary> = emptyList(),
     quotes: List<MotivationalQuote> = emptyList(),
     history: List<WorkoutHistory> = emptyList(),
     pledges: List<DailyPledge> = emptyList(),
@@ -82,7 +81,6 @@ fun SoloLauncherScreen(
     onDeleteProjectTask: (ProjectTask) -> Unit = {},
     onDeckPlay: (String) -> Unit = {},
     onQuickExerciseClick: (ExerciseType, Int) -> Unit = { _, _ -> },
-    onQuickFlashcardClick: () -> Unit = {},
     onUrgeClick: () -> Unit = {},
     onPledgeClick: () -> Unit = {},
     onViewLogClick: () -> Unit = {},
@@ -90,6 +88,12 @@ fun SoloLauncherScreen(
     onNavigateToLocks: () -> Unit = {},
     onNavigateToVault: () -> Unit = {},
     onNavigateToAnalytics: () -> Unit = {},
+    onNavigateToLeaderboard: () -> Unit = {},
+    achievements: List<Achievement> = emptyList(),
+    onClaimAchievement: (Achievement) -> Unit = {},
+    onEditGate: (AppGroup) -> Unit = {},
+    onDeleteGate: (AppGroup) -> Unit = {},
+    onAddNewGate: () -> Unit = {},
     onQuestClick: (QuestWithBlocks) -> Unit,
     onChallengeClick: (Challenge) -> Unit,
     onSettingsClick: () -> Unit,
@@ -100,8 +104,8 @@ fun SoloLauncherScreen(
     val initialPage = remember { prefs.getInt("launcher_default_page", 0) }
     val isWinterArc = remember { prefs.getBoolean("winter_arc_enabled", false) }
 
-    // 8 Swipable Launcher Pages
-    val pagerState = rememberPagerState(initialPage = initialPage) { 8 }
+    // 10 Swipable Launcher Pages
+    val pagerState = rememberPagerState(initialPage = initialPage) { 10 }
 
     Box(
         modifier = Modifier
@@ -122,7 +126,7 @@ fun SoloLauncherScreen(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                for (i in 0 until 8) {
+                for (i in 0 until 10) {
                     val isSelected = pagerState.currentPage == i
                     Box(
                         modifier = Modifier
@@ -149,31 +153,39 @@ fun SoloLauncherScreen(
                         vitalityMetrics = vitalityMetrics,
                         isWinterArc = isWinterArc,
                         onQuickExerciseClick = onQuickExerciseClick,
-                        onQuickFlashcardClick = onQuickFlashcardClick,
                         onQuestClick = onQuestClick,
                         onSettingsClick = onSettingsClick,
                         onForgeClick = onForgeClick
                     )
 
-                    1 -> SoloPortalsTab(
+                    1 -> ProtocolGatesContent(
+                        appGroups = appGroups,
+                        challenges = challenges,
+                        onEditGate = onEditGate,
+                        onDeleteGate = onDeleteGate,
+                        onAddNewGate = onAddNewGate,
+                        onStartPlanning = onStartPlanning
+                    )
+
+                    2 -> SoloPortalsTab(
                         appGroups = appGroups,
                         onNavigateToLocks = onNavigateToLocks,
                         onNavigateToVault = onNavigateToVault
                     )
 
-                    2 -> SoloWeeklyMatrixTab(
+                    3 -> SoloWeeklyMatrixTab(
                         history = history,
                         pledges = pledges
                     )
 
-                    3 -> SoloStatsVitalityTab(
+                    4 -> SoloStatsVitalityTab(
                         userStats = userStats,
                         vitalityMetrics = vitalityMetrics,
                         onAddWater = onAddWater,
                         onNavigateToAnalytics = onNavigateToAnalytics
                     )
 
-                    4 -> SoloCalendarTasksTab(
+                    5 -> SoloCalendarTasksTab(
                         unfinishedTasks = unfinishedTasks,
                         completedTasks = completedTasks,
                         unfinishedProjectTasks = unfinishedProjectTasks,
@@ -189,16 +201,14 @@ fun SoloLauncherScreen(
                         onDeleteProjectTask = onDeleteProjectTask
                     )
 
-                    5 -> SoloMentalVaultTab(
-                        deckSummaries = deckSummaries,
+                    6 -> SoloMentalVaultTab(
                         quotes = quotes,
-                        onDeckPlay = onDeckPlay,
                         onAddQuote = onAddQuote,
                         onUpdateQuote = onUpdateQuote,
                         onDeleteQuote = onDeleteQuote
                     )
 
-                    6 -> SoloWillpowerShrineTab(
+                    7 -> SoloWillpowerShrineTab(
                         userStats = userStats,
                         currentPledge = currentPledge,
                         onUrgeClick = onUrgeClick,
@@ -207,10 +217,17 @@ fun SoloLauncherScreen(
                         onStartPlanning = onStartPlanning
                     )
 
-                    7 -> SoloChallengesTab(
+                    8 -> SoloChallengesTab(
                         challenges = challenges,
                         history = history,
-                        onChallengeClick = onChallengeClick
+                        onChallengeClick = onChallengeClick,
+                        onNavigateToLeaderboard = onNavigateToLeaderboard
+                    )
+
+                    9 -> AchievementsScreen(
+                        achievements = achievements,
+                        onClaimReward = onClaimAchievement,
+                        onBack = {}
                     )
                 }
             }
@@ -247,7 +264,6 @@ fun SoloMainHabitsTab(
     vitalityMetrics: VitalityMetrics,
     isWinterArc: Boolean,
     onQuickExerciseClick: (ExerciseType, Int) -> Unit,
-    onQuickFlashcardClick: () -> Unit,
     onQuestClick: (QuestWithBlocks) -> Unit,
     onSettingsClick: () -> Unit,
     onForgeClick: () -> Unit
@@ -272,9 +288,9 @@ fun SoloMainHabitsTab(
         val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }
         history.filter { it.timestamp >= cal.timeInMillis && it.exerciseType.equals("SITUP", ignoreCase = true) }.sumOf { it.repsCompleted }
     }
-    val todayFlashcards = remember(history) {
+    val todayBreathwork = remember(history) {
         val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0) }
-        history.filter { it.timestamp >= cal.timeInMillis && (it.exerciseType.equals("FLASHCARDS", ignoreCase = true) || it.exerciseType.contains("ANKI", ignoreCase = true)) }.sumOf { it.repsCompleted }
+        history.filter { it.timestamp >= cal.timeInMillis && it.exerciseType.equals("BREATHWORK", ignoreCase = true) }.sumOf { it.repsCompleted }
     }
 
     // Targets from preferences
@@ -282,7 +298,7 @@ fun SoloMainHabitsTab(
     val targetSquats = prefs.getInt("goal_SQUAT", 20)
     val targetPlanks = prefs.getInt("goal_PLANK", 60)
     val targetSitups = prefs.getInt("goal_SITUP", 20)
-    val targetFlashcards = 10
+    val targetBreathwork = 60
     val targetWater = 3.0 // Liters
     val targetSteps = 10000L
 
@@ -356,8 +372,8 @@ fun SoloMainHabitsTab(
                 DailyGoalProgressRow("🧘 Situps", todaySitups, targetSitups, "reps") {
                     onQuickExerciseClick(ExerciseType.SITUP, targetSitups)
                 }
-                DailyGoalProgressRow("🧠 Anki Cards", todayFlashcards, targetFlashcards, "cards") {
-                    onQuickFlashcardClick()
+                DailyGoalProgressRow("🫁 Breathwork", todayBreathwork, targetBreathwork, "secs") {
+                    onQuickExerciseClick(ExerciseType.BREATHWORK, targetBreathwork)
                 }
                 DailyGoalProgressRow("🚣 Rowing", vitalityMetrics.rowingMinutes.toInt(), 20, "mins")
                 DailyGoalProgressRow("💧 Water Drink", vitalityMetrics.waterLiters.toInt(), targetWater.toInt(), "L")
@@ -382,8 +398,26 @@ fun SoloMainHabitsTab(
             QuickTrainingCard("Plank", Icons.Default.Timer, Color(0xFFFFB74D), modifier = Modifier.weight(1f)) {
                 onQuickExerciseClick(ExerciseType.PLANK, targetPlanks)
             }
-            QuickTrainingCard("Anki", Icons.Default.Style, Color(0xFF81C784), modifier = Modifier.weight(1f)) {
-                onQuickFlashcardClick()
+            QuickTrainingCard("Breathwork", Icons.Default.SelfImprovement, Color(0xFF81C784), modifier = Modifier.weight(1f)) {
+                onQuickExerciseClick(ExerciseType.BREATHWORK, targetBreathwork)
+            }
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            QuickTrainingCard("Situps", Icons.Default.ArrowUpward, Color(0xFFAB47BC), modifier = Modifier.weight(1f)) {
+                onQuickExerciseClick(ExerciseType.SITUP, targetSitups)
+            }
+            QuickTrainingCard("Pullups", Icons.Default.VerticalAlignTop, Color(0xFF26A69A), modifier = Modifier.weight(1f)) {
+                onQuickExerciseClick(ExerciseType.PULLUP, 10)
+            }
+            QuickTrainingCard("Dips", Icons.Default.ArrowDownward, Color(0xFFFF7043), modifier = Modifier.weight(1f)) {
+                onQuickExerciseClick(ExerciseType.DIP, 10)
+            }
+            QuickTrainingCard("Row", Icons.Default.LineWeight, Color(0xFF78909C), modifier = Modifier.weight(1f)) {
+                onQuickExerciseClick(ExerciseType.ROW, 12)
             }
         }
 
@@ -434,7 +468,7 @@ fun SoloMainHabitsTab(
         ) {
             Icon(Icons.Default.Build, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(8.dp))
-            Text("Open The Forge (Training Library)", color = Color.White, fontSize = 12.sp)
+            Text("Open The Gress (Training Library)", color = Color.White, fontSize = 12.sp)
         }
     }
 }
@@ -488,7 +522,7 @@ fun QuickTrainingCard(title: String, icon: ImageVector, color: Color, modifier: 
         ) {
             Icon(icon, contentDescription = null, tint = color, modifier = Modifier.size(18.dp))
             Spacer(modifier = Modifier.height(2.dp))
-            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 9.sp, maxLines = 1, softWrap = false)
         }
     }
 }
@@ -500,7 +534,8 @@ fun QuickTrainingCard(title: String, icon: ImageVector, color: Color, modifier: 
 fun SoloChallengesTab(
     challenges: List<Challenge>,
     history: List<WorkoutHistory>,
-    onChallengeClick: (Challenge) -> Unit
+    onChallengeClick: (Challenge) -> Unit,
+    onNavigateToLeaderboard: () -> Unit = {}
 ) {
     val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
     val context = LocalContext.current
@@ -534,6 +569,20 @@ fun SoloChallengesTab(
                     Text("Challenges complete automatically as you perform exercises throughout the day.", color = Color.Gray, fontSize = 10.sp)
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Leaderboard Button Card (Full Width under System Time)
+        Button(
+            onClick = onNavigateToLeaderboard,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+            shape = RoundedCornerShape(10.dp)
+        ) {
+            Icon(Icons.Default.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("View Daily Performance Leaderboard", color = MaterialTheme.colorScheme.onPrimaryContainer, fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
 
         Spacer(modifier = Modifier.height(14.dp))
@@ -727,7 +776,7 @@ fun SoloPortalsTab(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Search portals...", color = Color.Gray, fontSize = 12.sp) },
                 leadingIcon = { Icon(Icons.Default.Search, null, tint = Color.Gray, modifier = Modifier.size(16.dp)) },
                 shape = RoundedCornerShape(10.dp),
@@ -736,28 +785,6 @@ fun SoloPortalsTab(
                     unfocusedContainerColor = MaterialTheme.colorScheme.surface
                 )
             )
-
-            Spacer(modifier = Modifier.width(8.dp))
-
-            IconButton(
-                onClick = onNavigateToLocks,
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-            ) {
-                Icon(Icons.Default.Lock, contentDescription = "App Blocks", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
-            }
-
-            Spacer(modifier = Modifier.width(4.dp))
-
-            IconButton(
-                onClick = onNavigateToVault,
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(10.dp))
-            ) {
-                Icon(Icons.Default.Key, contentDescription = "Secret Vault", tint = Color(0xFF81C784), modifier = Modifier.size(18.dp))
-            }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -1184,11 +1211,6 @@ fun VitalityHubCard(
                     Spacer(modifier = Modifier.width(6.dp))
                     Text("VITALITY & RECOVERY (HEALTH CONNECT)", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp)
                 }
-                TextButton(onClick = { onAddWater(0.25) }, modifier = Modifier.height(24.dp), contentPadding = PaddingValues(0.dp)) {
-                    Icon(Icons.Default.WaterDrop, contentDescription = null, tint = Color(0xFF64B5F6), modifier = Modifier.size(12.dp))
-                    Spacer(modifier = Modifier.width(2.dp))
-                    Text("+0.25L", fontSize = 10.sp, color = Color(0xFF64B5F6))
-                }
             }
 
             Spacer(modifier = Modifier.height(8.dp))
@@ -1201,6 +1223,24 @@ fun VitalityHubCard(
                 VitalityMetricItem("Water", String.format(Locale.US, "%.1f L", metrics.waterLiters), Icons.Default.WaterDrop, Color(0xFF64B5F6))
                 VitalityMetricItem("Food", String.format(Locale.US, "%.0f kcal", metrics.foodCalories), Icons.Default.Restaurant, Color(0xFFFFB74D))
                 VitalityMetricItem("Steps", "${metrics.steps}", Icons.AutoMirrored.Filled.DirectionsWalk, Color(0xFF81C784))
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Quick Hydration Log:", color = Color.Gray, fontSize = 10.sp, modifier = Modifier.weight(1f))
+                Button(onClick = { onAddWater(0.25) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp), modifier = Modifier.height(28.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C2D37))) {
+                    Text("+0.25L", fontSize = 10.sp, color = Color(0xFF64B5F6))
+                }
+                Button(onClick = { onAddWater(0.5) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp), modifier = Modifier.height(28.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C2D37))) {
+                    Text("+0.5L", fontSize = 10.sp, color = Color(0xFF64B5F6))
+                }
+                Button(onClick = { onAddWater(1.0) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp), modifier = Modifier.height(28.dp), colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C2D37))) {
+                    Text("+1.0L", fontSize = 10.sp, color = Color(0xFF64B5F6))
+                }
             }
         }
     }
@@ -1792,14 +1832,12 @@ fun AddCountdownDialog(
 }
 
 // ---------------------------------------------------------------------------
-// PAGE 5: MENTAL VAULT & FLASHCARDS
+// PAGE 5: MENTAL VAULT
 // ---------------------------------------------------------------------------
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SoloMentalVaultTab(
-    deckSummaries: List<DeckSummary>,
     quotes: List<MotivationalQuote>,
-    onDeckPlay: (String) -> Unit,
     onAddQuote: (MotivationalQuote) -> Unit = {},
     onUpdateQuote: (MotivationalQuote) -> Unit = {},
     onDeleteQuote: (MotivationalQuote) -> Unit = {}
@@ -1818,7 +1856,6 @@ fun SoloMentalVaultTab(
         Text("THE MENTAL VAULT & INT TRAINING", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         Spacer(modifier = Modifier.height(8.dp))
 
-        // MOVED TO TOP: STOIC MOTIVATIONAL MAXIMS
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1857,65 +1894,6 @@ fun SoloMentalVaultTab(
                     Column(modifier = Modifier.padding(12.dp)) {
                         Text("\"${quote.text}\"", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                         Text("Category: ${quote.category} (Long-press to edit/delete)", color = MaterialTheme.colorScheme.primary, fontSize = 9.sp, modifier = Modifier.padding(top = 2.dp))
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.Psychology, null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text("Flashcard Decks & Cognitive Training", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text("${deckSummaries.size} Decks Available • INT Attribute Booster", color = Color.Gray, fontSize = 10.sp)
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(14.dp))
-        Text("FLASHCARD DECKS (ANKI SPACED RECOVERY)", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        Spacer(modifier = Modifier.height(6.dp))
-
-        if (deckSummaries.isEmpty()) {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("No flashcard decks imported yet. Import Anki decks in The Forge.", color = Color.Gray, modifier = Modifier.padding(12.dp), fontSize = 12.sp)
-            }
-        } else {
-            deckSummaries.forEach { deck ->
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp).clickable { onDeckPlay(deck.name) },
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(Icons.Default.Style, null, tint = Color(0xFF81C784))
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(deck.name, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                            Text("${deck.totalCards} cards (${deck.cardsDue} due today)", color = Color.Gray, fontSize = 11.sp)
-                        }
-                        Button(
-                            onClick = { onDeckPlay(deck.name) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1C2D1F)),
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
-                        ) {
-                            Text("Review", color = Color(0xFF81C784), fontSize = 11.sp)
-                        }
                     }
                 }
             }

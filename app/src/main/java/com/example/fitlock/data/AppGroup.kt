@@ -3,7 +3,9 @@ package com.example.fitlock.data
 import androidx.room.*
 import java.util.concurrent.ConcurrentHashMap
 
-enum class StatType { STR, AGI, VIT, INT, SEN, CHA }
+enum class StatType { STR, DEX, CON, MOV, INT, WIS, WIL, SAN, CHA, WTH, TEC, LCK, NONE }
+
+enum class GateMode { BLOCK_SCREEN, BACKGROUND_RAID }
 
 enum class GauntletTriggerType { MANUAL, TIME_BASED, WIFI, TIME_AND_WIFI }
 enum class PhysicalTriggerType { NONE, NFC, QR }
@@ -25,7 +27,15 @@ data class AppGroup(
     val keywords: List<String> = emptyList(),
     val icon: String? = null,
     val isProductive: Boolean = false, // If true, usage grants XP & Attribute growth instead of locking
-    val rewardStat: StatType = StatType.INT // The attribute rewarded for positive usage (e.g. INT for Duolingo/Anki)
+    val rewardStat: StatType = StatType.INT, // The attribute rewarded for positive usage (e.g. INT for Duolingo/Anki)
+    val isRoutine: Boolean = false,
+    val gateMode: GateMode = GateMode.BLOCK_SCREEN,
+    val triggerType: GauntletTriggerType = GauntletTriggerType.MANUAL,
+    val triggerTime: String? = null,
+    val xpReward: Int = 100,
+    val targetDeadline: String? = null,
+    val secretPassword: String? = null,
+    val secretLink: String? = null
 )
 
 @Entity(tableName = "gauntlets")
@@ -264,6 +274,20 @@ data class Challenge(
     val lastCompletedTimestamp: Long = 0L
 )
 
+@Entity(tableName = "achievements")
+data class Achievement(
+    @PrimaryKey val id: String,
+    val category: String,
+    val tier: Int,
+    val title: String,
+    val description: String,
+    val currentProgress: Long,
+    val targetProgress: Long,
+    val isUnlocked: Boolean = false,
+    val isClaimed: Boolean = false,
+    val xpReward: Int
+)
+
 @Entity(tableName = "workout_history")
 data class WorkoutHistory(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,
@@ -286,13 +310,22 @@ data class UserStats(
     val currentStreak: Int = 0,
     val lastWorkoutDate: Long = 0L,
     
-    // The 6 Core RPG Stats (Stored as cumulative XP)
+    // The 12 Core RPG Stats & Legacy Stats
     val strXp: Long = 0,
     val agiXp: Long = 0,
+    val dexXp: Long = 0,
     val vitXp: Long = 0,
+    val conXp: Long = 0,
+    val movXp: Long = 0,
     val intXp: Long = 0,
+    val wisXp: Long = 0,
+    val wilXp: Long = 0,
     val senXp: Long = 0,
+    val sanXp: Long = 0,
     val chaXp: Long = 0,
+    val wthXp: Long = 0,
+    val tecXp: Long = 0,
+    val lckXp: Long = 0,
     
     // Willpower and Sobriety
     val willpowerXp: Long = 0,
@@ -321,11 +354,18 @@ data class UserStats(
     fun getStatLevel(statType: StatType): Int {
         val xp = when (statType) {
             StatType.STR -> strXp
-            StatType.AGI -> agiXp
-            StatType.VIT -> vitXp
+            StatType.DEX -> dexXp
+            StatType.CON -> conXp
+            StatType.MOV -> movXp
             StatType.INT -> intXp
-            StatType.SEN -> senXp
+            StatType.WIS -> wisXp
+            StatType.WIL -> wilXp
+            StatType.SAN -> sanXp
             StatType.CHA -> chaXp
+            StatType.WTH -> wthXp
+            StatType.TEC -> tecXp
+            StatType.LCK -> lckXp
+            else -> 0L
         }
         return (1 + Math.sqrt(xp / 50.0)).toInt()
     }
@@ -333,11 +373,18 @@ data class UserStats(
     fun getStatProgress(statType: StatType): Float {
         val xp = when (statType) {
             StatType.STR -> strXp
-            StatType.AGI -> agiXp
-            StatType.VIT -> vitXp
+            StatType.DEX -> dexXp
+            StatType.CON -> conXp
+            StatType.MOV -> movXp
             StatType.INT -> intXp
-            StatType.SEN -> senXp
+            StatType.WIS -> wisXp
+            StatType.WIL -> wilXp
+            StatType.SAN -> sanXp
             StatType.CHA -> chaXp
+            StatType.WTH -> wthXp
+            StatType.TEC -> tecXp
+            StatType.LCK -> lckXp
+            else -> 0L
         }
         val currentLvl = getStatLevel(statType)
         val prevXpNeeded = 50.0 * (currentLvl - 1) * (currentLvl - 1)

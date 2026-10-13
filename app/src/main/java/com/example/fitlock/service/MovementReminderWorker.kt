@@ -41,10 +41,11 @@ class MovementReminderWorker(context: Context, params: WorkerParameters) : Corou
 
     private fun getSelectedExercise(): Pair<String, Int> {
         val exercises = listOf(
-            "SQUAT" to 20,
-            "PUSHUP" to 15,
-            "PLANK" to 45,
-            "SITUP" to 25
+            "PUSHUP" to 60,
+            "SQUAT" to 60,
+            "PLANK" to 60,
+            "BREATHWORK" to 60,
+            "SITUP" to 60
         )
         // Use current hour as seed for stability
         val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)

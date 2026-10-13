@@ -67,6 +67,7 @@ import com.example.fitlock.service.MovementReminderWorker
 import com.example.fitlock.ui.*
 import com.example.fitlock.ui.theme.GritLockTheme
 import com.example.fitlock.utils.HealthConnectManager
+import com.example.fitlock.utils.AchievementsManager
 import com.example.fitlock.utils.MarkdownExporter
 import com.example.fitlock.utils.VitalityMetrics
 import com.example.fitlock.utils.WidgetUpdater
@@ -96,6 +97,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
     private var hingeAnalyzer: HingeAnalyzer? = null
     private var rowAnalyzer: RowAnalyzer? = null
     private var plankAnalyzer: PlankAnalyzer? = null
+    private var breathworkAnalyzer: BreathworkAnalyzer? = null
     
     private lateinit var healthConnectManager: HealthConnectManager // Manages Google Health Connect
     
@@ -245,18 +247,17 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             val userStatsFlow = remember { db.dao().getUserStats() }
             val statsState by userStatsFlow.collectAsState(initial = null)
 
-            // Flashcard Import callback
+            // Flashcard Import callback removed
             val homeViewModel: HomeViewModel = hiltViewModel()
             LaunchedEffect(Unit) {
                 homeViewModel.initDailyPledgeIfMissing()
             }
-            onAnkiUriReceived = { uri -> homeViewModel.importAnkiDeck(this@MainActivity, uri) }
 
             // Wrap the whole UI in our custom Theme
             GritLockTheme(
                 themeName = appTheme, 
                 darkModeSetting = darkModeSetting,
-                activeArchetype = statsState?.activeTheme ?: "DEFAULT"
+                activeArchetype = appTheme
             ) {
                 val locksViewModel: LocksViewModel = hiltViewModel()
                 val userViewModel: UserViewModel = hiltViewModel()
@@ -270,9 +271,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 val userStats = statsState
                 val challenges by homeViewModel.challenges.collectAsState()
                 val currentPledge by homeViewModel.currentPledge.collectAsState()
-                val deckSummaries by homeViewModel.deckSummaries.collectAsState()
 
-                val themeData = com.example.fitlock.ui.theme.getThemeData(userStats?.activeTheme ?: "DEFAULT")
+                val themeData = com.example.fitlock.ui.theme.getThemeData(appTheme)
                 
                 val history by db.dao().getHistory().collectAsState(initial = emptyList())
                 val gauntletHistory by db.dao().getGauntletHistory().collectAsState(initial = emptyList())
@@ -280,18 +280,25 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 val quotes by db.dao().getAllQuotes().collectAsState(initial = emptyList())
                 val allPledges by repository.allPledges.collectAsState(initial = emptyList())
                 val countdowns by repository.allCountdowns.collectAsState(initial = emptyList())
+                val achievements by repository.allAchievements.collectAsState(initial = emptyList())
+                LaunchedEffect(Unit) {
+                    repository.initAchievementsIfMissing()
+                }
                 
                 val todayDate = remember { java.time.LocalDate.now().toString() }
 
                 val vitalityMetrics by produceState(initialValue = VitalityMetrics()) {
-                    if (healthConnectManager.hasPermissions()) {
-                        value = VitalityMetrics(
-                            sleepHours = healthConnectManager.readTodaySleepHours(),
-                            waterLiters = healthConnectManager.readTodayWaterLiters(),
-                            foodCalories = healthConnectManager.readTodayNutritionCalories(),
-                            steps = healthConnectManager.readTodaySteps()
-                        )
-                    }
+                    val baseWater = if (healthConnectManager.hasPermissions()) {
+                        try { healthConnectManager.readTodayWaterLiters() } catch (e: Exception) { 0.0 }
+                    } else 0.0
+                    val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
+                    val localWater = prefs.getFloat("local_water_liters", 0f).toDouble()
+                    value = VitalityMetrics(
+                        sleepHours = if (healthConnectManager.hasPermissions()) try { healthConnectManager.readTodaySleepHours() } catch(e:Exception){0.0} else 0.0,
+                        waterLiters = baseWater + localWater,
+                        foodCalories = if (healthConnectManager.hasPermissions()) try { healthConnectManager.readTodayNutritionCalories() } catch(e:Exception){0.0} else 0.0,
+                        steps = if (healthConnectManager.hasPermissions()) try { healthConnectManager.readTodaySteps() } catch(e:Exception){0} else 0
+                    )
                 }
 
                 // Calculate today's workout totals for the progress bars
@@ -336,6 +343,24 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             Toast.makeText(this@MainActivity, "[SYSTEM: CHALLENGE CLEARED] ${challenge.title} (+${challenge.xpReward} XP)", Toast.LENGTH_LONG).show()
                         }
                     }
+                }
+
+                LaunchedEffect(history, userStats) {
+                    val wordCountTotal = history.sumOf { if (it.exerciseType.equals("WRITE_WORDS", ignoreCase = true)) it.repsCompleted.toLong() else 0L }
+                    val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
+                    val waterTotal = prefs.getFloat("local_water_liters", 0f).toDouble()
+                    
+                    AchievementsManager.evaluateAndUpdateAchievements(
+                        dao = db.dao(),
+                        history = history,
+                        stats = userStats,
+                        waterTotalLiters = waterTotal,
+                        wordCountTotal = wordCountTotal,
+                        completedGatesCount = 0L,
+                        morningPlanCount = 0L,
+                        eveningReviewCount = 0L,
+                        ankiFocusSeconds = 0L
+                    )
                 }
 
                 // Internal navigation state (which screen are we on?)
@@ -499,13 +524,42 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     unfinishedTasks = unfinishedTasks,
                                     completedTasks = completedTasks,
                                     countdowns = countdowns,
-                                    deckSummaries = deckSummaries,
+                                    achievements = achievements,
+                                    onClaimAchievement = { ach ->
+                                        lifecycleScope.launch {
+                                            if (ach.isUnlocked && !ach.isClaimed) {
+                                                repository.upsertAchievement(ach.copy(isClaimed = true))
+                                                val stats = userStats ?: UserStats()
+                                                repository.updateStats(stats.copy(totalXp = stats.totalXp + ach.xpReward))
+                                            }
+                                        }
+                                    },
+                                    onEditGate = { gate ->
+                                        editingGroup = gate
+                                        currentScreen = "protocol_gate_builder"
+                                    },
+                                    onDeleteGate = { gate ->
+                                        lifecycleScope.launch { locksViewModel.deleteGroup(gate) }
+                                    },
+                                    onAddNewGate = {
+                                        editingGroup = null
+                                        currentScreen = "protocol_gate_builder"
+                                    },
                                     quotes = quotes,
                                     history = history,
                                     pledges = allPledges,
                                     onAddWater = { liters ->
                                         lifecycleScope.launch {
-                                            healthConnectManager.writeWaterIntake(liters)
+                                            try {
+                                                healthConnectManager.writeWaterIntake(liters)
+                                            } catch (e: Exception) {
+                                                // Fallback
+                                            }
+                                            val prefs = getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
+                                            val currentWater = prefs.getFloat("local_water_liters", 0f)
+                                            val newWater = currentWater + liters.toFloat()
+                                            prefs.edit().putFloat("local_water_liters", newWater).apply()
+                                            Toast.makeText(this@MainActivity, "💧 Added ${String.format(java.util.Locale.US, "%.2f", liters)}L water", Toast.LENGTH_SHORT).show()
                                         }
                                     },
                                     onAddCountdown = { countdown ->
@@ -583,9 +637,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         currentScreen = "track"
                                         exerciseManager.startTracking(type, trackingMode, count, null, "3-1-1-1", null, 1, null)
                                     },
-                                    onQuickFlashcardClick = {
-                                        currentScreen = "flashcard_review"
-                                    },
                                     onToggleTask = { task ->
                                         lifecycleScope.launch {
                                             val now = System.currentTimeMillis()
@@ -607,10 +658,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                     }
                                             }
                                         }
-                                    },
-                                    onDeckPlay = { deckName ->
-                                        selectedDeckName = deckName
-                                        currentScreen = "flashcard_review"
                                     },
                                     onUrgeClick = {
                                         showUrgeNegotiation = true
@@ -643,6 +690,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     onNavigateToLocks = { currentScreen = "locks" },
                                     onNavigateToVault = { currentScreen = "vault" },
                                     onNavigateToAnalytics = { currentScreen = "analytics" },
+                                    onNavigateToLeaderboard = { currentScreen = "leaderboard" },
                                     onQuestClick = { quest ->
                                         selectedQuestId = quest.quest.id
                                         currentScreen = "quest_execution"
@@ -804,15 +852,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     taskDefinitions = taskDefs,
                                     onTaskUpsert = { locksViewModel.upsertTaskDefinition(it) },
                                     onTaskDelete = { locksViewModel.deleteTaskDefinition(it) },
-                                    quests = allQuests,
-                                    onUpsertQuest = { lifecycleScope.launch { repository.upsertQuest(it) } },
-                                    onDeleteQuest = { lifecycleScope.launch { repository.deleteQuest(it) } },
-                                    onUpsertQuestBlock = { lifecycleScope.launch { repository.upsertQuestBlock(it) } },
-                                    onDeleteQuestBlock = { lifecycleScope.launch { repository.deleteQuestBlock(it) } },
-                                    unfinishedTasks = unfinishedTasks,
-                                    brainstormingTasks = projectTasks,
-                                    deckSummaries = deckSummaries,
-                                    onDeleteDeck = { homeViewModel.deleteDeck(it) },
+                                    appGroups = groups,
+                                    challenges = challenges,
+                                    onEditGate = { gate ->
+                                        editingGroup = gate
+                                        currentScreen = "protocol_gate_builder"
+                                    },
+                                    onDeleteGate = { gate ->
+                                        lifecycleScope.launch { locksViewModel.deleteGroup(gate) }
+                                    },
+                                    onAddNewGate = {
+                                        editingGroup = null
+                                        currentScreen = "protocol_gate_builder"
+                                    },
                                     onExerciseLog = { type, count, familyId, level, variantName ->
                                         activeRequirements = listOf(ExerciseRequirement(type.name, count, variantName = variantName, familyId = familyId))
                                         currentRequirementIndex = 0
@@ -824,19 +876,25 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         
                                         exerciseManager.startTracking(type, trackingMode, count, calibration, "3-1-1-1", familyId, level, variantName)
                                     },
-                                    onDeckPlay = { deckName ->
-                                        selectedDeckName = deckName
-                                        currentScreen = "flashcard_review"
-                                    },
                                     onProgressionClick = { currentScreen = "progression" },
                                     onStartPlanning = { currentScreen = "planning" },
-                                    onAddFlashcard = { card ->
-                                        lifecycleScope.launch { repository.upsertFlashcard(card) }
-                                    },
                                     allFamilies = allFamilies,
                                     currentProgression = userStats?.familyProgression ?: emptyMap(),
                                     title = themeData.tabForge,
                                     onBack = { currentScreen = "profile" }
+                                )
+                            }
+                            "protocol_gate_builder" -> {
+                                ProtocolGateBuilderScreen(
+                                    editingGate = editingGroup,
+                                    habitDefinitions = habitDefinitions,
+                                    onBack = { currentScreen = "forge" },
+                                    onSave = { gate ->
+                                        lifecycleScope.launch {
+                                            locksViewModel.upsertGroup(gate)
+                                            currentScreen = "forge"
+                                        }
+                                    }
                                 )
                             }
                             "progression" -> {
@@ -850,6 +908,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                             }
                             "analytics" -> {
                                 AnalyticsScreen(history = history, gauntletHistory = gauntletHistory)
+                            }
+                            "leaderboard" -> {
+                                LeaderboardScreen(
+                                    history = history,
+                                    onBack = { currentScreen = "home" }
+                                )
                             }
                             "stats" -> {
                                 StatsScreen(
@@ -880,7 +944,23 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     forgeTabName = themeData.tabForge,
                                     onNavigateToLocks = { currentScreen = "locks" },
                                     onNavigateToAnalytics = { currentScreen = "analytics" },
-                                    onNavigateToSettings = { currentScreen = "settings" }
+                                    onNavigateToSettings = { currentScreen = "settings" },
+                                    onNavigateToAchievements = { currentScreen = "achievements" }
+                                )
+                            }
+                            "achievements" -> {
+                                AchievementsScreen(
+                                    achievements = achievements,
+                                    onClaimReward = { ach ->
+                                        lifecycleScope.launch {
+                                            if (ach.isUnlocked && !ach.isClaimed) {
+                                                repository.upsertAchievement(ach.copy(isClaimed = true))
+                                                val stats = userStats ?: UserStats()
+                                                repository.updateStats(stats.copy(totalXp = stats.totalXp + ach.xpReward))
+                                            }
+                                        }
+                                    },
+                                    onBack = { currentScreen = "profile" }
                                 )
                             }
                             "portal" -> {
@@ -1244,47 +1324,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                 }
                             }
                             "flashcard_review" -> {
-                                val deckToReview = selectedDeckName ?: "Default"
-                                FlashcardReviewScreen(
-                                    deckName = deckToReview,
-                                    repository = repository,
-                                    requiredCount = if (pendingFlashcardGoal > 0) pendingFlashcardGoal else null,
-                                    onRequirementMet = {
-                                        val returnGId = returnGroupIdAfterReview
-                                        if (returnGId != -1) {
-                                            lifecycleScope.launch {
-                                                val now = System.currentTimeMillis()
-                                                val group = db.dao().getGroupById(returnGId)
-                                                if (group != null) {
-                                                    db.dao().updateGroup(group.copy(lastUnlockedTimestamp = now))
-                                                    LockStatusManager.updateUnlock(returnGId, now)
-                                                }
-                                            }
-                                        }
-                                    },
-                                    onFinish = {
-                                        if (pendingFlashcardGoal > 0) {
-                                            val returnPkg = returnPackageAfterReview
-                                            if (returnPkg != null) {
-                                                val launchIntent = packageManager.getLaunchIntentForPackage(returnPkg)
-                                                if (launchIntent != null) {
-                                                    startActivity(launchIntent)
-                                                }
-                                                pendingFlashcardGoal = 0
-                                                returnPackageAfterReview = null
-                                                returnGroupIdAfterReview = -1
-                                                currentScreen = "locks"
-                                            } else {
-                                                repCountState.intValue = pendingFlashcardGoal
-                                                pendingFlashcardGoal = 0
-                                                currentScreen = "track"
-                                            }
-                                        } else {
-                                            currentScreen = "home"
-                                            selectedDeckName = null
-                                        }
-                                    }
-                                )
+                                currentScreen = "home"
                             }
                             "calibrate" -> {
                                 calibrationExercise?.let { type ->
@@ -1380,6 +1420,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                     ExerciseType.HINGE -> hingeAnalyzer?.analyzePose(pose, width, height)
                                                     ExerciseType.ROW -> rowAnalyzer?.analyzePose(pose, width, height)
                                                     ExerciseType.PLANK -> plankAnalyzer?.analyzePose(pose, width, height)
+                                                    ExerciseType.BREATHWORK -> breathworkAnalyzer?.analyzePose(pose, width, height)
                                                     else -> {}
                                                 }
                                             }
@@ -1391,6 +1432,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         onEmergencyBypass = { 
                                             currentScreen = if (unlockingVaultItem != null) "vault" else "home"
                                             unlockingVaultItem = null
+                                        },
+                                        onFulfilRequirement = { count -> repCountState.intValue = count },
+                                        onSaveNote = { content ->
+                                            lifecycleScope.launch {
+                                                db.dao().insertLogNote(DailyLogNote(content = content))
+                                            }
                                         },
                                         onNextExercise = {
                                             lifecycleScope.launch {
@@ -1515,10 +1562,6 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                     startActivity(launchIntent)
                                                 }
                                             }
-                                        },
-                                        onStartFlashcardReview = { count ->
-                                            pendingFlashcardGoal = count
-                                            currentScreen = "flashcard_review"
                                         }
                                     )
                                 }
@@ -1827,6 +1870,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             ExerciseType.HINGE -> hingeAnalyzer = HingeAnalyzer(exerciseManager)
             ExerciseType.ROW -> rowAnalyzer = RowAnalyzer(exerciseManager)
             ExerciseType.PLANK -> plankAnalyzer = PlankAnalyzer(exerciseManager)
+            ExerciseType.BREATHWORK -> breathworkAnalyzer = BreathworkAnalyzer(exerciseManager)
             else -> {}
         }
     }

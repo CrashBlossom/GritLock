@@ -10,7 +10,7 @@ import com.example.fitlock.data.ExerciseCalibration
 import java.util.*
 import kotlin.math.sqrt
 
-enum class ExerciseType { PUSHUP, SQUAT, PULLUP, DIP, SITUP, HINGE, ROW, PLANK, STEPS, APP_USAGE, FLASHCARDS }
+enum class ExerciseType { PUSHUP, SQUAT, PULLUP, DIP, SITUP, HINGE, ROW, PLANK, BREATHWORK, STEPS, APP_USAGE }
 enum class TrackingMode { CAMERA, POCKET }
 
 class ExerciseTrackerManager(

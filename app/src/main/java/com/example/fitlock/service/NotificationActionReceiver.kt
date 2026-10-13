@@ -3,9 +3,11 @@ package com.example.fitlock.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.widget.Toast
 import androidx.core.app.RemoteInput
 import com.example.fitlock.data.DailyLogNote
 import com.example.fitlock.data.GritLockRepository
+import com.example.fitlock.utils.HealthConnectManager
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +15,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /**
- * Handles text input from the notification bar.
+ * Handles text input & quick actions (like water logging) from notifications.
  */
 @AndroidEntryPoint
 class NotificationActionReceiver : BroadcastReceiver() {
@@ -22,25 +24,33 @@ class NotificationActionReceiver : BroadcastReceiver() {
     private val scope = CoroutineScope(Dispatchers.IO)
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == ACTION_POST_NOTE) {
-            val remoteInput = RemoteInput.getResultsFromIntent(intent)
-            if (remoteInput != null) {
-                val content = remoteInput.getCharSequence(KEY_TEXT_REPLY)?.toString()
-                if (!content.isNullOrBlank()) {
-                    scope.launch {
-                        repository.insertLogNote(DailyLogNote(content = content))
-                        
-                        // Update the notification to show success/dismiss
-                        val serviceIntent = Intent(context, DailyLogService::class.java)
-                        context.startForegroundService(serviceIntent)
+        when (intent.action) {
+            ACTION_POST_NOTE -> {
+                val remoteInput = RemoteInput.getResultsFromIntent(intent)
+                if (remoteInput != null) {
+                    val content = remoteInput.getCharSequence(KEY_TEXT_REPLY)?.toString()
+                    if (!content.isNullOrBlank()) {
+                        scope.launch {
+                            repository.insertLogNote(DailyLogNote(content = content))
+                            val serviceIntent = Intent(context, DailyLogService::class.java)
+                            context.startForegroundService(serviceIntent)
+                        }
                     }
                 }
+            }
+            ACTION_LOG_WATER -> {
+                scope.launch {
+                    val hcManager = HealthConnectManager(context)
+                    hcManager.writeWaterIntake(0.25)
+                }
+                Toast.makeText(context, "💧 Logged 0.25L Water to Health Connect", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     companion object {
         const val ACTION_POST_NOTE = "com.example.fitlock.ACTION_POST_NOTE"
+        const val ACTION_LOG_WATER = "com.example.fitlock.ACTION_LOG_WATER"
         const val KEY_TEXT_REPLY = "key_text_reply"
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.lifecycle.lifecycleScope
 import androidx.room.Room
 import com.example.fitlock.data.GritLockDatabase
+import com.example.fitlock.data.DailyLogNote
 import com.example.fitlock.data.UserStats
 import com.example.fitlock.data.WorkoutHistory
 import com.example.fitlock.data.LockStatusManager
@@ -138,13 +139,20 @@ class LockOverlayActivity : ComponentActivity() {
                                     is HingeAnalyzer -> analyzer.analyzePose(pose, width, height)
                                     is RowAnalyzer -> analyzer.analyzePose(pose, width, height)
                                     is PlankAnalyzer -> analyzer.analyzePose(pose, width, height)
+                                    is BreathworkAnalyzer -> analyzer.analyzePose(pose, width, height)
                                 }
                             }
                         },
                         onEmergencyBypass = { finish() },
+                        onFulfilRequirement = { count -> repCountState = count },
+                        onSaveNote = { content ->
+                            lifecycleScope.launch {
+                                db.dao().insertLogNote(DailyLogNote(content = content))
+                            }
+                        },
                         onNextExercise = {
                             lifecycleScope.launch {
-                                saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId)
+                                saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId, exerciseRequirements[currentExerciseIndex].type)
                                 if (currentExerciseIndex == exerciseRequirements.size - 1 && repCountState >= currentReq.count) {
                                     performUnlock(groupId)
                                     SessionProgressManager.clearGroupProgress(groupId)
@@ -157,7 +165,7 @@ class LockOverlayActivity : ComponentActivity() {
                         },
                         onStopExercise = {
                             lifecycleScope.launch {
-                                saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId)
+                                saveRepsToHistory(exerciseType, repCountState, bankedRepsUsedInSession, currentReq.count, groupId, exerciseRequirements[currentExerciseIndex].type)
                                 
                                 // Deactivate Intermittent Lock on stop too
                                 val deactivateIntent = Intent(this@LockOverlayActivity, com.example.fitlock.service.GritLockAccessibilityService::class.java).apply {
@@ -178,19 +186,6 @@ class LockOverlayActivity : ComponentActivity() {
                                 bankedRepsUsedInSession += count
                                 exerciseManager.addManualReps(count)
                             }
-                        },
-                        onStartFlashcardReview = { count ->
-                            val currentReq = exerciseRequirements.getOrNull(currentExerciseIndex)
-                            val intent = Intent(this@LockOverlayActivity, MainActivity::class.java).apply {
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                                putExtra("START_FLASHCARD_REVIEW", true)
-                                putExtra("FLASHCARD_COUNT", count)
-                                putExtra("DECK_NAME", currentReq?.deckName ?: "ALL")
-                                putExtra("RETURN_PACKAGE", targetApp)
-                                putExtra("RETURN_GROUP_ID", groupId)
-                            }
-                            startActivity(intent)
-                            finish()
                         },
                         onLaunchRequiredApp = {
                             val pkgs = currentReq.targetPackageNames
@@ -272,6 +267,7 @@ class LockOverlayActivity : ComponentActivity() {
             ExerciseType.HINGE -> HingeAnalyzer(exerciseManager)
             ExerciseType.ROW -> RowAnalyzer(exerciseManager)
             ExerciseType.PLANK -> PlankAnalyzer(exerciseManager)
+            ExerciseType.BREATHWORK -> BreathworkAnalyzer(exerciseManager)
             else -> null
         }
     }
@@ -291,13 +287,21 @@ class LockOverlayActivity : ComponentActivity() {
         }
     }
 
-    private suspend fun saveRepsToHistory(exerciseType: ExerciseType, totalReps: Int, bankedUsed: Int, requirement: Int, groupId: Int) {
+    private fun isPhysicalExercise(type: String): Boolean {
+        return when (type.uppercase()) {
+            "PUSHUP", "SQUAT", "PLANK", "BREATHWORK", "SITUP", "PULLUP", "DIP", "ROW", "HINGE", "STEPS" -> true
+            else -> false
+        }
+    }
+
+    private suspend fun saveRepsToHistory(exerciseType: ExerciseType, totalReps: Int, bankedUsed: Int, requirement: Int, groupId: Int, reqType: String) {
         val physicalReps = (totalReps - bankedUsed).coerceAtLeast(0)
         val extraReps = (totalReps - requirement).coerceAtLeast(0)
         val xpGained = physicalReps * 5
         updateUserStats(xpGained, exerciseType.name, extraReps)
 
-        if (physicalReps > 0 && exerciseType != ExerciseType.APP_USAGE) {
+        val isPhys = isPhysicalExercise(reqType)
+        if (physicalReps > 0 && exerciseType != ExerciseType.APP_USAGE && isPhys) {
             db.dao().insertWorkout(
                 WorkoutHistory(
                     exerciseType = exerciseType.name,
@@ -356,10 +360,10 @@ class LockOverlayActivity : ComponentActivity() {
         val now = System.currentTimeMillis()
         val statDates = currentStats.statLastTrainedDates.toMutableMap()
         var strXp = currentStats.strXp
-        var agiXp = currentStats.agiXp
-        var vitXp = currentStats.vitXp
+        var dexXp = currentStats.dexXp
+        var conXp = currentStats.conXp
         var intXp = currentStats.intXp
-        var senXp = currentStats.senXp
+        var sanXp = currentStats.sanXp
         var willpowerXp = currentStats.willpowerXp
 
         when (exerciseType.uppercase()) {
@@ -368,20 +372,20 @@ class LockOverlayActivity : ComponentActivity() {
                 statDates["STR"] = now
             }
             "SQUAT", "HINGE", "SITUP" -> {
-                agiXp += xpGained
-                statDates["AGI"] = now
+                dexXp += xpGained
+                statDates["DEX"] = now
             }
             "PLANK" -> {
-                vitXp += xpGained
-                statDates["VIT"] = now
+                conXp += xpGained
+                statDates["CON"] = now
             }
-            "FLASHCARDS" -> {
+            "BREATHWORK" -> {
                 intXp += xpGained
                 statDates["INT"] = now
             }
             else -> {
-                senXp += xpGained
-                statDates["SEN"] = now
+                sanXp += xpGained
+                statDates["SAN"] = now
             }
         }
 
@@ -394,10 +398,10 @@ class LockOverlayActivity : ComponentActivity() {
                 floorTargetMetToday = true,
                 statLastTrainedDates = statDates,
                 strXp = strXp,
-                agiXp = agiXp,
-                vitXp = vitXp,
+                dexXp = dexXp,
+                conXp = conXp,
                 intXp = intXp,
-                senXp = senXp,
+                sanXp = sanXp,
                 willpowerXp = willpowerXp
             )
         )

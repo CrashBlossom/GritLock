@@ -305,6 +305,7 @@ class GritLockAccessibilityService : AccessibilityService() {
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             checkMorningGate(packageName)
             checkEveningGate(packageName)
+            updateAppStatusNotification(packageName)
         }
 
         // Focus Shield enforcement
@@ -871,7 +872,7 @@ class GritLockAccessibilityService : AccessibilityService() {
                     val exerciseType = when {
                         packageName == "com.duolingo" || matchingGroup.name.contains("French", ignoreCase = true) -> "FRENCH_STUDY"
                         packageName == "com.ichi2.anki" || matchingGroup.name.contains("Anki", ignoreCase = true) || matchingGroup.name.contains("Flashcard", ignoreCase = true) -> "FLASHCARDS"
-                        else -> matchingGroup.rewardStat.name
+                        else -> matchingGroup.rewardStat?.name ?: "INT"
                     }
 
                     db.dao().insertWorkout(
@@ -888,7 +889,7 @@ class GritLockAccessibilityService : AccessibilityService() {
                     db.dao().updateUserStats(stats.copy(totalXp = stats.totalXp + 10, intXp = updatedInt))
                     
                     handler.post {
-                        Toast.makeText(applicationContext, "[SYSTEM: +10 XP / +10 ${matchingGroup.rewardStat} earned for ${matchingGroup.name}]", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(applicationContext, "[SYSTEM: +10 XP / +10 ${matchingGroup.rewardStat ?: "INT"} earned for ${matchingGroup.name}]", Toast.LENGTH_SHORT).show()
                     }
 
                     WidgetUpdater.updateAllWidgets(applicationContext)
@@ -948,5 +949,38 @@ class GritLockAccessibilityService : AccessibilityService() {
             }
         }
         return false
+    }
+
+    private fun updateAppStatusNotification(packageName: String) {
+        if (packageName.isBlank()) return
+        val appName = try {
+            val pm = packageManager
+            val info = pm.getApplicationInfo(packageName, 0)
+            pm.getApplicationLabel(info).toString()
+        } catch (e: Exception) {
+            packageName
+        }
+
+        val matchingGroup = allGroups.find { it.packageNames.contains(packageName) }
+        val statusText = if (matchingGroup != null) {
+            val now = System.currentTimeMillis()
+            val lastUnlocked = LockStatusManager.getLastUnlocked(matchingGroup.id, matchingGroup.lastUnlockedTimestamp)
+            val unlockDurationMs = matchingGroup.unlockDurationMinutes * 60 * 1000L
+            val timeSinceUnlock = now - lastUnlocked
+            val isUnlocked = timeSinceUnlock < unlockDurationMs
+
+            when {
+                matchingGroup.isProductive -> "🟢 Positive Portal (+Stats)"
+                isUnlocked -> {
+                    val remainingMs = unlockDurationMs - timeSinceUnlock
+                    "🔓 Unlocked: ${formatTime((remainingMs / 1000).toInt())} remaining"
+                }
+                else -> "🔒 Blocked - Gate Active (${matchingGroup.name})"
+            }
+        } else {
+            "⚪ Neutral App (No Stats)"
+        }
+
+        updateNotification("GritLock: $appName", statusText)
     }
 }

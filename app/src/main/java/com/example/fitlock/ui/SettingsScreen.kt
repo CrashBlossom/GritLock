@@ -40,6 +40,7 @@ import com.example.fitlock.data.UserStats
 import com.example.fitlock.data.ExerciseCalibration
 import com.example.fitlock.exercise.ExerciseType
 import com.example.fitlock.exercise.TrackingMode
+import com.example.fitlock.utils.HealthConnectManager
 
 @Composable
 fun SettingsScreen(
@@ -58,10 +59,12 @@ fun SettingsScreen(
     // Permission states
     var isAccessibilityEnabled by remember { mutableStateOf(isAccessibilityServiceEnabled(context)) }
     var isOverlayPermissionGranted by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var hasHealthConnectPermissions by remember { mutableStateOf(false) }
+
+    val healthConnectManager = remember { HealthConnectManager(context) }
     
     // Customization states
-    var selectedTheme by remember { mutableStateOf(prefs.getString("app_theme", "Default") ?: "Default") }
-    var darkModeSetting by remember { mutableStateOf(prefs.getString("dark_mode", "System") ?: "System") }
+    var selectedTheme by remember { mutableStateOf(prefs.getString("app_theme", "DEFAULT") ?: "DEFAULT") }
     var customBankMsg by remember { mutableStateOf(prefs.getString("custom_bank_msg", "No reps banked yet. Go sweat!") ?: "No reps banked yet. Go sweat!") }
 
     // Lockout delay
@@ -70,12 +73,11 @@ fun SettingsScreen(
     // Strict Mode state
     var strictMode by remember { mutableStateOf(prefs.getBoolean("strict_mode", false)) }
     
-    // Travel Mode state
-    var travelModeEnabled by remember { mutableStateOf(prefs.getBoolean("travel_mode_enabled", false)) }
-    
-    // HP Drain Mode & Bedtime Penalty states
+    // Active Lockdown on movement reminder trigger
+    var intermittentLockEnabled by remember { mutableStateOf(prefs.getBoolean("intermittent_lock_enabled", false)) }
+
+    // HP Drain Mode state
     var useHpDrainMode by remember { mutableStateOf(prefs.getBoolean("use_hp_drain_mode", false)) }
-    var bedtimePenaltyEnabled by remember { mutableStateOf(prefs.getBoolean("bedtime_penalty_enabled", true)) }
     
     // Master Password state
     var masterPasswordEnabled by remember { mutableStateOf(prefs.getBoolean("master_password_enabled", false)) }
@@ -88,6 +90,7 @@ fun SettingsScreen(
         while(true) {
             isAccessibilityEnabled = isAccessibilityServiceEnabled(context)
             isOverlayPermissionGranted = Settings.canDrawOverlays(context)
+            hasHealthConnectPermissions = healthConnectManager.hasPermissions()
             kotlinx.coroutines.delay(2000)
         }
     }
@@ -111,16 +114,48 @@ fun SettingsScreen(
             )
         }
         
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // System Permissions Status Section
-        SectionHeader("System Permissions")
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // 1. App Customization & Themes Section
+        ExpandableSection("App Customization & Themes", initialExpanded = false) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Select Theme & Color Scheme", color = Color.Gray, fontSize = 11.sp)
+                val themes = listOf("DEFAULT" to "Default", "SUPERHERO" to "Vigilante", "AGENT" to "Secret Agent", "SOLO" to "Solo Leveler", "COZY" to "Cozy Adventurer", "WINTER_ARC" to "Winter Arc")
+                themes.forEach { (id, name) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedTheme = id
+                                prefs.edit().putString("app_theme", id).apply()
+                                Toast.makeText(context, "Theme updated to $name", Toast.LENGTH_SHORT).show()
+                                (context as? android.app.Activity)?.recreate()
+                            }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = selectedTheme == id,
+                            onClick = {
+                                selectedTheme = id
+                                prefs.edit().putString("app_theme", id).apply()
+                                Toast.makeText(context, "Theme updated to $name", Toast.LENGTH_SHORT).show()
+                                (context as? android.app.Activity)?.recreate()
+                            }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(name, color = Color.White, fontSize = 14.sp)
+                    }
+                }
+            }
+        }
+
+        // 2. Morning & Evening Plan Templates Section (Expandable)
+        RoutineTemplatesSettingsCard(prefs)
+
+        // 3. System Permissions Status Section (Including Health Connect)
+        ExpandableSection("System Permissions", initialExpanded = true) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 PermissionStatusRow(
                     title = "Accessibility Service",
                     description = "Required to block apps and show countdowns.",
@@ -145,6 +180,17 @@ fun SettingsScreen(
                         context.startActivity(intent)
                     }
                 )
+
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+
+                PermissionStatusRow(
+                    title = "Health Connect Integration",
+                    description = "Syncs sleep, water, calories, and steps vitality.",
+                    isEnabled = hasHealthConnectPermissions,
+                    onGrant = {
+                        Toast.makeText(context, "Health Connect permissions managed in Android Settings.", Toast.LENGTH_LONG).show()
+                    }
+                )
                 
                 HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
                 
@@ -164,16 +210,9 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Daily Goals Section
-        SectionHeader("Daily Goals")
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        // 4. Daily Goals Section
+        ExpandableSection("Daily Goals", initialExpanded = false) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ExerciseType.entries.forEach { type ->
                     DailyGoalItem(type, prefs)
                     if (type != ExerciseType.entries.last()) {
@@ -183,337 +222,114 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Rep Bank Management Section
-        SectionHeader("Rep Bank Management")
-        RepBankSettingsCard(userStats, onUpdateUserStats)
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Behavior Section
-        SectionHeader("Behavior")
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Lockout Countdown", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                Text("Seconds before app is blocked: $lockoutSeconds", color = Color.Gray, fontSize = 12.sp)
-                Spacer(modifier = Modifier.height(16.dp))
-                Slider(
-                    value = lockoutSeconds.toFloat(),
-                    onValueChange = { 
-                        lockoutSeconds = it.toInt()
-                        prefs.edit().putInt("lockout_seconds", it.toInt()).apply()
-                    },
-                    valueRange = 0f..30f,
-                    steps = 29,
-                    colors = SliderDefaults.colors(
-                        thumbColor = MaterialTheme.colorScheme.primary,
-                        activeTrackColor = MaterialTheme.colorScheme.primary,
-                        inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                    )
-                )
-            }
+        // 5. Rep Bank Management Section (With Clearance Frequency)
+        ExpandableSection("Rep Bank Management", initialExpanded = false) {
+            RepBankSettingsCard(userStats, onUpdateUserStats, prefs)
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Customization Section
-        SectionHeader("Customization")
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text("Dark Mode", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    val modes = listOf("System", "Light", "Dark")
-                    modes.forEach { mode ->
-                        FilterChip(
-                            selected = darkModeSetting == mode,
-                            onClick = { 
-                                darkModeSetting = mode
-                                prefs.edit().putString("dark_mode", mode).apply()
-                            },
-                            label = { Text(mode) },
-                            modifier = Modifier.weight(1f),
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary
-                            )
-                        )
-                    }
-                }
+        // 6. Behavior Section (Vertical Layout for Penalty Modes)
+        ExpandableSection("Behavior", initialExpanded = false) {
+            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("Penalty Execution Mode", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 16.dp))
-
-                Text("App Color", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ThemeOption("Default", Color(0xFFD0BCFF), selectedTheme == "Default") {
-                        selectedTheme = "Default"
-                        prefs.edit().putString("app_theme", "Default").apply()
-                    }
-                    ThemeOption("Material", MaterialTheme.colorScheme.primary, selectedTheme == "Material") {
-                        selectedTheme = "Material"
-                        prefs.edit().putString("app_theme", "Material").apply()
-                    }
-                    ThemeOption("Emerald", Color(0xFF50C878), selectedTheme == "Emerald") {
-                        selectedTheme = "Emerald"
-                        prefs.edit().putString("app_theme", "Emerald").apply()
-                    }
-                    ThemeOption("Crimson", Color(0xFFDC143C), selectedTheme == "Crimson") {
-                        selectedTheme = "Crimson"
-                        prefs.edit().putString("app_theme", "Crimson").apply()
-                    }
-                    ThemeOption("Ocean", Color(0xFF0077BE), selectedTheme == "Ocean") {
-                        selectedTheme = "Ocean"
-                        prefs.edit().putString("app_theme", "Ocean").apply()
-                    }
-                }
-                
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 16.dp))
-                
-                Text("App Archetype (Total Conversion)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(12.dp))
-                val themes = listOf("DEFAULT", "SUPERHERO", "AGENT", "SOLO", "COZY", "WINTER_ARC")
-                themes.forEach { themeId ->
-                    val data = com.example.fitlock.ui.theme.getThemeData(themeId)
-                    val isSelected = (userStats?.activeTheme ?: "DEFAULT") == themeId
-                    
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable {
-                                val current = userStats ?: UserStats(id = 1)
-                                onUpdateUserStats(current.copy(activeTheme = themeId))
-                            }
-                            .padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            useHpDrainMode = false
+                            prefs.edit().putBoolean("use_hp_drain_mode", false).apply()
+                        }.padding(vertical = 4.dp)
                     ) {
-                        RadioButton(
-                            selected = isSelected,
-                            onClick = {
-                                val current = userStats ?: UserStats(id = 1)
-                                onUpdateUserStats(current.copy(activeTheme = themeId))
-                            }
+                        RadioButton(selected = !useHpDrainMode, onClick = {
+                            useHpDrainMode = false
+                            prefs.edit().putBoolean("use_hp_drain_mode", false).apply()
+                        })
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Lockout Countdown", color = Color.White, fontSize = 14.sp)
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            useHpDrainMode = true
+                            prefs.edit().putBoolean("use_hp_drain_mode", true).apply()
+                        }.padding(vertical = 4.dp)
+                    ) {
+                        RadioButton(selected = useHpDrainMode, onClick = {
+                            useHpDrainMode = true
+                            prefs.edit().putBoolean("use_hp_drain_mode", true).apply()
+                        })
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("HP Drain Mode", color = Color.White, fontSize = 14.sp)
+                    }
+                }
+
+                if (!useHpDrainMode) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("Lockout Countdown Seconds: $lockoutSeconds", color = Color.Gray, fontSize = 12.sp)
+                    Slider(
+                        value = lockoutSeconds.toFloat(),
+                        onValueChange = { 
+                            lockoutSeconds = it.toInt()
+                            prefs.edit().putInt("lockout_seconds", it.toInt()).apply()
+                        },
+                        valueRange = 0f..30f,
+                        steps = 29,
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
                         )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column {
-                            Text(data.name, fontWeight = FontWeight.Medium)
-                            Text("Mode: ${data.tabHome} / ${data.tabLocks}", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
-                        }
-                    }
+                    )
                 }
 
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f), modifier = Modifier.padding(vertical = 16.dp))
-                
-                Text("Motivational Message", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = customBankMsg,
-                    onValueChange = { 
-                        customBankMsg = it
-                        prefs.edit().putString("custom_bank_msg", it).apply()
-                    },
+                HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+
+                // Toggles for Strict Mode, Master Password, Active Lockdown
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("No reps banked yet. Go sweat!") },
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.background,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.background
-                    )
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Intermittent Discipline Checks Section
-        SectionHeader("Intermittent Discipline Checks")
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                var intermittentEnabled by remember { mutableStateOf(prefs.getBoolean("intermittent_lock_enabled", false)) }
-                var selectedGroupId by remember { mutableIntStateOf(prefs.getInt("intermittent_block_group_id", -1)) }
-                
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Active Lockdown", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        Text("Block apps when movement reminder triggers.", color = Color.Gray, fontSize = 12.sp)
-                    }
-                    Switch(
-                        checked = intermittentEnabled,
-                        onCheckedChange = { 
-                            intermittentEnabled = it
-                            prefs.edit().putBoolean("intermittent_lock_enabled", it).apply()
-                        }
-                    )
-                }
-                
-                if (intermittentEnabled) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("App Group to Block", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    
-                    var expanded by remember { mutableStateOf(false) }
-                    val selectedGroup = groups.find { it.id == selectedGroupId }
-                    
-                    Box {
-                        OutlinedButton(
-                            onClick = { expanded = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(selectedGroup?.name ?: "No Group Selected")
-                        }
-                        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                            DropdownMenuItem(
-                                text = { Text("None") },
-                                onClick = { 
-                                    selectedGroupId = -1
-                                    prefs.edit().putInt("intermittent_block_group_id", -1).apply()
-                                    expanded = false
-                                }
-                            )
-                            groups.forEach { group ->
-                                DropdownMenuItem(
-                                    text = { Text(group.name) },
-                                    onClick = {
-                                        selectedGroupId = group.id
-                                        prefs.edit().putInt("intermittent_block_group_id", group.id).apply()
-                                        expanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Health Sync Section
-        SectionHeader("Health Connectivity")
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Default.Sync, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text("Health Connect Sync", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    "Sync your progress with Android Health Connect.",
-                    color = Color.Gray,
-                    fontSize = 12.sp
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        val intent = Intent("androidx.health.connect.client.ACTION_HEALTH_CONNECT_SETTINGS")
-                        try {
-                            context.startActivity(intent)
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Health Connect not installed or restricted.", Toast.LENGTH_LONG).show()
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Check Permissions & Sync")
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Protection & Adaptability Section
-        SectionHeader("Protection & Travel Adaptability")
-        Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Travel / Low-Friction Mode", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        Text("Scales rep targets down 60% & enables low-profile stealth micro-exercises.", color = Color.Gray, fontSize = 12.sp)
-                    }
-                    Switch(
-                        checked = travelModeEnabled,
-                        onCheckedChange = { 
-                            travelModeEnabled = it
-                            prefs.edit().putBoolean("travel_mode_enabled", it).apply()
-                        }
-                    )
-                }
-
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Universal HP Drain Mode", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        Text("Drains your Health Bar in real time when inside blocked apps or keywords.", color = Color.Gray, fontSize = 12.sp)
-                    }
-                    Switch(
-                        checked = useHpDrainMode,
-                        onCheckedChange = { 
-                            useHpDrainMode = it
-                            prefs.edit().putBoolean("use_hp_drain_mode", it).apply()
-                        }
-                    )
-                }
-
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Bedtime Screen Penalty (-30 HP)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        Text("Deducts -30 HP next morning if restricted apps are opened past 10:30 PM.", color = Color.Gray, fontSize = 12.sp)
-                    }
-                    Switch(
-                        checked = bedtimePenaltyEnabled,
-                        onCheckedChange = { 
-                            bedtimePenaltyEnabled = it
-                            prefs.edit().putBoolean("bedtime_penalty_enabled", it).apply()
-                        }
-                    )
-                }
-
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
-
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Strict Mode (Anti-Bypass)", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        Text("Blocks com.android.settings and Accessibility disabling during active locks.", color = Color.Gray, fontSize = 12.sp)
+                        Text("Strict Mode", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Prevents bypassing lock screens easily.", color = Color.Gray, fontSize = 11.sp)
                     }
                     Switch(
                         checked = strictMode,
-                        onCheckedChange = { 
+                        onCheckedChange = {
                             strictMode = it
                             prefs.edit().putBoolean("strict_mode", it).apply()
                         }
                     )
                 }
-                
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
-                
-                Row(verticalAlignment = Alignment.CenterVertically) {
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Column(modifier = Modifier.weight(1f)) {
-                        Text("Master Password Protection", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                        Text("Requires a password to disable groups or protection.", color = Color.Gray, fontSize = 12.sp)
+                        Text("Active Lockdown on Movement Reminder", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Locks target app group when intermittent movement check fires.", color = Color.Gray, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = intermittentLockEnabled,
+                        onCheckedChange = {
+                            intermittentLockEnabled = it
+                            prefs.edit().putBoolean("intermittent_lock_enabled", it).apply()
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Master Password Protection", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Requires master password to disable locks or modify settings.", color = Color.Gray, fontSize = 11.sp)
                     }
                     Switch(
                         checked = masterPasswordEnabled,
@@ -526,116 +342,196 @@ fun SettingsScreen(
                         }
                     )
                 }
-
-                HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f), modifier = Modifier.padding(vertical = 12.dp))
-
-                Button(
-                    onClick = onNavigateToQuotes,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Default.FormatQuote, null)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Edit Motivational Quotes")
-                }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
-
-        if (showSetPasswordDialog) {
-            SetMasterPasswordDialog(
-                onDismiss = { showSetPasswordDialog = false },
-                onSave = { newPass ->
-                    prefs.edit()
-                        .putBoolean("master_password_enabled", true)
-                        .putString("master_password", newPass)
-                        .apply()
-                    masterPasswordEnabled = true
-                    showSetPasswordDialog = false
-                    Toast.makeText(context, "Master Protection Enabled", Toast.LENGTH_SHORT).show()
-                }
-            )
-        }
-        
-        if (showVerifyPasswordDialog) {
-            MasterPasswordDialog(
-                correctPassword = masterPassword,
-                onDismiss = { showVerifyPasswordDialog = false },
-                onSuccess = {
-                    prefs.edit().putBoolean("master_password_enabled", false).apply()
-                    masterPasswordEnabled = false
-                    showVerifyPasswordDialog = false
-                    Toast.makeText(context, "Protection Disabled", Toast.LENGTH_SHORT).show()
-                }
-            )
+        // 7. Exercise Management Section
+        ExpandableSection("Exercise Management", initialExpanded = false) {
+            ExerciseSettingsCard(prefs, userStats, onNavigateToCalibration)
         }
 
-        // Exercise Management Section
-        SectionHeader("Exercise Management")
-        ExerciseSettingsCard(prefs, userStats, onNavigateToCalibration)
+        // 8. System AI Section
+        ExpandableSection("System AI Engine (Gemma On-Device)", initialExpanded = false) {
+            GemmaAiSettingsCard()
+        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        // 9. Tracking Section
+        ExpandableSection("Tracking", initialExpanded = false) {
+            TrackingModeCard(trackingMode, onTrackingModeChange)
+        }
 
-        // System AI Section
-        SectionHeader("System AI Engine (Gemma On-Device)")
-        GemmaAiSettingsCard()
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Tracking Section
-        SectionHeader("Tracking")
-        TrackingModeCard(trackingMode, onTrackingModeChange)
+        // 10. System Codex & World Lore Section
+        ExpandableSection("System Codex & World Lore", initialExpanded = false) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                StatReferenceGuideCard()
+                HowTheAppWorksCard()
+                WorldLoreOriginCard()
+            }
+        }
         
         Spacer(modifier = Modifier.height(32.dp))
+    }
+
+    if (showSetPasswordDialog) {
+        SetMasterPasswordDialog(
+            onDismiss = { showSetPasswordDialog = false },
+            onSave = { newPass ->
+                prefs.edit()
+                    .putBoolean("master_password_enabled", true)
+                    .putString("master_password", newPass)
+                    .apply()
+                masterPasswordEnabled = true
+                showSetPasswordDialog = false
+                Toast.makeText(context, "Master Protection Enabled", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+    
+    if (showVerifyPasswordDialog) {
+        MasterPasswordDialog(
+            correctPassword = masterPassword,
+            onDismiss = { showVerifyPasswordDialog = false },
+            onSuccess = {
+                prefs.edit().putBoolean("master_password_enabled", false).apply()
+                masterPasswordEnabled = false
+                showVerifyPasswordDialog = false
+                Toast.makeText(context, "Protection Disabled", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+}
+
+@Composable
+fun ExpandableSection(title: String, initialExpanded: Boolean = false, content: @Composable ColumnScope.() -> Unit) {
+    var expanded by remember { mutableStateOf(initialExpanded) }
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(title, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Icon(if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            }
+            if (expanded) {
+                Spacer(modifier = Modifier.height(12.dp))
+                content()
+            }
+        }
+    }
+    Spacer(modifier = Modifier.height(16.dp))
+}
+
+@Composable
+fun RoutineTemplatesSettingsCard(prefs: android.content.SharedPreferences) {
+    var morningTitle by remember { mutableStateOf(prefs.getString("morning_template_title", "Morning Plan Objective") ?: "Morning Plan Objective") }
+    var morningMinWords by remember { mutableStateOf(prefs.getInt("morning_template_min_words", 10).toString()) }
+    var morningQuestions by remember { mutableStateOf(prefs.getString("morning_template_questions", "What is my primary objective today?\nWhat potential obstacles might I face?") ?: "What is my primary objective today?\nWhat potential obstacles might I face?") }
+
+    var eveningTitle by remember { mutableStateOf(prefs.getString("evening_template_title", "Evening Reflection") ?: "Evening Reflection") }
+    var eveningMinWords by remember { mutableStateOf(prefs.getInt("evening_template_min_words", 25).toString()) }
+    var eveningQuestions by remember { mutableStateOf(prefs.getString("evening_template_questions", "How did I handle the Grit Trials today?\nWhat could I have improved?") ?: "How did I handle the Grit Trials today?\nWhat could I have improved?") }
+
+    ExpandableSection("Morning & Evening Plan Templates", initialExpanded = false) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("☀️ Morning Plan Setup & Requirements", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+            OutlinedTextField(
+                value = morningTitle,
+                onValueChange = { 
+                    morningTitle = it
+                    prefs.edit().putString("morning_template_title", it).apply()
+                },
+                label = { Text("Morning Title / Heading") },
+                modifier = Modifier.fillMaxWidth(),
+                colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+            )
+            OutlinedTextField(
+                value = morningMinWords,
+                onValueChange = { 
+                    morningMinWords = it
+                    val v = it.toIntOrNull() ?: 10
+                    prefs.edit().putInt("morning_template_min_words", v).apply()
+                },
+                label = { Text("Minimum Word / Character Count Required") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+                colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+            )
+            OutlinedTextField(
+                value = morningQuestions,
+                onValueChange = { 
+                    morningQuestions = it
+                    prefs.edit().putString("morning_template_questions", it).apply()
+                },
+                label = { Text("Morning Prompts & Questions (one per line)") },
+                modifier = Modifier.fillMaxWidth().height(100.dp),
+                colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+            )
+
+            HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+
+            Text("🌙 Evening Review Setup & Requirements", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+            OutlinedTextField(
+                value = eveningTitle,
+                onValueChange = { 
+                    eveningTitle = it
+                    prefs.edit().putString("evening_template_title", it).apply()
+                },
+                label = { Text("Evening Title / Heading") },
+                modifier = Modifier.fillMaxWidth(),
+                colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+            )
+            OutlinedTextField(
+                value = eveningMinWords,
+                onValueChange = { 
+                    eveningMinWords = it
+                    val v = it.toIntOrNull() ?: 25
+                    prefs.edit().putInt("evening_template_min_words", v).apply()
+                },
+                label = { Text("Minimum Word / Character Count Required") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+                colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+            )
+            OutlinedTextField(
+                value = eveningQuestions,
+                onValueChange = { 
+                    eveningQuestions = it
+                    prefs.edit().putString("evening_template_questions", it).apply()
+                },
+                label = { Text("Evening Prompts & Questions (one per line)") },
+                modifier = Modifier.fillMaxWidth().height(100.dp),
+                colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+            )
+        }
     }
 }
 
 @Composable
 fun DailyGoalItem(type: ExerciseType, prefs: android.content.SharedPreferences) {
     var goalText by remember { mutableStateOf(prefs.getInt("goal_${type.name}", 10).toString()) }
-    val unit = if (type == ExerciseType.PLANK || type == ExerciseType.APP_USAGE) "s" else ""
-
     Row(
         modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            type.name.lowercase().replaceFirstChar { it.uppercase() },
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = 14.sp
+        Text(type.name, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+        OutlinedTextField(
+            value = goalText,
+            onValueChange = { 
+                goalText = it
+                val v = it.toIntOrNull() ?: 10
+                prefs.edit().putInt("goal_${type.name}", v).apply()
+            },
+            modifier = Modifier.width(90.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
         )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = goalText,
-                onValueChange = { newValue ->
-                    if (newValue.all { char -> char.isDigit() }) {
-                        goalText = newValue
-                        if (newValue.isNotEmpty()) {
-                            try {
-                                prefs.edit().putInt("goal_${type.name}", newValue.toInt()).apply()
-                            } catch (e: Exception) {}
-                        }
-                    }
-                },
-                modifier = Modifier.width(80.dp),
-                textStyle = TextStyle(
-                    fontSize = 14.sp, 
-                    textAlign = TextAlign.Center, 
-                    color = MaterialTheme.colorScheme.onSurface
-                ),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = Color.Gray.copy(alpha = 0.5f)
-                )
-            )
-            if (unit.isNotEmpty()) {
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(unit, color = Color.Gray, fontSize = 12.sp)
-            }
-        }
     }
 }
 
@@ -648,153 +544,101 @@ fun PermissionStatusRow(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-                Spacer(modifier = Modifier.width(8.dp))
-                Icon(
-                    imageVector = if (isEnabled) Icons.Default.CheckCircle else Icons.Default.Warning,
-                    contentDescription = null,
-                    tint = if (isEnabled) Color(0xFF4CAF50) else Color(0xFFF44336),
-                    modifier = Modifier.size(16.dp)
-                )
-            }
-            Text(description, color = Color.Gray, fontSize = 12.sp)
+            Text(title, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(description, color = Color.Gray, fontSize = 11.sp)
         }
-        
-        if (!isEnabled) {
-            TextButton(onClick = onGrant) {
-                Text("ACTIVATE")
-            }
-        } else {
-            Icon(Icons.Default.Verified, contentDescription = "Active", tint = Color(0xFF4CAF50).copy(alpha = 0.5f))
+        Spacer(modifier = Modifier.width(12.dp))
+        Button(
+            onClick = onGrant,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isEnabled) Color(0xFF81C784).copy(alpha = 0.2f) else MaterialTheme.colorScheme.primary,
+                contentColor = if (isEnabled) Color(0xFF81C784) else Color.Black
+            ),
+            shape = RoundedCornerShape(8.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+        ) {
+            Text(if (isEnabled) "Active" else "Grant", fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-fun ThemeOption(name: String, color: Color, isSelected: Boolean, onClick: () -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(50.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(color)
-                .border(
-                    width = if (isSelected) 3.dp else 0.dp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    shape = RoundedCornerShape(12.dp)
-                )
-                .clickable { onClick() }
-        )
+fun RepBankSettingsCard(userStats: UserStats?, onUpdateUserStats: (UserStats) -> Unit, prefs: android.content.SharedPreferences) {
+    val context = LocalContext.current
+    var banked = userStats?.bankedReps?.values?.sum() ?: 0
+    var clearanceFreq by remember { mutableStateOf(prefs.getString("rep_bank_frequency", "Weekly") ?: "Weekly") }
+
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Total Banked Reps Available: $banked", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold)
+        Text("Banked reps let you bypass locks without doing immediate exercises.", color = Color.Gray, fontSize = 12.sp)
+
         Spacer(modifier = Modifier.height(4.dp))
-        Text(name, color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Gray, fontSize = 10.sp)
-    }
-}
-
-@Composable
-fun RepBankSettingsCard(userStats: UserStats?, onUpdate: (UserStats) -> Unit) {
-    Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(16.dp),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Text("Bank Reset Frequency", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
-            Text("Controls how often your banked reps are cleared.", color = Color.Gray, fontSize = 12.sp)
-            
-            Spacer(modifier = Modifier.height(16.dp))
-            
-            val frequencies = listOf("Daily", "Weekly", "Monthly", "Never")
-            var expanded by remember { mutableStateOf(false) }
-            
-            Box {
-                OutlinedButton(
-                    onClick = { if (userStats != null) expanded = true },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    enabled = userStats != null
+        Text("Rep Bank Clearance Frequency", color = Color.Gray, fontSize = 11.sp)
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Daily", "Weekly", "Monthly", "Never").forEach { freq ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        clearanceFreq = freq
+                        prefs.edit().putString("rep_bank_frequency", freq).apply()
+                        Toast.makeText(context, "Clearance Frequency set to $freq", Toast.LENGTH_SHORT).show()
+                    }.padding(vertical = 4.dp)
                 ) {
-                    Text(
-                        text = userStats?.bankResetFrequency ?: "Loading...",
-                        color = MaterialTheme.colorScheme.onSurface
+                    RadioButton(
+                        selected = clearanceFreq == freq,
+                        onClick = {
+                            clearanceFreq = freq
+                            prefs.edit().putString("rep_bank_frequency", freq).apply()
+                            Toast.makeText(context, "Clearance Frequency set to $freq", Toast.LENGTH_SHORT).show()
+                        }
                     )
-                }
-                
-                DropdownMenu(
-                    expanded = expanded,
-                    onDismissRequest = { expanded = false }
-                ) {
-                    frequencies.forEach { freq ->
-                        DropdownMenuItem(
-                            text = { Text(freq) },
-                            onClick = {
-                                userStats?.let { onUpdate(it.copy(bankResetFrequency = freq)) }
-                                expanded = false
-                            }
-                        )
-                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(freq, color = Color.White, fontSize = 14.sp)
                 }
             }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Button(
+            onClick = {
+                if (userStats != null) {
+                    val cleared = userStats.copy(bankedReps = emptyMap())
+                    onUpdateUserStats(cleared)
+                    Toast.makeText(context, "Rep Bank Cleared", Toast.LENGTH_SHORT).show()
+                }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Clear Rep Bank")
         }
     }
 }
 
 @Composable
-fun ExerciseSettingsCard(
-    prefs: android.content.SharedPreferences,
-    userStats: UserStats?,
-    onNavigateToCalibration: (ExerciseType) -> Unit
-) {
+fun ExerciseSettingsCard(prefs: android.content.SharedPreferences, userStats: UserStats?, onNavigateToCalibration: (ExerciseType) -> Unit) {
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            ExerciseType.entries.forEach { type ->
-                ExerciseTypeSettingsItem(type, prefs, userStats, onNavigateToCalibration)
-                if (type != ExerciseType.entries.last()) {
-                    HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Exercise Calibration & Detection", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+            Text("Calibrate pushups and squats for high accuracy in pocket and camera modes.", color = Color.Gray, fontSize = 12.sp)
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { onNavigateToCalibration(ExerciseType.PUSHUP) }, modifier = Modifier.weight(1f)) {
+                    Text("Calibrate Pushup", fontSize = 11.sp)
+                }
+                Button(onClick = { onNavigateToCalibration(ExerciseType.SQUAT) }, modifier = Modifier.weight(1f)) {
+                    Text("Calibrate Squat", fontSize = 11.sp)
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun ExerciseTypeSettingsItem(
-    type: ExerciseType,
-    prefs: android.content.SharedPreferences,
-    userStats: UserStats?,
-    onNavigateToCalibration: (ExerciseType) -> Unit
-) {
-    var isVisible by remember { mutableStateOf(prefs.getBoolean("visible_${type.name}", true)) }
-    
-    val isCalibrated = userStats?.calibrations?.containsKey(type.name) ?: false
-
-    Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(type.name.lowercase().replaceFirstChar { it.uppercase() }, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
-            
-            if (isCalibrated) {
-                Icon(Icons.Default.CheckCircle, contentDescription = "Calibrated", tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(8.dp))
-            }
-            
-            IconButton(onClick = { onNavigateToCalibration(type) }) {
-                Icon(Icons.Default.CameraAlt, contentDescription = "Calibrate", tint = if (isCalibrated) Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary)
-            }
-
-            Switch(
-                checked = isVisible,
-                onCheckedChange = { 
-                    isVisible = it
-                    prefs.edit().putBoolean("visible_${type.name}", it).apply()
-                }
-            )
         }
     }
 }
@@ -802,100 +646,31 @@ fun ExerciseTypeSettingsItem(
 @Composable
 fun GemmaAiSettingsCard() {
     val context = LocalContext.current
+    var aiStatus by remember { mutableStateOf("Ready") }
     val scope = rememberCoroutineScope()
-    
-    var testResult by remember { mutableStateOf<String?>(null) }
-    var isTesting by remember { mutableStateOf(false) }
-
-    val gemmaManager = remember(context) { Gemma4Manager(context) }
-    val voiceSynthesizer = remember(context) { SystemVoiceSynthesizer(context) }
-
-    DisposableEffect(context) {
-        onDispose {
-            voiceSynthesizer.shutdown()
-            gemmaManager.close()
-        }
-    }
-
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text("Gemma On-Device LLM Engine", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                    Text(
-                        if (gemmaManager.modelFile.exists()) "Weight file loaded (Local NPU/GPU)" else "Local weights file missing (Operating in Offline Fallback Mode)",
-                        fontSize = 11.sp,
-                        color = if (gemmaManager.modelFile.exists()) Color(0xFF81C784) else Color(0xFFFFB74D)
-                    )
-                }
-            }
-
+            Text("Gemma 2B / Nano On-Device AI", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, fontSize = 14.sp)
+            Text("Provides intelligent lock prompts and motivational coaching locally.", color = Color.Gray, fontSize = 12.sp)
             Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                "Gemma runs 100% locally on-device to synthesize cold, authoritative 'System Voice' directives and urge coaching without cloud connectivity.",
-                fontSize = 11.sp,
-                color = Color.Gray
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
+            Text("Status: $aiStatus", color = MaterialTheme.colorScheme.primary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(modifier = Modifier.height(12.dp))
             Button(
                 onClick = {
-                    isTesting = true
+                    aiStatus = "Checking / Initializing..."
                     scope.launch {
-                        if (!gemmaManager.isInitialized) {
-                            gemmaManager.initialize()
-                        }
-                        val prompt = SystemPromptEngine.buildPrompt(
-                            playerName = "Seeker",
-                            level = 1,
-                            strXp = 100,
-                            intXp = 50,
-                            agiXp = 50,
-                            currentStreak = 1,
-                            context = SystemEventContext.DAILY_MOTIVATION
-                        )
-                        val response = gemmaManager.generateSystemVoice(prompt)
-                        testResult = response
-                        voiceSynthesizer.speak(response)
-                        isTesting = false
+                        val manager = Gemma4Manager(context)
+                        manager.initialize()
+                        aiStatus = if (manager.isInitialized) "Active & Initialized" else "Initialized"
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = !isTesting,
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                modifier = Modifier.fillMaxWidth()
             ) {
-                if (isTesting) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Synthesizing System Voice...")
-                } else {
-                    Icon(Icons.AutoMirrored.Filled.VolumeUp, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Test System AI Voice")
-                }
-            }
-
-            testResult?.let { msg ->
-                Spacer(modifier = Modifier.height(12.dp))
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        msg,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.padding(12.dp)
-                    )
-                }
+                Text("Initialize AI Engine")
             }
         }
     }
@@ -933,14 +708,86 @@ fun TrackingModeCard(trackingMode: TrackingMode, onTrackingModeChange: (Tracking
 }
 
 @Composable
-fun SectionHeader(title: String) {
-    Text(
-        text = title.uppercase(),
-        color = MaterialTheme.colorScheme.primary,
-        fontSize = 12.sp,
-        fontWeight = FontWeight.Bold,
-        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
-    )
+fun StatReferenceGuideCard() {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("The 12 Core RPG Stats & Real-Life Drivers", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+            Text("Every action in FitLock trains your attributes across 12 key domains:", fontSize = 11.sp, color = Color.Gray)
+            Spacer(modifier = Modifier.height(4.dp))
+            val statsInfo = listOf(
+                "STR (Strength)" to "Raw muscle & resistance (heavy lifting, resistance volume).",
+                "DEX (Dexterity)" to "Motor control & form precision (bodyweight, balance).",
+                "CON (Constitution)" to "Recovery & baseline health (sleep quality, cardio/heart rate).",
+                "MOV (Movement)" to "Locomotive endurance (running pace, active daily mobility).",
+                "INT (Intelligence)" to "Memory & knowledge (cognitive training, deep learning).",
+                "WIS (Wisdom)" to "Self-awareness & insight (journaling, reflections).",
+                "WIL (Willpower)" to "Focus & impulse control (app-blocker adherence, deep work).",
+                "SAN (Sanity)" to "Mental calm & resilience (stress recovery, mindfulness).",
+                "CHA (Charisma)" to "Social connection & output (communication, leadership).",
+                "WTH (Wealth)" to "Financial leverage (budgeting, net worth growth).",
+                "TEC (Technique)" to "Systems & automation (software setups, tool mastery).",
+                "LCK (Luck)" to "Compound momentum (derived meta-stat powered by multi-day habit streaks)."
+            )
+            statsInfo.forEach { (stat, desc) ->
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                    Text("• $stat: ", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.White)
+                    Text(desc, fontSize = 11.sp, color = Color.Gray, modifier = Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun HowTheAppWorksCard() {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("How FitLock Works", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+            Text("FitLock bridges digital self-control with real-life physical & mental execution:", fontSize = 11.sp, color = Color.Gray)
+            Spacer(modifier = Modifier.height(4.dp))
+            val explanationPoints = listOf(
+                "1. Universal Protocol Gates" to "Combine App Blocks, Routines, Challenges, and Positive Portals. Triggered manually, by time schedules, WiFi, app opening, or keywords.",
+                "2. Dynamic Requirements" to "Fulfill physical exercises (pushups, squats, breathwork via camera or pocket ML), hydration (water), nutrition (calories), journaling (writing words), or system to-do checklists.",
+                "3. XP & 12-Stat Growth" to "Every rep, journal entry, and cleared gate rewards XP and attributes across 12 core RPG attributes.",
+                "4. Hall of Ascendance" to "Progress through multi-tiered achievements (Bronze to Legend) across all activities over time."
+            )
+            explanationPoints.forEach { (title, desc) ->
+                Text(title, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.White)
+                Text(desc, fontSize = 11.sp, color = Color.Gray)
+                Spacer(modifier = Modifier.height(2.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun WorldLoreOriginCard() {
+    Card(
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("The Origin of The Gress Engine", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 14.sp)
+            Text(
+                "In the digital era, an ancient force known as 'The Distraction Void' consumed humanity's willpower—drowning focus in endless doomscrolling and dopamine traps. " +
+                "To fight back, a secret order of seeker engineers constructed 'The Gress Engine' (FitLock), a neural discipline lattice that seals away mindless portals. " +
+                "The only way to shatter a lock is through blood, sweat, and truth: completing real-life physical repetitions, mindful breathwork, hydration, and deep daily reflections. " +
+                "By forging your body and mind through Universal Protocol Gates, you awaken your 12 Divine RPG Attributes and ascend to true digital sovereignty.",
+                fontSize = 11.sp,
+                color = Color.White.copy(alpha = 0.85f),
+                lineHeight = 16.sp
+            )
+        }
+    }
 }
 
 fun isAccessibilityServiceEnabled(context: Context): Boolean {

@@ -14,6 +14,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.animation.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -30,6 +31,10 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Lightbulb
+import androidx.compose.material.icons.filled.Opacity
+import androidx.compose.material.icons.filled.Whatshot
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -59,6 +64,13 @@ import com.google.mlkit.vision.pose.Pose
 import com.google.mlkit.vision.pose.PoseLandmark
 import java.util.concurrent.Executors
 
+fun isPhysicalExercise(type: String): Boolean {
+    return when (type.uppercase()) {
+        "PUSHUP", "SQUAT", "PLANK", "BREATHWORK", "SITUP", "PULLUP", "DIP", "ROW", "HINGE", "STEPS" -> true
+        else -> false
+    }
+}
+
 @Composable
 fun LockOverlayScreen(
     targetApp: String,
@@ -74,9 +86,10 @@ fun LockOverlayScreen(
     onNextExercise: () -> Unit,
     onStopExercise: () -> Unit,
     onUseBankedReps: (String, Int) -> Unit,
+    onFulfilRequirement: (Int) -> Unit = {},
+    onSaveNote: (String) -> Unit = {},
     onSwitchToPocket: () -> Unit = {},
-    onLaunchRequiredApp: () -> Unit = {},
-    onStartFlashcardReview: (Int) -> Unit = {}
+    onLaunchRequiredApp: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
@@ -175,26 +188,6 @@ fun LockOverlayScreen(
                 voiceSynthesizer.speak(response)
             }
 
-            systemMessage?.let { msg ->
-                Spacer(modifier = Modifier.height(8.dp))
-                Card(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.AutoAwesome, contentDescription = "System AI", tint = MaterialTheme.colorScheme.primary)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = msg,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
-                        )
-                    }
-                }
-            }
-
             if (isTravelMode) {
                 Spacer(modifier = Modifier.height(4.dp))
                 Surface(
@@ -238,17 +231,7 @@ fun LockOverlayScreen(
                 fontSize = 20.sp
             )
 
-            if (repCount < 3 && currentReq.count >= 5 && currentReq.type != "APP_USAGE" && currentReq.type != "FLASHCARDS") {
-                Text(
-                    text = "🔥 Staircase Protocol: Do 3 reps to unlock momentum!",
-                    color = MaterialTheme.colorScheme.primary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
-
-            if (currentReq.type != "APP_USAGE") {
+            if (isPhysicalExercise(currentReq.type)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(8.dp)
@@ -260,15 +243,6 @@ fun LockOverlayScreen(
                         modifier = Modifier.scale(0.8f)
                     )
                     Text("Camera", color = Color.Gray, fontSize = 12.sp)
-                    
-                    if (trackingMode == TrackingMode.CAMERA) {
-                        Spacer(modifier = Modifier.width(16.dp))
-                        TextButton(onClick = onSwitchToPocket) {
-                            Icon(Icons.Default.Lightbulb, null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(4.dp))
-                            Text("Poor Light? Switch to Pocket", fontSize = 12.sp)
-                        }
-                    }
                 }
             }
 
@@ -307,28 +281,100 @@ fun LockOverlayScreen(
                             Text("Launch App Now")
                         }
                     }
-                } else if (currentReq.type == "FLASHCARDS") {
+                } else if (currentReq.type == "WATER") {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
-                        Icon(Icons.Default.Launch, contentDescription = null, tint = Color.White.copy(alpha = 0.3f), modifier = Modifier.size(64.dp))
+                        Icon(Icons.Default.Opacity, contentDescription = null, tint = Color(0xFF64B5F6), modifier = Modifier.size(64.dp))
                         Spacer(modifier = Modifier.height(16.dp))
-                        val subTitle = if (!currentReq.deckName.isNullOrEmpty()) {
-                            "Pack: ${currentReq.deckName}"
-                        } else {
-                            "You must review ${currentReq.count} cards from your decks to proceed."
-                        }
-                        Text(
-                            subTitle,
-                            color = Color.White,
-                            textAlign = TextAlign.Center
-                        )
+                        Text("Hydration Requirement: Drink ${currentReq.count} glasses of water", color = Color.White, textAlign = TextAlign.Center)
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(
-                            onClick = { onStartFlashcardReview(currentReq.count) },
-                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            onClick = { onFulfilRequirement(currentReq.count) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF64B5F6))
                         ) {
-                            Text("Start Review Session")
+                            Text("Log Water & Complete")
                         }
                     }
+                } else if (currentReq.type == "CALORIES") {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp)) {
+                        Icon(Icons.Default.Whatshot, contentDescription = null, tint = Color(0xFFEF5350), modifier = Modifier.size(64.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("Calorie Requirement: Log ${currentReq.count} kcal", color = Color.White, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = { onFulfilRequirement(currentReq.count) },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF5350))
+                        ) {
+                            Text("Log Calories & Complete")
+                        }
+                    }
+                } else if (currentReq.type == "WRITE_WORDS") {
+                    var text by remember(currentExerciseIndex) { mutableStateOf("") }
+                    val wordCount = text.split(Regex("\\s+")).filter { it.isNotBlank() }.size
+                    val targetWords = currentReq.count.coerceAtLeast(10)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
+                        Icon(Icons.Default.Edit, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("Writing Requirement: Write at least $targetWords words", color = Color.White, textAlign = TextAlign.Center)
+                        Text("Word count: $wordCount / $targetWords", color = if (wordCount >= targetWords) Color.Green else Color.Gray, fontSize = 12.sp)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        OutlinedTextField(
+                            value = text,
+                            onValueChange = { text = it },
+                            placeholder = { Text("Write your daily reflection or journal entry here...") },
+                            modifier = Modifier.fillMaxWidth().height(140.dp),
+                            colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = {
+                                onSaveNote(text)
+                                onFulfilRequirement(targetWords)
+                            },
+                            enabled = wordCount >= targetWords,
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Text("Submit & Save to Daily Notes")
+                        }
+                    }
+                } else if (currentReq.type == "COMPLETED_TODO") {
+                    val tasks = currentReq.targetPackageNames.ifEmpty { listOf("Review daily priorities", "Clear inbox", "Prepare workout gear") }
+                    var checkedTasks by remember(currentExerciseIndex) { mutableStateOf(setOf<String>()) }
+                    val requiredCount = currentReq.count.coerceAtMost(tasks.size).coerceAtLeast(1)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState())) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF81C784), modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text("System To-Do Checklist: Complete at least $requiredCount tasks", color = Color.White, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        tasks.forEach { taskName ->
+                            val isChecked = checkedTasks.contains(taskName)
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable {
+                                    checkedTasks = if (isChecked) checkedTasks - taskName else checkedTasks + taskName
+                                }.padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(checked = isChecked, onCheckedChange = { checked ->
+                                    checkedTasks = if (checked) checkedTasks + taskName else checkedTasks - taskName
+                                })
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(taskName, color = Color.White, fontSize = 13.sp)
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(
+                            onClick = { onFulfilRequirement(requiredCount) },
+                            enabled = checkedTasks.size >= requiredCount,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF81C784))
+                        ) {
+                            Text("Complete Checklist Requirement")
+                        }
+                    }
+                } else if (!isPhysicalExercise(currentReq.type) && currentReq.type != "APP_USAGE" && currentReq.type != "WATER" && currentReq.type != "CALORIES" && currentReq.type != "WRITE_WORDS" && currentReq.type != "COMPLETED_TODO") {
+                    RoutineryHabitTimerView(
+                        habitName = currentReq.type,
+                        estimatedSeconds = currentReq.count.coerceAtLeast(5),
+                        onComplete = { onFulfilRequirement(1) }
+                    )
                 } else if (trackingMode == TrackingMode.CAMERA) {
                     CameraPreview(
                         modifier = Modifier.fillMaxSize(),
@@ -352,7 +398,7 @@ fun LockOverlayScreen(
                     }
                 }
                 
-                if (currentReq.type != "APP_USAGE" && currentReq.type != "FLASHCARDS") {
+                if (isPhysicalExercise(currentReq.type)) {
                     // Rep counter overlay
                     Box(
                         modifier = Modifier
@@ -362,22 +408,6 @@ fun LockOverlayScreen(
                             .padding(horizontal = 24.dp, vertical = 8.dp)
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            if (trackingMode == TrackingMode.CAMERA) {
-                                Surface(
-                                    color = (if (isStationary) Color.Green else Color.Red).copy(alpha = 0.1f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.padding(bottom = 8.dp)
-                                ) {
-                                    Text(
-                                        text = if (isStationary) "✓ Phone is steady. Tracking active." else "⚠ Phone is moving. Please set it down.",
-                                        color = if (isStationary) Color.Green else Color.Red,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                                    )
-                                }
-                            }
-
                             Text(
                                 text = "$repCount / ${currentReq.count}",
                                 style = MaterialTheme.typography.displayMedium,
@@ -704,6 +734,88 @@ fun CameraPreview(
     DisposableEffect(Unit) {
         onDispose {
             cameraExecutor.shutdown()
+        }
+    }
+}
+
+@Composable
+fun RoutineryHabitTimerView(
+    habitName: String,
+    estimatedSeconds: Int,
+    onComplete: () -> Unit
+) {
+    var timeLeftSeconds by remember(habitName) { mutableIntStateOf(estimatedSeconds.coerceAtLeast(60)) }
+    var isRunning by remember(habitName) { mutableStateOf(false) }
+    var isTimeElapsed by remember(habitName) { mutableStateOf(false) }
+    var isChecked by remember(habitName) { mutableStateOf(false) }
+
+    LaunchedEffect(isRunning, timeLeftSeconds) {
+        if (isRunning && timeLeftSeconds > 0) {
+            kotlinx.coroutines.delay(1000L)
+            timeLeftSeconds--
+            if (timeLeftSeconds <= 0) {
+                isRunning = false
+                isTimeElapsed = true
+            }
+        }
+    }
+
+    val minutes = timeLeftSeconds / 60
+    val seconds = timeLeftSeconds % 60
+    val timeFormatted = String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(24.dp).verticalScroll(rememberScrollState())
+    ) {
+        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(56.dp))
+        Spacer(modifier = Modifier.height(12.dp))
+        Text("Habit Ritual: $habitName", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp, textAlign = TextAlign.Center)
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(timeFormatted, fontSize = 48.sp, fontWeight = FontWeight.Bold, color = if (isTimeElapsed) Color.Green else Color.White)
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { isRunning = !isRunning },
+                colors = ButtonDefaults.buttonColors(containerColor = if (isRunning) Color.Red else Color.Green)
+            ) {
+                Text(if (isRunning) "Pause" else "Start Timer", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+            OutlinedButton(onClick = { timeLeftSeconds += 60 }) {
+                Text("+1 min", color = Color.White)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth().clickable(enabled = isTimeElapsed) {
+                if (isTimeElapsed) isChecked = !isChecked
+            }.padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = isChecked,
+                onCheckedChange = { if (isTimeElapsed) isChecked = it },
+                enabled = isTimeElapsed
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Column {
+                Text("I have completed this habit", color = if (isTimeElapsed) Color.White else Color.Gray, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                if (!isTimeElapsed) {
+                    Text("Mandatory timer must elapse before checking.", color = Color.Red.copy(alpha = 0.8f), fontSize = 10.sp)
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = onComplete,
+            enabled = isChecked,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Complete Habit & Continue", fontWeight = FontWeight.Bold)
         }
     }
 }

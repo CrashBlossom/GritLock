@@ -40,10 +40,10 @@ class DailyResetWorker(context: Context, params: WorkerParameters) : CoroutineWo
             // Apply 1% Stat Atrophy for stats not trained in > 3 days
             val threeDaysMs = 3 * 24 * 60 * 60 * 1000L
             val updatedStr = if (now - (stats.statLastTrainedDates["STR"] ?: 0L) > threeDaysMs) (stats.strXp * 0.99).toLong() else stats.strXp
-            val updatedAgi = if (now - (stats.statLastTrainedDates["AGI"] ?: 0L) > threeDaysMs) (stats.agiXp * 0.99).toLong() else stats.agiXp
-            val updatedVit = if (now - (stats.statLastTrainedDates["VIT"] ?: 0L) > threeDaysMs) (stats.vitXp * 0.99).toLong() else stats.vitXp
+            val updatedDex = if (now - (stats.statLastTrainedDates["DEX"] ?: 0L) > threeDaysMs) (stats.dexXp * 0.99).toLong() else stats.dexXp
+            val updatedCon = if (now - (stats.statLastTrainedDates["CON"] ?: 0L) > threeDaysMs) (stats.conXp * 0.99).toLong() else stats.conXp
             val updatedInt = if (now - (stats.statLastTrainedDates["INT"] ?: 0L) > threeDaysMs) (stats.intXp * 0.99).toLong() else stats.intXp
-            val updatedSen = if (now - (stats.statLastTrainedDates["SEN"] ?: 0L) > threeDaysMs) (stats.senXp * 0.99).toLong() else stats.senXp
+            val updatedSan = if (now - (stats.statLastTrainedDates["SAN"] ?: 0L) > threeDaysMs) (stats.sanXp * 0.99).toLong() else stats.sanXp
             val updatedCha = if (now - (stats.statLastTrainedDates["CHA"] ?: 0L) > threeDaysMs) (stats.chaXp * 0.99).toLong() else stats.chaXp
 
             dao.updateUserStats(
@@ -54,10 +54,10 @@ class DailyResetWorker(context: Context, params: WorkerParameters) : CoroutineWo
                     floorTargetMetToday = false,
                     lastFloorResetDate = today,
                     strXp = updatedStr,
-                    agiXp = updatedAgi,
-                    vitXp = updatedVit,
+                    dexXp = updatedDex,
+                    conXp = updatedCon,
                     intXp = updatedInt,
-                    senXp = updatedSen,
+                    sanXp = updatedSan,
                     chaXp = updatedCha
                 )
             )
