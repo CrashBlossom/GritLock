@@ -32,7 +32,7 @@ class HabitWidget : GlanceAppWidget() {
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         val db = GritLockDatabase.getDatabase(context)
         val history = db.dao().getHistory().first()
-        val prefs = context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
+        val prefs = context.getSharedPreferences("gresslock_prefs", Context.MODE_PRIVATE)
 
         val last7Days = (0..6).map { daysAgo ->
             val cal = Calendar.getInstance()

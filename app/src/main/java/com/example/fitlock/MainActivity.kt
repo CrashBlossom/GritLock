@@ -253,6 +253,48 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 homeViewModel.initDailyPledgeIfMissing()
             }
 
+            var showAccessibilityDialog by remember { mutableStateOf(false) }
+            val localContext = androidx.compose.ui.platform.LocalContext.current
+
+            LaunchedEffect(Unit) {
+                if (!com.example.fitlock.ui.isAccessibilityServiceEnabled(localContext)) {
+                    showAccessibilityDialog = true
+                }
+            }
+
+            if (showAccessibilityDialog) {
+                AlertDialog(
+                    onDismissRequest = { showAccessibilityDialog = false },
+                    icon = { Icon(Icons.Default.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.error) },
+                    title = { Text("⚠️ Accessibility Service Disabled", fontWeight = FontWeight.Bold) },
+                    text = {
+                        Text(
+                            "GressLock requires its Accessibility Service to detect when blocked apps are opened, filter keywords, and trigger routine gates.\n\nWithout this service enabled, app blocking and routine enforcement cannot function.",
+                            fontSize = 13.sp
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showAccessibilityDialog = false
+                                val intent = Intent(android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                                startActivity(intent)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Icon(Icons.Default.Settings, null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Enable Service")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showAccessibilityDialog = false }) {
+                            Text("Remind Later")
+                        }
+                    }
+                )
+            }
+
             // Wrap the whole UI in our custom Theme
             GritLockTheme(
                 themeName = appTheme, 
@@ -696,7 +738,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         currentScreen = "quest_execution"
                                     },
                                     onChallengeClick = { challenge ->
-                                        if (challenge.requirements.isNotEmpty()) {
+                                        val isMorningChallenge = challenge.title.contains("Morning", ignoreCase = true)
+                                        val isEveningChallenge = challenge.title.contains("Evening", ignoreCase = true) || challenge.title.contains("Night", ignoreCase = true)
+                                        val currentHour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+                                        val isTimeAllowed = when {
+                                            isMorningChallenge -> currentHour in 4..12
+                                            isEveningChallenge -> currentHour in 18..23
+                                            else -> true
+                                        }
+                                        if (!isTimeAllowed) {
+                                            val windowText = if (isMorningChallenge) "Morning (04:00 - 12:00)" else "Evening (18:00 - 23:59)"
+                                            Toast.makeText(this@MainActivity, "[SYSTEM TIME LOCK]: '${challenge.title}' is locked outside its designated time window ($windowText).", Toast.LENGTH_LONG).show()
+                                        } else if (challenge.requirements.isNotEmpty()) {
                                             activeRequirements = challenge.requirements
                                             currentRequirementIndex = 0
                                             unlockingVaultItem = null
@@ -2011,6 +2064,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         super.onResume()
         // Refresh data whenever the user returns to the app
         refreshStepsFromHealth()
+
+        // Check & notify if Accessibility Service is disabled
+        com.example.fitlock.ui.checkAndNotifyAccessibilityService(this)
         
         // Ensure Daily Log Service is running
         startService(Intent(this, com.example.fitlock.service.DailyLogService::class.java))

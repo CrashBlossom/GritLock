@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit
 class DailyResetWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        com.example.fitlock.ui.checkAndNotifyAccessibilityService(applicationContext)
         val db = GritLockDatabase.getDatabase(applicationContext)
         val dao = db.dao()
         
@@ -21,7 +22,7 @@ class DailyResetWorker(context: Context, params: WorkerParameters) : CoroutineWo
         
         // 2. Midnight HP Decay & Streak Shielding
         val today = LocalDate.now().toString()
-        val prefs = applicationContext.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
+        val prefs = applicationContext.getSharedPreferences("gresslock_prefs", Context.MODE_PRIVATE)
         val hadLateNightViolation = prefs.getBoolean("late_night_violation_occurred", false)
         prefs.edit().putBoolean("late_night_violation_occurred", false).apply()
         prefs.edit().putBoolean("bedtime_hangover_active", hadLateNightViolation).apply()

@@ -95,16 +95,25 @@ fun ProtocolGatesContent(
 
     val challengeAsGroups = remember(challenges) {
         challenges.map { ch ->
+            val isMorning = ch.title.contains("Morning", ignoreCase = true)
+            val isEvening = ch.title.contains("Evening", ignoreCase = true) || ch.title.contains("Night", ignoreCase = true)
+            val timeConstraint = when {
+                isMorning -> "04:00-12:00"
+                isEvening -> "18:00-23:59"
+                else -> null
+            }
             AppGroup(
                 id = ch.id.hashCode(),
                 name = ch.title,
                 packageNames = emptyList(),
                 exercises = ch.requirements,
-                unlockDurationMinutes = 30,
+                unlockDurationMinutes = 0,
                 isEnabled = true,
                 isRoutine = false,
                 isProductive = false,
                 gateMode = GateMode.BACKGROUND_RAID,
+                triggerType = if (timeConstraint != null) GauntletTriggerType.TIME_BASED else GauntletTriggerType.MANUAL,
+                triggerTime = timeConstraint,
                 xpReward = ch.xpReward
             )
         }

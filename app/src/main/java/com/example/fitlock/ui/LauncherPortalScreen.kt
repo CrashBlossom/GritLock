@@ -88,10 +88,16 @@ fun LauncherPortalScreen(
                         group.isEnabled && group.packageNames.contains(app.packageName)
                     }
                     val isLocked = matchingGroup?.let { group ->
-                        val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
-                        val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
-                        (System.currentTimeMillis() - lastUnlocked) >= unlockDurationMs
+                        if (group.isProductive) false
+                        else if (group.keywords.any { it.isNotBlank() }) false
+                        else {
+                            val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                            val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                            (System.currentTimeMillis() - lastUnlocked) >= unlockDurationMs
+                        }
                     } ?: false
+
+                    val hasKeywordCombo = matchingGroup?.keywords?.any { it.isNotBlank() } == true
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -118,8 +124,11 @@ fun LauncherPortalScreen(
                             modifier = Modifier
                                 .size(56.dp)
                                 .background(
-                                    if (isLocked) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-                                    else MaterialTheme.colorScheme.surfaceVariant,
+                                    when {
+                                        isLocked -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                                        hasKeywordCombo -> Color(0xFFFF9800).copy(alpha = 0.25f)
+                                        else -> MaterialTheme.colorScheme.surfaceVariant
+                                    },
                                     RoundedCornerShape(16.dp)
                                 ),
                             contentAlignment = Alignment.Center
@@ -136,7 +145,7 @@ fun LauncherPortalScreen(
                                     text = app.name.take(1).uppercase(),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 20.sp,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = if (hasKeywordCombo) Color(0xFFFF9800) else MaterialTheme.colorScheme.primary
                                 )
                             }
                         }

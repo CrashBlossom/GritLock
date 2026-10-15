@@ -10,6 +10,7 @@ import java.util.Calendar
 class SmartNudgeWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        com.example.fitlock.ui.checkAndNotifyAccessibilityService(applicationContext)
         val db = GritLockDatabase.getDatabase(applicationContext)
         val urges = db.dao().getUrgeEvents().first()
         

@@ -799,7 +799,9 @@ fun SoloPortalsTab(
                 }
                 val isProductive = matchingGroup?.isProductive == true
                 val isLocked = matchingGroup?.let { group ->
-                    if (group.isProductive) false else {
+                    if (group.isProductive) false
+                    else if (group.keywords.any { it.isNotBlank() }) false
+                    else {
                         val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
                         val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
                         (System.currentTimeMillis() - lastUnlocked) >= unlockDurationMs
@@ -903,13 +905,17 @@ fun DungeonGateCard(
     onClick: () -> Unit,
     onLongClick: () -> Unit = {}
 ) {
+    val hasKeywordCombo = matchingGroup?.keywords?.any { it.isNotBlank() } == true
+
     val rankColor = when {
         isProductive -> Color(0xFF81C784)
+        hasKeywordCombo -> Color(0xFFFF9800)
         isLocked -> Color(0xFFEF5350)
         else -> Color(0xFF64B5F6)
     }
     val rankLetter = when {
         isProductive -> "P"
+        hasKeywordCombo -> "K"
         isLocked -> "S"
         else -> "E"
     }
@@ -924,12 +930,13 @@ fun DungeonGateCard(
         colors = CardDefaults.cardColors(
             containerColor = when {
                 isProductive -> Color(0xFF14221A)
+                hasKeywordCombo -> Color(0xFF2B1D12)
                 isLocked -> Color(0xFF1C1215)
                 else -> MaterialTheme.colorScheme.surface
             }
         ),
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, rankColor.copy(alpha = 0.4f))
+        border = BorderStroke(1.dp, rankColor.copy(alpha = 0.5f))
     ) {
         Row(
             modifier = Modifier
@@ -953,6 +960,7 @@ fun DungeonGateCard(
                             .background(
                                 when {
                                     isProductive -> Color(0xFF1A3522)
+                                    hasKeywordCombo -> Color(0xFF422817)
                                     isLocked -> Color(0xFF3B1D22)
                                     else -> Color(0xFF1E2235)
                                 },
@@ -980,6 +988,16 @@ fun DungeonGateCard(
                             color = Color(0xFF81C784),
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold
+                        )
+                    } else if (hasKeywordCombo && matchingGroup != null) {
+                        val kwList = matchingGroup.keywords.filter { it.isNotBlank() }.joinToString(", ")
+                        Text(
+                            text = "🔑 Keyword Filter: $kwList",
+                            color = Color(0xFFFFB74D),
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     } else if (isLocked && matchingGroup != null) {
                         val reqsText = matchingGroup.exercises.joinToString(", ") { "${it.count} ${it.type.lowercase()}" }

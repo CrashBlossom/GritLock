@@ -92,11 +92,13 @@ class LockOverlayActivity : ComponentActivity() {
                                 return@LaunchedEffect
                             }
 
-                            val isPackageBlocked = group.packageNames.contains(targetApp)
+                            val hasKeywords = group.keywords.any { it.isNotBlank() }
+                            val isScheduledOrRoutine = targetApp.contains("com.example.fitlock") || group.packageNames.isEmpty() || group.isRoutine || group.triggerType == com.example.fitlock.data.GauntletTriggerType.TIME_BASED
+                            val isPackageBlocked = (group.packageNames.contains(targetApp) && !hasKeywords) || isScheduledOrRoutine
                             val isStillBlocked = group.isEnabled && (isPackageBlocked || isKeywordBlock)
                             
                             if (!isStillBlocked) {
-                                Log.d("LockOverlay", "Group disabled or app removed. Closing overlay.")
+                                Log.d("LockOverlay", "Group disabled, app removed, or keyword scoped. Closing overlay.")
                                 finish()
                             }
                         }

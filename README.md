@@ -1,89 +1,52 @@
-# GritLock (FitLock) - Sweat to Scroll
+# GressLock (The Gress Engine) - Sweat to Scroll
 
-GritLock is a revolutionary Android productivity app that transforms your fitness goals into digital access. Instead of just blocking distracting apps, GritLock requires you to "pay" for your screen time with physical exercise.
-
-## 🚀 How It Works
-
-GritLock uses Android's **Accessibility Service** to monitor which applications you are using in real-time.
-
-1.  **Create App Groups**: Group your most distracting apps (Social Media, Video Streaming, Games).
-2.  **Set Requirements**: Assign specific exercises and rep counts required to "unlock" these groups.
-3.  **The Countdown**: When you open a restricted app, a 10-second countdown appears.
-4.  **The Lock Screen**: Once the timer ends, a full-screen overlay blocks the app.
-5.  **Exercise to Unlock**: You must complete your assigned reps to regain access. Once finished, the group remains unlocked for a duration of your choosing (e.g., 30 minutes).
+GressLock is an advanced Android productivity and life-gamification application that bridges digital self-control with real-life physical & mental execution. Instead of simply blocking distracting apps, GressLock requires you to "pay" for your screen time through rigorous discipline, physical workouts, mindful breathwork, hydration, journaling, and habit stacks.
 
 ---
 
-## 🏋️ Available Exercises
+## 🌟 Core Architecture & Features
 
-GritLock supports a wide variety of exercises, tracked via advanced computer vision or motion sensors:
+### 1. Universal Protocol Gates (The Gress Hub)
+Universal Protocol Gates unify App Blocks, Routines, Challenges, and Positive Portals (`🟢 Positive Portal`) into a single flexible management engine. 
+* **Triggers:** Manual, Time Windows (e.g. Morning 04:00 - 12:00), WiFi SSIDs, App Launch, or Keywords.
+* **Requirements:** Multi-type requirements including physical exercises (`PUSHUP`, `SQUAT`, `PLANK`, `BREATHWORK`, `SITUP`, `PULLUP`, `DIP`, `ROW`, `HINGE`, `STEPS`), hydration (`WATER`), nutrition (`CALORIES`), journaling (`WRITE_WORDS`), checklists (`COMPLETED_TODO`), and Routinery habit timers.
+* **Rewards:** Grants XP and multi-tier stat increases across your 12 core RPG attributes.
 
-*   **Pushups**: Chest-to-floor tracking.
-*   **Squats**: Full depth detection.
-*   **Situps**: Core movement tracking.
-*   **Pullups**: Chin-over-bar detection.
-*   **Dips**: Tricep extension tracking.
-*   **Hinge**: Hip-hinge movement (Deadlift style).
-*   **Row**: Pulling movement tracking.
-*   **Plank**: Isometric hold timer.
-*   **Steps**: Integrated step counting.
+### 2. 12 Core RPG Attributes
+Every completed rep, journal entry, and cleared gate trains your attributes across 12 divine domains:
+* **`STR` (Strength):** Raw muscle & resistance volume.
+* **`DEX` (Dexterity):** Motor control & form precision.
+* **`CON` (Constitution):** Recovery & baseline health (sleep, heart rate).
+* **`MOV` (Movement):** Locomotive endurance & active daily mobility.
+* **`INT` (Intelligence):** Memory & cognitive training.
+* **`WIS` (Wisdom):** Self-awareness & journaling reflections.
+* **`WIL` (Willpower):** Focus & app-blocker adherence.
+* **`SAN` (Sanity):** Mental calm & stress recovery.
+* **`CHA` (Charisma):** Social output & leadership.
+* **`WTH` (Wealth):** Financial leverage & budgeting.
+* **`TEC` (Technique):** Systems & software automation mastery.
+* **`LCK` (Luck):** Compound momentum powered by multi-day habit streaks.
 
----
+### 3. Hall of Ascendance (Achievements & Trophies)
+A comprehensive Duolingo-style achievement and badge hall featuring **Tiers 0 (Starter) through 5 (Legend)** across all master categories:
+* Lifetime Reps, Streaks, Individual Exercises (**Pushups, Squats, Planks, Pullups, Dips, Situps, Hinges, Rows**), Breathwork, Writing/Journaling, Water, Steps, Rowing, Calories, Morning Plans, Evening Reviews, AnkiDroid Focus Time, Protocol Gates, and 12-Stat Levels.
 
-## 📷 Tracking Modes
+### 4. Advanced Tracking Modes
+* **Camera AI Mode:** Powered by Google's **ML Kit Pose Detection** with real-time joint angle calculations, rep counting, and Text-to-Speech tempo guidance (`3-1-1-1` cadence cues: Go Down, Hold, Go Up, Top).
+* **Pocket Sensor Mode:** Multi-sensor fusion via accelerometer and gyroscope for squats, lunges, and movement when your phone is in your pocket.
 
-### 1. Camera Mode (AI-Powered)
-Uses Google's **ML Kit Pose Detection** to track your body in real-time. The front camera identifies your joints and ensures you are performing full-range-of-motion repetitions.
-*   **Real-time Feedback**: Get posture corrections via Text-to-Speech.
-*   **Calibration**: Calibrate your "top" and "bottom" positions for perfect accuracy.
+### 5. Routinery-Style Habit Timers & Mandatory Enforcement
+* Timed habit rituals with countdown timers, pause/play controls, and **Mandatory Time Enforcement** (completion checkboxes are disabled until the mandatory timer elapses).
 
-### 2. Pocket Mode (Sensor-Based)
-Uses your phone's **Accelerometer and Gyroscope**. Perfect for squats or lunges when you don't have a place to prop up your phone. Just place the phone in your pocket, and GritLock detects the movement.
-
----
-
-## 🏆 Challenges
-
-Challenges are special goals designed to push your limits.
-*   **Daily Challenges**: Curated sets of exercises like "Morning Pushups" or "Core Strength".
-*   **XP Rewards**: Earn Experience Points (XP) for every rep and challenge completed.
-*   **Leveling System**: Increase your fitness level as you accumulate XP.
-*   **Progress Tracking**: Long-press any challenge in the main screen to see a detailed breakdown of your progress for that day.
-
----
-
-## 💰 The Rep Bank
-
-Did 50 pushups when you only needed 20? GritLock doesn't let your effort go to waste.
-*   **Store Excess Reps**: Any extra reps you perform are stored in your **Rep Bank**.
-*   **Bypass with Effort**: If you're in a hurry or in public, you can use your banked reps to instantly unlock an app.
-*   **Reset Frequency**: Configure the bank to reset daily, weekly, or never via Settings.
+### 6. Permanent App Awareness & Status Notification
+* An ongoing foreground service notification that updates in real-time as you switch apps, displaying the app name and its discipline status (`🟢 Positive Portal`, `🔓 Unlocked: X mins remaining`, `🔒 Blocked - Gate Active`, `⚪ Neutral App`).
 
 ---
 
-## 🛡️ Anti-Cheat & Strict Mode
-
-*   **Strict Mode**: Prevents you from disabling the GritLock Accessibility Service or uninstalling the app through system settings while it's active.
-*   **Bypass Penalty**: If you absolutely must bypass without reps or banking, you are forced to type a long, shameful "Commitment to Discipline" paragraph perfectly to unlock.
-
----
-
-## 📊 Analytics & Health
-
-*   **Usage Stats**: See exactly how much time you're spending on "Locked" vs. "Unlocked" apps.
-*   **Workout History**: A detailed log of every rep you've ever done.
-*   **Health Connect**: Fully integrated with **Android Health Connect**. Your GritLock workouts sync automatically with Google Fit, Samsung Health, and other fitness apps.
+## 🏆 Leaderboards & Health
+* **Daily Performance Leaderboard:** Groups and ranks your training days by total volume, reps, and XP with Gold 🥇, Silver 🥈, and Bronze 🥉 badges.
+* **Health Connect Integration:** Fully syncs sleep, water, calories, and steps vitality.
+* **Rep Bank Management:** Store excess reps and configure clearance frequencies (`Daily`, `Weekly`, `Monthly`, `Never`).
 
 ---
-
-## ⚙️ Setup Requirements
-
-To function correctly, GritLock requires:
-1.  **Accessibility Service**: To detect app launches.
-2.  **Display Over Other Apps**: To show the lock screen.
-3.  **Camera Permission**: For AI pose tracking.
-4.  **Usage Access**: For the analytics dashboard.
-5.  **Health Connect**: (Optional) For syncing workout data.
-
----
-**GritLock: Turn your distractions into your discipline.**
+**GressLock: Turn your distractions into your discipline.**

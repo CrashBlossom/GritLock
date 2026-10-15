@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
@@ -44,6 +45,7 @@ fun ProtocolGateBuilderScreen(
             when {
                 editingGate?.isRoutine == true -> "ROUTINE"
                 editingGate?.isProductive == true -> "POSITIVE_PORTAL"
+                editingGate?.gateMode == GateMode.BACKGROUND_RAID -> "CHALLENGE"
                 else -> "APP_BLOCK"
             }
         ) 
@@ -91,9 +93,13 @@ fun ProtocolGateBuilderScreen(
     var selectedDays by remember { mutableStateOf(setOf(1, 2, 3, 4, 5, 6, 7)) } // 1=Mon, 7=Sun
     var targetDeadline by remember(editingGate) { mutableStateOf(editingGate?.targetDeadline ?: "") }
 
+    var showTriggerTimePicker by remember { mutableStateOf(false) }
+    var showStartTimePicker by remember { mutableStateOf(false) }
+    var showEndTimePicker by remember { mutableStateOf(false) }
+
     // Rewards & Multi-Tier Stat Rewards
     var primaryRewardStat by remember(editingGate) { mutableStateOf(editingGate?.rewardStat ?: StatType.INT) }
-    var secondaryStats by remember { mutableStateOf(setOf(StatType.SAN, StatType.CHA)) }
+    var secondaryStats by remember(editingGate) { mutableStateOf(editingGate?.secondaryStats?.toSet() ?: setOf(StatType.SAN, StatType.CHA)) }
     
     var secretPassword by remember(editingGate) { mutableStateOf(editingGate?.secretPassword ?: "") }
     var secretLink by remember(editingGate) { mutableStateOf(editingGate?.secretLink ?: "") }
@@ -241,10 +247,18 @@ fun ProtocolGateBuilderScreen(
             if (triggerType == GauntletTriggerType.TIME_BASED || triggerType == GauntletTriggerType.TIME_AND_WIFI) {
                 Spacer(modifier = Modifier.height(8.dp))
                 OutlinedTextField(
-                    value = triggerTime,
-                    onValueChange = { triggerTime = it },
-                    label = { Text("Trigger Time (e.g. 08:00)") },
-                    modifier = Modifier.fillMaxWidth(),
+                    value = if (triggerTime.isBlank()) "Tap to select time..." else triggerTime,
+                    onValueChange = {},
+                    readOnly = true,
+                    label = { Text("Trigger Time (Clock Dial)") },
+                    trailingIcon = {
+                        IconButton(onClick = { showTriggerTimePicker = true }) {
+                            Icon(Icons.Default.AccessTime, contentDescription = "Pick Time", tint = gateThemeColor)
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showTriggerTimePicker = true },
                     colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
                 )
             }
@@ -274,10 +288,14 @@ fun ProtocolGateBuilderScreen(
             Card(
                 colors = CardDefaults.cardColors(containerColor = Color(0xFF1C1C21)),
                 shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth().height(140.dp)
+                modifier = Modifier.fillMaxWidth().height(180.dp)
             ) {
-                LazyColumn {
-                    items(filteredApps) { app ->
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    filteredApps.forEach { app ->
                         val isSelected = selectedApps.contains(app.packageName)
                         Row(
                             modifier = Modifier
@@ -288,9 +306,12 @@ fun ProtocolGateBuilderScreen(
                                 .padding(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Checkbox(checked = isSelected, onCheckedChange = null)
+                            Checkbox(
+                                checked = isSelected,
+                                onCheckedChange = null
+                            )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(app.name, color = Color.White, fontSize = 12.sp)
                                 Text(app.packageName, color = Color.Gray, fontSize = 8.sp)
                             }
@@ -391,16 +412,32 @@ fun ProtocolGateBuilderScreen(
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
                     value = startTimeConstraint,
-                    onValueChange = { startTimeConstraint = it },
+                    onValueChange = {},
+                    readOnly = true,
                     label = { Text("Start Time") },
-                    modifier = Modifier.weight(1f),
+                    trailingIcon = {
+                        IconButton(onClick = { showStartTimePicker = true }) {
+                            Icon(Icons.Default.AccessTime, contentDescription = "Pick Start Time", tint = gateThemeColor)
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { showStartTimePicker = true },
                     colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
                 )
                 OutlinedTextField(
                     value = endTimeConstraint,
-                    onValueChange = { endTimeConstraint = it },
+                    onValueChange = {},
+                    readOnly = true,
                     label = { Text("End Time") },
-                    modifier = Modifier.weight(1f),
+                    trailingIcon = {
+                        IconButton(onClick = { showEndTimePicker = true }) {
+                            Icon(Icons.Default.AccessTime, contentDescription = "Pick End Time", tint = gateThemeColor)
+                        }
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { showEndTimePicker = true },
                     colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
                 )
             }
@@ -540,6 +577,13 @@ fun ProtocolGateBuilderScreen(
                     val isProd = gateCategory == "POSITIVE_PORTAL"
                     val isRout = gateCategory == "ROUTINE"
 
+                    val timeStrToParse = if (triggerType == GauntletTriggerType.TIME_BASED && triggerTime.isNotBlank()) triggerTime else startTimeConstraint
+                    val startMin = parseTimeToMinutes(timeStrToParse, 0)
+                    val endMin = parseTimeToMinutes(endTimeConstraint, 1439)
+                    val scheduleIntervals = selectedDays.map { day ->
+                        ScheduleInterval(dayOfWeek = day, startMinute = startMin, endMinute = endMin)
+                    }
+
                     onSave(AppGroup(
                         id = editingGate?.id ?: 0,
                         name = finalName,
@@ -551,9 +595,11 @@ fun ProtocolGateBuilderScreen(
                         isEnabled = editingGate?.isEnabled ?: true,
                         isProductive = isProd,
                         rewardStat = primaryRewardStat,
+                        secondaryStats = secondaryStats.toList(),
                         isRoutine = isRout,
+                        schedule = scheduleIntervals,
                         triggerType = triggerType,
-                        triggerTime = if (startTimeConstraint != "00:00" || endTimeConstraint != "23:59") "$startTimeConstraint-$endTimeConstraint" else triggerTime.ifBlank { null },
+                        triggerTime = timeStrToParse,
                         xpReward = xpReward.toIntOrNull() ?: 100,
                         gateMode = gateMode,
                         secretPassword = secretPassword.ifBlank { null },
@@ -582,6 +628,96 @@ fun ProtocolGateBuilderScreen(
             }
         )
     }
+
+    if (showTriggerTimePicker) {
+        GateTimePickerDialog(
+            title = "Select Trigger Time",
+            initialTime = triggerTime.ifBlank { "16:30" },
+            onDismiss = { showTriggerTimePicker = false },
+            onTimeSelected = { time ->
+                triggerTime = time
+                startTimeConstraint = time
+                showTriggerTimePicker = false
+            }
+        )
+    }
+
+    if (showStartTimePicker) {
+        GateTimePickerDialog(
+            title = "Select Start Time Constraint",
+            initialTime = startTimeConstraint.ifBlank { "00:00" },
+            onDismiss = { showStartTimePicker = false },
+            onTimeSelected = { time ->
+                startTimeConstraint = time
+                triggerTime = time
+                showStartTimePicker = false
+            }
+        )
+    }
+
+    if (showEndTimePicker) {
+        GateTimePickerDialog(
+            title = "Select End Time Constraint",
+            initialTime = endTimeConstraint.ifBlank { "23:59" },
+            onDismiss = { showEndTimePicker = false },
+            onTimeSelected = { time ->
+                endTimeConstraint = time
+                showEndTimePicker = false
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun GateTimePickerDialog(
+    title: String = "Select Time",
+    initialTime: String = "08:00",
+    onDismiss: () -> Unit,
+    onTimeSelected: (String) -> Unit
+) {
+    val parts = initialTime.split(":")
+    val initialHour = parts.getOrNull(0)?.toIntOrNull() ?: 8
+    val initialMinute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+
+    val timePickerState = rememberTimePickerState(
+        initialHour = initialHour,
+        initialMinute = initialMinute,
+        is24Hour = true
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title, fontWeight = FontWeight.Bold) },
+        text = {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                TimePicker(state = timePickerState)
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val formattedTime = java.lang.String.format(java.util.Locale.getDefault(), "%02d:%02d", timePickerState.hour, timePickerState.minute)
+                onTimeSelected(formattedTime)
+            }) {
+                Text("Confirm")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+private fun parseTimeToMinutes(timeStr: String, defaultVal: Int): Int {
+    val parts = timeStr.trim().split(":")
+    if (parts.size == 2) {
+        val h = parts[0].toIntOrNull() ?: 0
+        val m = parts[1].toIntOrNull() ?: 0
+        return h * 60 + m
+    }
+    return defaultVal
 }
 
 @Composable

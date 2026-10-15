@@ -61,7 +61,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 
-            <intent-filter android:label="GritLock Deep Link">
+            <intent-filter android:label="GressLock Deep Link">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
@@ -147,7 +147,7 @@
         <service
             android:name=".service.GritLockAccessibilityService"
             android:exported="false"
-            android:label="GritLock Blocker"
+            android:label="GressLock"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
             <intent-filter>
                 <action android:name="android.accessibilityservice.AccessibilityService" />
@@ -187,7 +187,7 @@
             android:name=".widgets.DailyShieldWidgetReceiver"
             android:enabled="true"
             android:exported="false"
-            android:label="GritLock: Daily Shield &amp; HP">
+            android:label="GressLock: Daily Shield &amp; HP">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>

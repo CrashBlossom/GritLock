@@ -35,7 +35,8 @@ data class AppGroup(
     val xpReward: Int = 100,
     val targetDeadline: String? = null,
     val secretPassword: String? = null,
-    val secretLink: String? = null
+    val secretLink: String? = null,
+    val secondaryStats: List<StatType> = emptyList()
 )
 
 @Entity(tableName = "gauntlets")

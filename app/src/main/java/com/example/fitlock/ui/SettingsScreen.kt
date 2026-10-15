@@ -18,6 +18,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.example.fitlock.utils.DataBackupManager
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.launch
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -152,6 +158,9 @@ fun SettingsScreen(
 
         // 2. Morning & Evening Plan Templates Section (Expandable)
         RoutineTemplatesSettingsCard(prefs)
+
+        // 3. Full System Backup & Restore Section (Expandable)
+        BackupRestoreSettingsCard(prefs)
 
         // 3. System Permissions Status Section (Including Health Connect)
         ExpandableSection("System Permissions", initialExpanded = true) {
@@ -430,12 +439,68 @@ fun ExpandableSection(title: String, initialExpanded: Boolean = false, content: 
 @Composable
 fun RoutineTemplatesSettingsCard(prefs: android.content.SharedPreferences) {
     var morningTitle by remember { mutableStateOf(prefs.getString("morning_template_title", "Morning Plan Objective") ?: "Morning Plan Objective") }
-    var morningMinWords by remember { mutableStateOf(prefs.getInt("morning_template_min_words", 10).toString()) }
-    var morningQuestions by remember { mutableStateOf(prefs.getString("morning_template_questions", "What is my primary objective today?\nWhat potential obstacles might I face?") ?: "What is my primary objective today?\nWhat potential obstacles might I face?") }
+    var morningMinWords by remember { mutableStateOf(prefs.getInt("morning_template_min_words", 5).toString()) }
+
+    // Section 1..6 configurations
+    var sec0Title by remember { mutableStateOf(prefs.getString("morning_sec_0_title", "Review & Recaps") ?: "Review & Recaps") }
+    var sec0Sub by remember { mutableStateOf(prefs.getString("morning_sec_0_sub", "Reflect on last night.") ?: "Reflect on last night.") }
+    var sec0F1 by remember { mutableStateOf(prefs.getString("morning_sec_0_f1", "After Dinner Recap") ?: "After Dinner Recap") }
+    var sec0F2 by remember { mutableStateOf(prefs.getString("morning_sec_0_f2", "Dreams / Night Thoughts") ?: "Dreams / Night Thoughts") }
+
+    var sec1Title by remember { mutableStateOf(prefs.getString("morning_sec_1_title", "Intentions") ?: "Intentions") }
+    var sec1Sub by remember { mutableStateOf(prefs.getString("morning_sec_1_sub", "Define your victories.") ?: "Define your victories.") }
+    var sec1F1 by remember { mutableStateOf(prefs.getString("morning_sec_1_f1", "Personal Objective") ?: "Personal Objective") }
+    var sec1F2 by remember { mutableStateOf(prefs.getString("morning_sec_1_f2", "Work Objective") ?: "Work Objective") }
+
+    var sec2Title by remember { mutableStateOf(prefs.getString("morning_sec_2_title", "Anticipation") ?: "Anticipation") }
+    var sec2Sub by remember { mutableStateOf(prefs.getString("morning_sec_2_sub", "Prepare for resistance.") ?: "Prepare for resistance.") }
+    var sec2F1 by remember { mutableStateOf(prefs.getString("morning_sec_2_f1", "Potential Obstacles") ?: "Potential Obstacles") }
+    var sec2F2 by remember { mutableStateOf(prefs.getString("morning_sec_2_f2", "My Solutions") ?: "My Solutions") }
+
+    var sec3Title by remember { mutableStateOf(prefs.getString("morning_sec_3_title", "Spirit") ?: "Spirit") }
+    var sec3Sub by remember { mutableStateOf(prefs.getString("morning_sec_3_sub", "Grit through gratitude.") ?: "Grit through gratitude.") }
+    var sec3F1 by remember { mutableStateOf(prefs.getString("morning_sec_3_f1", "What am I grateful for?") ?: "What am I grateful for?") }
+    var sec3F2 by remember { mutableStateOf(prefs.getString("morning_sec_3_f2", "What am I in awe of?") ?: "What am I in awe of?") }
+
+    var sec4Title by remember { mutableStateOf(prefs.getString("morning_sec_4_title", "Growth") ?: "Growth") }
+    var sec4Sub by remember { mutableStateOf(prefs.getString("morning_sec_4_sub", "Continuous learning.") ?: "Continuous learning.") }
+    var sec4F1 by remember { mutableStateOf(prefs.getString("morning_sec_4_f1", "Read/Listen To") ?: "Read/Listen To") }
+
+    var sec5Title by remember { mutableStateOf(prefs.getString("morning_sec_5_title", "Ideas & Solutions") ?: "Ideas & Solutions") }
+    var sec5Sub by remember { mutableStateOf(prefs.getString("morning_sec_5_sub", "Brainstorm for the future.") ?: "Brainstorm for the future.") }
 
     var eveningTitle by remember { mutableStateOf(prefs.getString("evening_template_title", "Evening Reflection") ?: "Evening Reflection") }
-    var eveningMinWords by remember { mutableStateOf(prefs.getInt("evening_template_min_words", 25).toString()) }
+    var eveningMinWords by remember { mutableStateOf(prefs.getInt("evening_template_min_words", 5).toString()) }
     var eveningQuestions by remember { mutableStateOf(prefs.getString("evening_template_questions", "How did I handle the Grit Trials today?\nWhat could I have improved?") ?: "How did I handle the Grit Trials today?\nWhat could I have improved?") }
+
+    // Evening Section 0..7 configurations
+    var evenSec0Title by remember { mutableStateOf(prefs.getString("evening_sec_0_title", "The Story") ?: "The Story") }
+    var evenSec0Sub by remember { mutableStateOf(prefs.getString("evening_sec_0_sub", "What happened today?") ?: "What happened today?") }
+    var evenSec0F1 by remember { mutableStateOf(prefs.getString("evening_sec_0_f1", "Daily Narrative") ?: "Daily Narrative") }
+
+    var evenSec1Title by remember { mutableStateOf(prefs.getString("evening_sec_1_title", "Inventory") ?: "Inventory") }
+    var evenSec1Sub by remember { mutableStateOf(prefs.getString("evening_sec_1_sub", "Own your wins.") ?: "Own your wins.") }
+    var evenSec1F1 by remember { mutableStateOf(prefs.getString("evening_sec_1_f1", "Main Accomplishments") ?: "Main Accomplishments") }
+
+    var evenSec2Title by remember { mutableStateOf(prefs.getString("evening_sec_2_title", "Analysis") ?: "Analysis") }
+    var evenSec2Sub by remember { mutableStateOf(prefs.getString("evening_sec_2_sub", "3 Wins and 3 Losses.") ?: "3 Wins and 3 Losses.") }
+
+    var evenSec3Title by remember { mutableStateOf(prefs.getString("evening_sec_3_title", "Bio-Metrics") ?: "Bio-Metrics") }
+    var evenSec3Sub by remember { mutableStateOf(prefs.getString("evening_sec_3_sub", "Check your stats.") ?: "Check your stats.") }
+
+    var evenSec4Title by remember { mutableStateOf(prefs.getString("evening_sec_4_title", "Peace of Mind") ?: "Peace of Mind") }
+    var evenSec4Sub by remember { mutableStateOf(prefs.getString("evening_sec_4_sub", "Setup tomorrow.") ?: "Setup tomorrow.") }
+    var evenSec4F1 by remember { mutableStateOf(prefs.getString("evening_sec_4_f1", "One thing for peace of mind") ?: "One thing for peace of mind") }
+
+    var evenSec5Title by remember { mutableStateOf(prefs.getString("evening_sec_5_title", "Fuel") ?: "Fuel") }
+    var evenSec5Sub by remember { mutableStateOf(prefs.getString("evening_sec_5_sub", "Log your meals.") ?: "Log your meals.") }
+    var evenSec5F1 by remember { mutableStateOf(prefs.getString("evening_sec_5_f1", "Breakfast, Lunch, Dinner") ?: "Breakfast, Lunch, Dinner") }
+
+    var evenSec6Title by remember { mutableStateOf(prefs.getString("evening_sec_6_title", "Evening Ideas") ?: "Evening Ideas") }
+    var evenSec6Sub by remember { mutableStateOf(prefs.getString("evening_sec_6_sub", "Don't lose your insights.") ?: "Don't lose your insights.") }
+
+    var evenSec7Title by remember { mutableStateOf(prefs.getString("evening_sec_7_title", "Quest Review") ?: "Quest Review") }
+    var evenSec7Sub by remember { mutableStateOf(prefs.getString("evening_sec_7_sub", "How did you perform?") ?: "How did you perform?") }
 
     ExpandableSection("Morning & Evening Plan Templates", initialExpanded = false) {
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -454,24 +519,80 @@ fun RoutineTemplatesSettingsCard(prefs: android.content.SharedPreferences) {
                 value = morningMinWords,
                 onValueChange = { 
                     morningMinWords = it
-                    val v = it.toIntOrNull() ?: 10
+                    val v = it.toIntOrNull() ?: 5
                     prefs.edit().putInt("morning_template_min_words", v).apply()
                 },
-                label = { Text("Minimum Word / Character Count Required") },
+                label = { Text("Minimum Characters Required Per Input") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
                 colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
             )
-            OutlinedTextField(
-                value = morningQuestions,
-                onValueChange = { 
-                    morningQuestions = it
-                    prefs.edit().putString("morning_template_questions", it).apply()
-                },
-                label = { Text("Morning Prompts & Questions (one per line)") },
-                modifier = Modifier.fillMaxWidth().height(100.dp),
-                colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-            )
+
+            HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+            Text("📋 Customize 6 Morning Plan Sections", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+
+            // Section 1 Editor
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 1: Recaps", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = sec0Title, onValueChange = { sec0Title = it; prefs.edit().putString("morning_sec_0_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec0Sub, onValueChange = { sec0Sub = it; prefs.edit().putString("morning_sec_0_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec0F1, onValueChange = { sec0F1 = it; prefs.edit().putString("morning_sec_0_f1", it).apply() }, label = { Text("Prompt 1 Label") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec0F2, onValueChange = { sec0F2 = it; prefs.edit().putString("morning_sec_0_f2", it).apply() }, label = { Text("Prompt 2 Label") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Section 2 Editor
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 2: Intentions", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = sec1Title, onValueChange = { sec1Title = it; prefs.edit().putString("morning_sec_1_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec1Sub, onValueChange = { sec1Sub = it; prefs.edit().putString("morning_sec_1_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec1F1, onValueChange = { sec1F1 = it; prefs.edit().putString("morning_sec_1_f1", it).apply() }, label = { Text("Prompt 1 Label") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec1F2, onValueChange = { sec1F2 = it; prefs.edit().putString("morning_sec_1_f2", it).apply() }, label = { Text("Prompt 2 Label") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Section 3 Editor
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 3: Anticipation", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = sec2Title, onValueChange = { sec2Title = it; prefs.edit().putString("morning_sec_2_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec2Sub, onValueChange = { sec2Sub = it; prefs.edit().putString("morning_sec_2_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec2F1, onValueChange = { sec2F1 = it; prefs.edit().putString("morning_sec_2_f1", it).apply() }, label = { Text("Prompt 1 Label") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec2F2, onValueChange = { sec2F2 = it; prefs.edit().putString("morning_sec_2_f2", it).apply() }, label = { Text("Prompt 2 Label") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Section 4 Editor
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 4: Spirit & Gratitude", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = sec3Title, onValueChange = { sec3Title = it; prefs.edit().putString("morning_sec_3_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec3Sub, onValueChange = { sec3Sub = it; prefs.edit().putString("morning_sec_3_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec3F1, onValueChange = { sec3F1 = it; prefs.edit().putString("morning_sec_3_f1", it).apply() }, label = { Text("Prompt 1 Label") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec3F2, onValueChange = { sec3F2 = it; prefs.edit().putString("morning_sec_3_f2", it).apply() }, label = { Text("Prompt 2 Label") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Section 5 Editor
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 5: Growth", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = sec4Title, onValueChange = { sec4Title = it; prefs.edit().putString("morning_sec_4_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec4Sub, onValueChange = { sec4Sub = it; prefs.edit().putString("morning_sec_4_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec4F1, onValueChange = { sec4F1 = it; prefs.edit().putString("morning_sec_4_f1", it).apply() }, label = { Text("Prompt 1 Label") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Section 6 Editor
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 6: Brainstorming & Ideas", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = sec5Title, onValueChange = { sec5Title = it; prefs.edit().putString("morning_sec_5_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = sec5Sub, onValueChange = { sec5Sub = it; prefs.edit().putString("morning_sec_5_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
 
             HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
 
@@ -490,14 +611,93 @@ fun RoutineTemplatesSettingsCard(prefs: android.content.SharedPreferences) {
                 value = eveningMinWords,
                 onValueChange = { 
                     eveningMinWords = it
-                    val v = it.toIntOrNull() ?: 25
+                    val v = it.toIntOrNull() ?: 5
                     prefs.edit().putInt("evening_template_min_words", v).apply()
                 },
-                label = { Text("Minimum Word / Character Count Required") },
+                label = { Text("Minimum Characters Required Per Input") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
                 colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
             )
+
+            HorizontalDivider(color = Color.Gray.copy(alpha = 0.2f))
+            Text("📋 Customize Evening Review Sections", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary, fontSize = 13.sp)
+
+            // Evening Section 0
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 1: The Story", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = evenSec0Title, onValueChange = { evenSec0Title = it; prefs.edit().putString("evening_sec_0_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec0Sub, onValueChange = { evenSec0Sub = it; prefs.edit().putString("evening_sec_0_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec0F1, onValueChange = { evenSec0F1 = it; prefs.edit().putString("evening_sec_0_f1", it).apply() }, label = { Text("Prompt Label") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Evening Section 1
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 2: Inventory", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = evenSec1Title, onValueChange = { evenSec1Title = it; prefs.edit().putString("evening_sec_1_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec1Sub, onValueChange = { evenSec1Sub = it; prefs.edit().putString("evening_sec_1_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec1F1, onValueChange = { evenSec1F1 = it; prefs.edit().putString("evening_sec_1_f1", it).apply() }, label = { Text("Prompt Label") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Evening Section 2
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 3: Analysis (Wins & Losses)", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = evenSec2Title, onValueChange = { evenSec2Title = it; prefs.edit().putString("evening_sec_2_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec2Sub, onValueChange = { evenSec2Sub = it; prefs.edit().putString("evening_sec_2_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Evening Section 3
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 4: Bio-Metrics", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = evenSec3Title, onValueChange = { evenSec3Title = it; prefs.edit().putString("evening_sec_3_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec3Sub, onValueChange = { evenSec3Sub = it; prefs.edit().putString("evening_sec_3_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Evening Section 4
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 5: Peace of Mind", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = evenSec4Title, onValueChange = { evenSec4Title = it; prefs.edit().putString("evening_sec_4_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec4Sub, onValueChange = { evenSec4Sub = it; prefs.edit().putString("evening_sec_4_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec4F1, onValueChange = { evenSec4F1 = it; prefs.edit().putString("evening_sec_4_f1", it).apply() }, label = { Text("Prompt Label") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Evening Section 5
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 6: Fuel", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = evenSec5Title, onValueChange = { evenSec5Title = it; prefs.edit().putString("evening_sec_5_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec5Sub, onValueChange = { evenSec5Sub = it; prefs.edit().putString("evening_sec_5_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec5F1, onValueChange = { evenSec5F1 = it; prefs.edit().putString("evening_sec_5_f1", it).apply() }, label = { Text("Prompt Label") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Evening Section 6
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 7: Evening Ideas", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = evenSec6Title, onValueChange = { evenSec6Title = it; prefs.edit().putString("evening_sec_6_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec6Sub, onValueChange = { evenSec6Sub = it; prefs.edit().putString("evening_sec_6_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
+
+            // Evening Section 7
+            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))) {
+                Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Section 8: Quest Review", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                    OutlinedTextField(value = evenSec7Title, onValueChange = { evenSec7Title = it; prefs.edit().putString("evening_sec_7_title", it).apply() }, label = { Text("Section Title") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = evenSec7Sub, onValueChange = { evenSec7Sub = it; prefs.edit().putString("evening_sec_7_sub", it).apply() }, label = { Text("Subtitle") }, modifier = Modifier.fillMaxWidth())
+                }
+            }
             OutlinedTextField(
                 value = eveningQuestions,
                 onValueChange = { 
@@ -760,9 +960,111 @@ fun HowTheAppWorksCard() {
                 "4. Hall of Ascendance" to "Progress through multi-tiered achievements (Bronze to Legend) across all activities over time."
             )
             explanationPoints.forEach { (title, desc) ->
-                Text(title, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.White)
-                Text(desc, fontSize = 11.sp, color = Color.Gray)
-                Spacer(modifier = Modifier.height(2.dp))
+                Column {
+                    Text(title, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Color.White)
+                    Text(desc, fontSize = 11.sp, color = Color.Gray)
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun BackupRestoreSettingsCard(prefs: android.content.SharedPreferences) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val backupManager = remember { DataBackupManager(context) }
+    var statusMessage by remember { mutableStateOf("") }
+    var isProcessing by remember { mutableStateOf(false) }
+
+    val dateStr = remember { SimpleDateFormat("yyyy_MM_dd", Locale.getDefault()).format(Date()) }
+
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            isProcessing = true
+            scope.launch {
+                val (success, message) = backupManager.exportToFile(uri)
+                isProcessing = false
+                statusMessage = message
+                Toast.makeText(context, if (success) "Export Successful!" else "Export Failed", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            isProcessing = true
+            scope.launch {
+                val (success, message) = backupManager.importFromFile(uri)
+                isProcessing = false
+                statusMessage = message
+                Toast.makeText(context, if (success) "Restore Successful!" else "Restore Failed", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    ExpandableSection("💾 Full System Backup & Restore (Export / Import)", initialExpanded = true) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(
+                text = "Export or restore all app data including protocol gates, workout history, daily pledges, quests, flashcards, OKRs, goals, daily log notes, and custom templates into a portable JSON backup file.",
+                color = Color.Gray,
+                fontSize = 12.sp
+            )
+
+            if (isProcessing) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                    Text("Processing backup file...", fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            if (statusMessage.isNotBlank()) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = statusMessage,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = { exportLauncher.launch("fitlock_backup_$dateStr.json") },
+                    enabled = !isProcessing,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Export (JSON)", fontSize = 12.sp)
+                }
+
+                OutlinedButton(
+                    onClick = { importLauncher.launch("*/*") },
+                    enabled = !isProcessing,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Default.FileUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Restore (JSON)", fontSize = 12.sp)
+                }
             }
         }
     }
@@ -796,5 +1098,45 @@ fun isAccessibilityServiceEnabled(context: Context): Boolean {
         context.contentResolver,
         Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
     )
-    return enabledServices?.contains(service) == true
+    return enabledServices?.contains(service, ignoreCase = true) == true
+}
+
+fun checkAndNotifyAccessibilityService(context: Context) {
+    val isEnabled = isAccessibilityServiceEnabled(context)
+    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+    val channelId = "gresslock_warning_channel"
+
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+        val channel = android.app.NotificationChannel(channelId, "GressLock System Warnings", android.app.NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "Notifies when Accessibility Service is disabled"
+        }
+        notificationManager.createNotificationChannel(channel)
+    }
+
+    val warningNotificationId = 9901
+
+    if (!isEnabled) {
+        val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(com.example.fitlock.R.drawable.ic_launcher_foreground)
+            .setContentTitle("⚠️ GressLock Service Disabled")
+            .setContentText("Accessibility Service is disabled! Tap to enable service and restore app protection.")
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+            .setOngoing(true)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        notificationManager.notify(warningNotificationId, notification)
+    } else {
+        notificationManager.cancel(warningNotificationId)
+    }
 }

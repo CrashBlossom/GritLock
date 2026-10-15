@@ -1,9 +1,9 @@
-# GritLock - Future Development Roadmap
+# GressLock - Future Development Roadmap
 
-This document outlines the vision for expanding GritLock beyond a simple fitness-based app blocker into a comprehensive life-gamification and accountability platform.
+This document outlines the vision for expanding GressLock beyond a discipline-based app blocker into a comprehensive life-gamification and accountability platform.
 
 ## 🎮 1. Advanced Gamification
-*   **Character Progression**: Create a custom avatar that levels up and changes appearance as you gain XP. Equipment and "skins" can be purchased with "Sweat Coins" earned through workouts.
+*   **Character Progression**: Create a custom avatar that levels up and changes appearance as you gain XP and 12 RPG stats (`STR, DEX, CON, MOV, INT, WIS, WIL, SAN, CHA, WTH, TEC, LCK`). Equipment and "skins" can be purchased with "Sweat Coins" earned through workouts.
 *   **Quest System**:
     *   *Daily Quests*: Specific random exercise sets (e.g., "The Morning Grime: 30 Pushups before 9 AM").
     *   *Weekly Bosses*: High-volume requirements to unlock a "treasure chest" of XP or premium app themes.
@@ -17,9 +17,9 @@ This document outlines the vision for expanding GritLock beyond a simple fitness
 *   **Social Backend**: Integrate **Firebase Firestore** for real-time Guild data and global leaderboards.
 
 ## 🐝 2. Beeminder Integration
-*   **The Yellow Brick Road**: Connect GritLock to Beeminder so that every rep tracked by the camera or sensors automatically updates a Beeminder goal.
-*   **Automated Fines**: If you derail on your fitness goals in Beeminder, GritLock could enter "Hardcore Lock" mode, doubling your exercise requirements until you're back on track.
-*   **Real-time Sync**: Use Beeminder's API to show your "days until derailment" directly on the GritLock dashboard.
+*   **The Yellow Brick Road**: Connect GressLock to Beeminder so that every rep tracked by the camera or sensors automatically updates a Beeminder goal.
+*   **Automated Fines**: If you derail on your fitness goals in Beeminder, GressLock could enter "Hardcore Lock" mode, doubling your exercise requirements until you're back on track.
+*   **Real-time Sync**: Use Beeminder's API to show your "days until derailment" directly on the GressLock dashboard.
 
 ### 🛠️ Implementation Strategy
 *   **API Client**: Use **Retrofit** with a Beeminder-specific interface to handle OAuth2 authentication and data point submission.

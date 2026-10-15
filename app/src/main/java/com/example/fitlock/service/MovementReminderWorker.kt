@@ -20,7 +20,7 @@ import com.example.fitlock.ui.MindfulSnoozeActivity
 class MovementReminderWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        val prefs = applicationContext.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE)
+        val prefs = applicationContext.getSharedPreferences("gresslock_prefs", Context.MODE_PRIVATE)
         val isLockEnabled = prefs.getBoolean("intermittent_lock_enabled", false)
         val blockGroupId = prefs.getInt("intermittent_block_group_id", -1)
         

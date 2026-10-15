@@ -332,4 +332,62 @@ interface GritLockDao {
 
     @Upsert
     suspend fun upsertAchievements(achievements: List<Achievement>)
+
+    // --- FULL SYSTEM BACKUP & RESTORE QUERIES ---
+    @Query("SELECT * FROM app_groups") suspend fun getAllGroupsList(): List<AppGroup>
+    @Query("SELECT * FROM gauntlets") suspend fun getAllGauntletsList(): List<Gauntlet>
+    @Query("SELECT * FROM habits") suspend fun getAllHabitsList(): List<Habit>
+    @Query("SELECT * FROM habit_definitions") suspend fun getAllHabitDefinitionsList(): List<HabitDefinition>
+    @Query("SELECT * FROM workout_history") suspend fun getAllWorkoutHistoryList(): List<WorkoutHistory>
+    @Query("SELECT * FROM daily_pledges") suspend fun getAllDailyPledgesList(): List<DailyPledge>
+    @Query("SELECT * FROM daily_log_notes") suspend fun getAllDailyLogNotesList(): List<DailyLogNote>
+    @Query("SELECT * FROM urge_events") suspend fun getAllUrgeEventsList(): List<UrgeEvent>
+    @Query("SELECT * FROM goals") suspend fun getAllGoalsList(): List<Goal>
+    @Query("SELECT * FROM projects") suspend fun getAllProjectsList(): List<Project>
+    @Query("SELECT * FROM milestones") suspend fun getAllMilestonesList(): List<Milestone>
+    @Query("SELECT * FROM project_tasks") suspend fun getAllProjectTasksList(): List<ProjectTask>
+    @Query("SELECT * FROM quests") suspend fun getAllQuestsList(): List<Quest>
+    @Query("SELECT * FROM quest_blocks") suspend fun getAllQuestBlocksList(): List<QuestBlock>
+    @Query("SELECT * FROM exercise_families") suspend fun getAllExerciseFamiliesList(): List<ExerciseFamily>
+    @Query("SELECT * FROM progression_levels") suspend fun getAllProgressionLevelsList(): List<ProgressionLevel>
+    @Query("SELECT * FROM exercise_definitions") suspend fun getAllExerciseDefinitionsList(): List<ExerciseDefinition>
+    @Query("SELECT * FROM task_definitions") suspend fun getAllTaskDefinitionsList(): List<TaskDefinition>
+    @Query("SELECT * FROM flashcards") suspend fun getAllFlashcardsList(): List<Flashcard>
+    @Query("SELECT * FROM challenges") suspend fun getAllChallengesList(): List<Challenge>
+    @Query("SELECT * FROM app_rules") suspend fun getAllAppRulesList(): List<AppRule>
+    @Query("SELECT * FROM vault_items") suspend fun getAllVaultItemsList(): List<VaultItem>
+    @Query("SELECT * FROM motivational_quotes") suspend fun getAllMotivationalQuotesList(): List<MotivationalQuote>
+    @Query("SELECT * FROM usage_baselines") suspend fun getAllUsageBaselinesList(): List<UsageBaseline>
+    @Query("SELECT * FROM app_block_events") suspend fun getAllAppBlockEventsList(): List<AppBlockEvent>
+    @Query("SELECT * FROM date_countdowns") suspend fun getAllDateCountdownsList(): List<DateCountdown>
+    @Query("SELECT * FROM achievements") suspend fun getAllAchievementsList(): List<Achievement>
+    @Query("SELECT * FROM workout_blocks") suspend fun getAllWorkoutBlocksList(): List<WorkoutBlockEntity>
+    @Query("SELECT * FROM workout_exercises") suspend fun getAllWorkoutExercisesList(): List<WorkoutExercise>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAppGroups(groups: List<AppGroup>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertGauntlets(gauntlets: List<Gauntlet>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertHabits(habits: List<Habit>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertHabitDefinitions(definitions: List<HabitDefinition>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertWorkouts(workouts: List<WorkoutHistory>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertPledges(pledges: List<DailyPledge>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertLogNotes(notes: List<DailyLogNote>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertUrgeEvents(events: List<UrgeEvent>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertGoals(goals: List<Goal>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertProjects(projects: List<Project>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertMilestones(milestones: List<Milestone>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertProjectTasks(tasks: List<ProjectTask>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertQuests(quests: List<Quest>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertExerciseFamilies(families: List<ExerciseFamily>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertProgressionLevels(levels: List<ProgressionLevel>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertExerciseDefinitions(definitions: List<ExerciseDefinition>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertTaskDefinitions(definitions: List<TaskDefinition>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertChallenges(challenges: List<Challenge>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertAppRules(rules: List<AppRule>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertVaultItems(items: List<VaultItem>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertQuotes(quotes: List<MotivationalQuote>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertBaselines(baselines: List<UsageBaseline>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertBlockEvents(events: List<AppBlockEvent>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertCountdowns(countdowns: List<DateCountdown>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertWorkoutBlocks(blocks: List<WorkoutBlockEntity>)
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertWorkoutExercises(exercises: List<WorkoutExercise>)
 }

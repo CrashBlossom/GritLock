@@ -32,6 +32,7 @@ fun GauntletEditor(
     var name by remember { mutableStateOf(editingGauntlet?.gauntlet?.name ?: "") }
     var triggerType by remember { mutableStateOf(editingGauntlet?.gauntlet?.triggerType ?: GauntletTriggerType.MANUAL) }
     var triggerTime by remember { mutableStateOf(editingGauntlet?.gauntlet?.triggerTime ?: "08:00") }
+    var showGauntletTimePicker by remember { mutableStateOf(false) }
     var bufferSeconds by remember { mutableIntStateOf(editingGauntlet?.gauntlet?.bufferSeconds ?: 10) }
     var targetBlockGroupId by remember { mutableStateOf<Int?>(editingGauntlet?.gauntlet?.targetBlockGroupId) }
     var icon by remember { mutableStateOf<String?>(editingGauntlet?.gauntlet?.icon) }
@@ -126,10 +127,30 @@ fun GauntletEditor(
                 
                 if (triggerType == GauntletTriggerType.TIME_BASED) {
                     OutlinedTextField(
-                        value = triggerTime,
-                        onValueChange = { triggerTime = it },
-                        label = { Text("Start Time (HH:mm)") },
-                        modifier = Modifier.fillMaxWidth()
+                        value = if (triggerTime.isBlank()) "Tap to select time..." else triggerTime,
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Start Time (Clock Dial)") },
+                        trailingIcon = {
+                            IconButton(onClick = { showGauntletTimePicker = true }) {
+                                Icon(Icons.Default.AccessTime, contentDescription = "Pick Time")
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showGauntletTimePicker = true }
+                    )
+                }
+
+                if (showGauntletTimePicker) {
+                    GateTimePickerDialog(
+                        title = "Select Routine Start Time",
+                        initialTime = triggerTime.ifBlank { "08:00" },
+                        onDismiss = { showGauntletTimePicker = false },
+                        onTimeSelected = { time ->
+                            triggerTime = time
+                            showGauntletTimePicker = false
+                        }
                     )
                 }
 

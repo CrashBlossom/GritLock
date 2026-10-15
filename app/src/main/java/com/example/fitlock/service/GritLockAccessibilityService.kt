@@ -31,6 +31,7 @@ import com.example.fitlock.data.AppGroup
 import com.example.fitlock.data.ScheduleInterval
 import com.example.fitlock.data.LockStatusManager
 import com.example.fitlock.data.ExerciseRequirement
+import com.example.fitlock.data.GauntletTriggerType
 import com.example.fitlock.exercise.ExerciseType
 import com.example.fitlock.utils.NetworkUtils
 import com.example.fitlock.data.UserStats
@@ -90,8 +91,66 @@ class GritLockAccessibilityService : AccessibilityService() {
     // Evening Gate State
     private var eveningGateActive = false
 
-    private val CHANNEL_ID = "gritlock_countdown_channel"
+    private val CHANNEL_ID = "gresslock_countdown_channel"
     private val NOTIFICATION_ID = 1001
+
+    private val timeTriggerHandler = Handler(Looper.getMainLooper())
+    private var timeTriggerRunnable: Runnable? = null
+
+    private fun startTimeTriggerChecker() {
+        timeTriggerRunnable = object : Runnable {
+            override fun run() {
+                checkTimeBasedTriggers()
+                timeTriggerHandler.postDelayed(this, 30000) // check every 30 seconds
+            }
+        }
+        timeTriggerHandler.post(timeTriggerRunnable!!)
+    }
+
+    private fun checkTimeBasedTriggers() {
+        if (allGroups.isEmpty()) return
+        val currentForeground = rootInActiveWindow?.packageName?.toString()
+        if (currentForeground == this.packageName) return
+
+        val calendar = Calendar.getInstance()
+        val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
+        val ourDayOfWeek = if (dayOfWeek == Calendar.SUNDAY) 7 else dayOfWeek - 1
+        val currentMinute = calendar.get(Calendar.HOUR_OF_DAY) * 60 + calendar.get(Calendar.MINUTE)
+
+        serviceScope.launch {
+            val lockedTimeGroup = allGroups.find { group ->
+                if (!group.isEnabled || group.isProductive || !isGroupLocked(group)) return@find false
+
+                val triggerMin = parseTriggerTimeMinutes(group.triggerTime)
+                val matchesTriggerTime = triggerMin != null && currentMinute >= triggerMin && currentMinute <= (triggerMin + 15)
+                val matchesSchedule = group.schedule.any { it.dayOfWeek == ourDayOfWeek && currentMinute >= it.startMinute && currentMinute <= it.endMinute }
+
+                (group.triggerType == GauntletTriggerType.TIME_BASED || group.isRoutine) && (matchesTriggerTime || matchesSchedule)
+            }
+
+            if (lockedTimeGroup != null) {
+                handler.post {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                    val firstReq = lockedTimeGroup.exercises.firstOrNull() ?: ExerciseRequirement(ExerciseType.PUSHUP.name, 10)
+                    Log.d("GritLockService", "Scheduled Time/Routine Trigger Reached for: ${lockedTimeGroup.name}")
+                    triggerOverlay("com.example.fitlock.routine", firstReq.count, firstReq.type, lockedTimeGroup.id)
+                    Toast.makeText(applicationContext, "[ROUTINE TRIGGER]: '${lockedTimeGroup.name}' is now active! Complete your routine to proceed.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    private fun parseTriggerTimeMinutes(timeStr: String?): Int? {
+        if (timeStr.isNullOrBlank()) return null
+        val timePart = if (timeStr.contains("-")) timeStr.split("-")[0] else timeStr
+        val parts = timePart.trim().split(":")
+        if (parts.size == 2) {
+            val h = parts[0].toIntOrNull() ?: return null
+            val m = parts[1].toIntOrNull() ?: return null
+            return h * 60 + m
+        }
+        return null
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -101,11 +160,17 @@ class GritLockAccessibilityService : AccessibilityService() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         createNotificationChannel()
         observeGroups()
+        startTimeTriggerChecker()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        timeTriggerRunnable?.let { timeTriggerHandler.removeCallbacks(it) }
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val name = "GritLock Countdown"
+            val name = "GressLock Countdown"
             val descriptionText = "Shows countdown before app is blocked or relocked"
             val importance = NotificationManager.IMPORTANCE_DEFAULT
             val channel = NotificationChannel(CHANNEL_ID, name, importance).apply {
@@ -339,7 +404,7 @@ class GritLockAccessibilityService : AccessibilityService() {
                 if (lastUsageTick != 0L) {
                     lastUsageTick = 0L
                     stopAppUsageTimer()
-                    updateNotification("GritLock: App Usage Paused", "Return to the required app to continue tracking.")
+                    updateNotification("GressLock: App Usage Paused", "Return to the required app to continue tracking.")
                 }
             }
         }
@@ -388,7 +453,7 @@ class GritLockAccessibilityService : AccessibilityService() {
         appUsageSecondsRemaining = 0
         lastUsageTick = 0
         
-        updateNotification("GritLock: Requirement Met", "App usage for $label completed!")
+        updateNotification("GressLock: Requirement Met", "App usage for $label completed!")
 
         serviceScope.launch {
             if (isFinal) {
@@ -423,7 +488,7 @@ class GritLockAccessibilityService : AccessibilityService() {
                         completeAppUsageRequirement()
                     } else {
                         val spent = appUsageTotalSeconds - appUsageSecondsRemaining
-                        updateNotification("GritLock: App Usage Progress", "Progress: ${formatTime(spent)} / ${formatTime(appUsageTotalSeconds)} ($appUsageSecondsRemaining s left)")
+                        updateNotification("GressLock: App Usage Progress", "Progress: ${formatTime(spent)} / ${formatTime(appUsageTotalSeconds)} ($appUsageSecondsRemaining s left)")
                         handler.postDelayed(this, 1000)
                     }
                 } else {
@@ -456,7 +521,7 @@ class GritLockAccessibilityService : AccessibilityService() {
             appUsageIsFinal = intent.getBooleanExtra("is_final", true)
             appUsageLabel = intent.getStringExtra("label") ?: "Required App"
             lastUsageTick = 0
-            updateNotification("GritLock: Usage Required", "Open $appUsageLabel to start tracking.")
+            updateNotification("GressLock: Usage Required", "Open $appUsageLabel to start tracking.")
         } else if (intent?.action == "ACTIVATE_FOCUS_SHIELD") {
             focusShieldActive = true
             focusBlockGroupId = intent.getIntExtra("block_group_id", -1)
@@ -501,19 +566,17 @@ class GritLockAccessibilityService : AccessibilityService() {
         // Safety: Ignore common system/browser UI nodes that might contain matching text accidentally
         if (text == "search or type url" || text == "address and search bar") return null
 
-        for (keyword in keywords) {
-            val kw = keyword.lowercase()
-            if (kw.length < 3) continue // Ignore very short keywords
-
+        val validKeywords = keywords.map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+        for (kw in validKeywords) {
             if (text.contains(kw) || contentDesc.contains(kw)) {
-                Log.d("GritLockService", "KEYWORD HIT: '$keyword' in node '$text' (desc: '$contentDesc') of app ${node.packageName}")
-                return keyword
+                Log.d("GritLockService", "KEYWORD HIT: '$kw' in node '$text' (desc: '$contentDesc') of app ${node.packageName}")
+                return kw
             }
         }
         for (i in 0 until node.childCount) {
             val child = node.getChild(i)
             if (child != null) {
-                val found = findKeywordInNode(child, keywords)
+                val found = findKeywordInNode(child, validKeywords)
                 child.recycle()
                 if (found != null) return found
             }
@@ -535,7 +598,7 @@ class GritLockAccessibilityService : AccessibilityService() {
             }
         } else {
             val remainingMs = unlockDurationMs - timeSinceUnlock
-            updateNotification("GritLock: Session Active", "${group.name} expires in ${formatTime((remainingMs/1000).toInt())}")
+            updateNotification("GressLock: Session Active", "${group.name} expires in ${formatTime((remainingMs/1000).toInt())}")
             
             // Loop to update notification every second
             handler.removeCallbacksAndMessages(group.name)
@@ -548,7 +611,7 @@ class GritLockAccessibilityService : AccessibilityService() {
                         val updatedNow = System.currentTimeMillis()
                         val updatedRemainingMs = unlockDurationMs - (updatedNow - lastUnlocked)
                         if (updatedRemainingMs > 0) {
-                            updateNotification("GritLock: Session Active", "${group.name} expires in ${formatTime((updatedRemainingMs/1000).toInt())}")
+                            updateNotification("GressLock: Session Active", "${group.name} expires in ${formatTime((updatedRemainingMs/1000).toInt())}")
                             handler.postAtTime(this, group.name, SystemClock.uptimeMillis() + 1000)
                         } else {
                             handleGroupMonitoring(currentApp, group)
@@ -666,17 +729,17 @@ class GritLockAccessibilityService : AccessibilityService() {
             pbCountdown?.max = lockoutSeconds
             pbCountdown?.progress = persistentSecondsLeft
 
-            updateNotification("GritLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
+            updateNotification("GressLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
 
             countdownRunnable = object : Runnable {
                 override fun run() {
                     if (currentCountdownApp != targetPackage) return
                     persistentSecondsLeft--
                     if (persistentSecondsLeft >= 0) {
-                        updateNotification("GritLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
+                        updateNotification("GressLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
                         if (!smartCountdown || persistentSecondsLeft <= 30) {
                             if (countdownView?.visibility != View.VISIBLE) countdownView?.visibility = View.VISIBLE
-                            tvMessage?.text = "GritLock: Exercise required in ${persistentSecondsLeft}s"
+                            tvMessage?.text = "GressLock: Exercise required in ${persistentSecondsLeft}s"
                             pbCountdown?.progress = persistentSecondsLeft
                         } else countdownView?.visibility = View.GONE
                         handler.postDelayed(this, 1000)
@@ -763,7 +826,7 @@ class GritLockAccessibilityService : AccessibilityService() {
                 if (currentCountdownApp != targetPackage) return
                 persistentSecondsLeft--
                 if (persistentSecondsLeft >= 0) {
-                    updateNotification("GritLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
+                    updateNotification("GressLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
                     handler.postDelayed(this, 1000)
                 } else {
                     val target = targetPackage
@@ -816,6 +879,11 @@ class GritLockAccessibilityService : AccessibilityService() {
         serviceScope.launch {
             db.dao().insertBlockEvent(AppBlockEvent(packageName = target, reason = if (isKeyword) "Keyword Blocked" else "App Blocked"))
         }
+
+        if (target.contains("routine") || target.contains("scheduled")) {
+            performGlobalAction(GLOBAL_ACTION_HOME)
+        }
+
         val intent = Intent(this, LockOverlayActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
             putExtra("target_app", target)
@@ -824,12 +892,26 @@ class GritLockAccessibilityService : AccessibilityService() {
             putExtra("group_id", groupId)
             putExtra("is_keyword_block", isKeyword)
         }
-        startActivity(intent)
+
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            this,
+            (System.currentTimeMillis() % 100000).toInt(),
+            intent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+
+        try {
+            pendingIntent.send()
+        } catch (e: Exception) {
+            try {
+                startActivity(intent)
+            } catch (e2: Exception) {
+                Log.e("GritLockService", "Failed to start LockOverlayActivity: ${e2.message}")
+            }
+        }
     }
 
     override fun onInterrupt() { removeCountdown() }
-
-    override fun onDestroy() { super.onDestroy() }
 
     private fun checkSettingsProtection(packageName: String, rootNode: AccessibilityNodeInfo?) {
         if (packageName != "com.android.settings") return
@@ -902,13 +984,17 @@ class GritLockAccessibilityService : AccessibilityService() {
         val enabledActiveGroups = allGroups.filter { it.isEnabled && isGroupActive(it) && !it.isProductive }
         
         // 1. Full Package Groups (Package matches activeApp, and NO keywords specified)
-        val fullPackageGroups = enabledActiveGroups.filter { it.packageNames.contains(activeApp) && it.keywords.isEmpty() }
+        val fullPackageGroups = enabledActiveGroups.filter { group ->
+            group.packageNames.contains(activeApp) && group.keywords.none { it.isNotBlank() }
+        }
         val lockedFullGroup = fullPackageGroups.find { isGroupLocked(it) }
         if (lockedFullGroup != null) return lockedFullGroup
 
         if (rootNode != null) {
             // 2. Package-Scoped Keyword Groups (Package matches activeApp AND keywords specified)
-            val scopedKeywordGroups = enabledActiveGroups.filter { it.packageNames.contains(activeApp) && it.keywords.isNotEmpty() }
+            val scopedKeywordGroups = enabledActiveGroups.filter { group ->
+                group.packageNames.contains(activeApp) && group.keywords.any { it.isNotBlank() }
+            }
             val matchingScopedGroup = scopedKeywordGroups.find { group ->
                 val foundKeyword = findKeywordInNode(rootNode, group.keywords)
                 foundKeyword != null && isGroupLocked(group)
@@ -916,7 +1002,9 @@ class GritLockAccessibilityService : AccessibilityService() {
             if (matchingScopedGroup != null) return matchingScopedGroup
 
             // 3. Global Keyword Groups (Package list is empty, keywords specified)
-            val globalKeywordGroups = enabledActiveGroups.filter { it.packageNames.isEmpty() && it.keywords.isNotEmpty() }
+            val globalKeywordGroups = enabledActiveGroups.filter { group ->
+                group.packageNames.isEmpty() && group.keywords.any { it.isNotBlank() }
+            }
             val matchingGlobalGroup = globalKeywordGroups.find { group ->
                 val foundKeyword = findKeywordInNode(rootNode, group.keywords)
                 foundKeyword != null && isGroupLocked(group)
@@ -981,6 +1069,6 @@ class GritLockAccessibilityService : AccessibilityService() {
             "⚪ Neutral App (No Stats)"
         }
 
-        updateNotification("GritLock: $appName", statusText)
+        updateNotification("GressLock: $appName", statusText)
     }
 }

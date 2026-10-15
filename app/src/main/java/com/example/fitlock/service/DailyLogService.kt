@@ -23,6 +23,7 @@ class DailyLogService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        com.example.fitlock.ui.checkAndNotifyAccessibilityService(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -75,7 +76,7 @@ class DailyLogService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_discipline)
-            .setContentTitle("GritLock: Daily Log Active")
+            .setContentTitle("GressLock: Daily Log Active")
             .setContentText("Tap to record a thought or reflection.")
             .setOngoing(true)
             .setSilent(true)

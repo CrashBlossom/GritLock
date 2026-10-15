@@ -83,6 +83,17 @@ class Converters {
     fun toStatType(value: String): StatType = StatType.valueOf(value)
 
     @TypeConverter
+    fun fromStatTypeList(list: List<StatType>): String = list.joinToString(",") { it.name }
+
+    @TypeConverter
+    fun toStatTypeList(data: String): List<StatType> {
+        if (data.isBlank()) return emptyList()
+        return data.split(",").filter { it.isNotBlank() }.map { 
+            try { StatType.valueOf(it) } catch (e: Exception) { StatType.NONE } 
+        }
+    }
+
+    @TypeConverter
     fun fromGauntletTriggerType(type: GauntletTriggerType): String = type.name
 
     @TypeConverter
