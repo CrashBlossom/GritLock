@@ -122,13 +122,23 @@ fun AnalyticsScreen(history: List<WorkoutHistory>, gauntletHistory: List<Gauntle
 
 @Composable
 fun ExerciseHistoryList(history: List<WorkoutHistory>) {
-    if (history.isEmpty()) {
+    val statNames = remember {
+        com.example.fitlock.data.StatType.entries.map { it.name.uppercase() }.toSet() + setOf("GENERAL", "NONE")
+    }
+    
+    val filteredExercises = remember(history) {
+        history.filter { workout ->
+            !statNames.contains(workout.exerciseType.trim().uppercase())
+        }
+    }
+
+    if (filteredExercises.isEmpty()) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("No exercise history yet.", color = Color.Gray)
+            Text("No completed bodyweight or physical exercises logged yet.", color = Color.Gray, fontSize = 12.sp)
         }
     } else {
         LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(history) { workout ->
+            items(filteredExercises) { workout ->
                 AnalyticsWorkoutHistoryItem(workout)
             }
         }
@@ -141,6 +151,36 @@ fun AnalyticsWorkoutHistoryItem(workout: WorkoutHistory) {
         SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()).format(Date(workout.timestamp))
     }
 
+    val exerciseName = remember(workout.exerciseType) {
+        when (workout.exerciseType.trim().uppercase()) {
+            "PUSHUP" -> "Pushups"
+            "SQUAT" -> "Squats"
+            "PLANK" -> "Plank Hold"
+            "PULLUP" -> "Pullups"
+            "DIP" -> "Dips"
+            "SITUP" -> "Situps"
+            "HINGE" -> "Hinges"
+            "ROW" -> "Rows"
+            "STEPS" -> "Step Walking"
+            "BREATHWORK" -> "Mindful Breathwork"
+            "WRITE_WORDS", "JOURNAL" -> "Journal Writing"
+            "WATER", "HYDRATION" -> "Hydration"
+            "FLASHCARDS", "ANKI" -> "Flashcard Review"
+            "FRENCH_STUDY", "DUOLINGO" -> "Language Study"
+            else -> workout.exerciseType.replace("_", " ").lowercase().replaceFirstChar { it.uppercase() }
+        }
+    }
+
+    val quantityText = remember(workout.exerciseType, workout.repsCompleted) {
+        when (workout.exerciseType.trim().uppercase()) {
+            "PLANK", "BREATHWORK" -> "${workout.repsCompleted} Seconds"
+            "STEPS" -> "${workout.repsCompleted} Steps"
+            "WRITE_WORDS", "JOURNAL" -> "${workout.repsCompleted} Words"
+            "WATER", "HYDRATION" -> "${workout.repsCompleted} Logs"
+            else -> "${workout.repsCompleted} Reps"
+        }
+    }
+
     Card(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         shape = RoundedCornerShape(12.dp),
@@ -151,12 +191,12 @@ fun AnalyticsWorkoutHistoryItem(workout: WorkoutHistory) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(workout.exerciseType, color = Color.White, fontWeight = FontWeight.Bold)
+                Text(exerciseName, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
                 Text(date, color = Color.Gray, fontSize = 12.sp)
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text("${workout.repsCompleted} Reps", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                Text("+${workout.xpGained} XP", color = Color.Green, fontSize = 12.sp)
+                Text(quantityText, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Text("+${workout.xpGained} XP", color = Color(0xFF81C784), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }

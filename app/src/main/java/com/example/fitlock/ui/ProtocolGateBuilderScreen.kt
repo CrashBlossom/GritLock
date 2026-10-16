@@ -80,12 +80,19 @@ fun ProtocolGateBuilderScreen(
     var newWifiSsid by remember { mutableStateOf("") }
     var showWifiScanner by remember { mutableStateOf(false) }
     val initialTimeParts = remember(editingGate) {
-        val t = editingGate?.triggerTime ?: "00:00-23:59"
-        if (t.contains("-")) {
-            val parts = t.split("-")
-            Pair(parts.getOrNull(0) ?: "00:00", parts.getOrNull(1) ?: "23:59")
+        val scheduleFirst = editingGate?.schedule?.firstOrNull()
+        if (scheduleFirst != null) {
+            val startH = String.format(java.util.Locale.getDefault(), "%02d:%02d", scheduleFirst.startMinute / 60, scheduleFirst.startMinute % 60)
+            val endH = String.format(java.util.Locale.getDefault(), "%02d:%02d", scheduleFirst.endMinute / 60, scheduleFirst.endMinute % 60)
+            Pair(startH, endH)
         } else {
-            Pair(t, "23:59")
+            val t = editingGate?.triggerTime ?: "00:00-23:59"
+            if (t.contains("-")) {
+                val parts = t.split("-")
+                Pair(parts.getOrNull(0) ?: "00:00", parts.getOrNull(1) ?: "23:59")
+            } else {
+                Pair(t.ifBlank { "00:00" }, "23:59")
+            }
         }
     }
     var startTimeConstraint by remember(editingGate) { mutableStateOf(initialTimeParts.first) }

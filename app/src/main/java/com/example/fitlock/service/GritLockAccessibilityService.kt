@@ -109,8 +109,6 @@ class GritLockAccessibilityService : AccessibilityService() {
 
     private fun checkTimeBasedTriggers() {
         if (allGroups.isEmpty()) return
-        val currentForeground = rootInActiveWindow?.packageName?.toString()
-        if (currentForeground == this.packageName) return
 
         val calendar = Calendar.getInstance()
         val dayOfWeek = calendar.get(Calendar.DAY_OF_WEEK)
@@ -119,7 +117,7 @@ class GritLockAccessibilityService : AccessibilityService() {
 
         serviceScope.launch {
             val lockedTimeGroup = allGroups.find { group ->
-                if (!group.isEnabled || group.isProductive || !isGroupLocked(group)) return@find false
+                if (!group.isEnabled || group.isProductive || !isGroupLocked(group) || !isGroupActive(group)) return@find false
 
                 val triggerMin = parseTriggerTimeMinutes(group.triggerTime)
                 val matchesTriggerTime = triggerMin != null && currentMinute >= triggerMin && currentMinute <= (triggerMin + 15)
@@ -130,10 +128,9 @@ class GritLockAccessibilityService : AccessibilityService() {
 
             if (lockedTimeGroup != null) {
                 handler.post {
-                    performGlobalAction(GLOBAL_ACTION_HOME)
                     val firstReq = lockedTimeGroup.exercises.firstOrNull() ?: ExerciseRequirement(ExerciseType.PUSHUP.name, 10)
                     Log.d("GritLockService", "Scheduled Time/Routine Trigger Reached for: ${lockedTimeGroup.name}")
-                    triggerOverlay("com.example.fitlock.routine", firstReq.count, firstReq.type, lockedTimeGroup.id)
+                    triggerOverlay("com.example.fitlock.routine", firstReq.count, firstReq.type, lockedTimeGroup.id, force = true)
                     Toast.makeText(applicationContext, "[ROUTINE TRIGGER]: '${lockedTimeGroup.name}' is now active! Complete your routine to proceed.", Toast.LENGTH_LONG).show()
                 }
             }
@@ -862,26 +859,21 @@ class GritLockAccessibilityService : AccessibilityService() {
         startActivity(intent)
     }
 
-    private fun triggerOverlay(target: String, reps: Int, exercise: String, groupId: Int, isKeyword: Boolean = false) {
+    private fun triggerOverlay(target: String, reps: Int, exercise: String, groupId: Int, isKeyword: Boolean = false, force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (now - lastOverlayTriggerTime < OVERLAY_COOLDOWN_MS) return
+        if (!force && now - lastOverlayTriggerTime < OVERLAY_COOLDOWN_MS) return
         
-        // Robust check: Is our own overlay already the active window?
-        val currentForeground = rootInActiveWindow?.packageName?.toString()
-        if (currentForeground == this.packageName) return
+        // Robust check: Is our own lock overlay screen already active?
+        if (LockOverlayActivity.isOverlayActive) return
         
         // Prevent triggering for the same app multiple times in very quick succession
-        if (target == lastTriggeredApp && now - lastOverlayTriggerTime < 2000) return
+        if (!force && target == lastTriggeredApp && now - lastOverlayTriggerTime < 2000) return
 
         lastOverlayTriggerTime = now
         lastTriggeredApp = target
         Log.d("GritLockService", "TRIGGERING OVERLAY for: $target. Reason: ${if (isKeyword) "Keyword" else "Package"}")
         serviceScope.launch {
             db.dao().insertBlockEvent(AppBlockEvent(packageName = target, reason = if (isKeyword) "Keyword Blocked" else "App Blocked"))
-        }
-
-        if (target.contains("routine") || target.contains("scheduled")) {
-            performGlobalAction(GLOBAL_ACTION_HOME)
         }
 
         val intent = Intent(this, LockOverlayActivity::class.java).apply {
@@ -966,12 +958,18 @@ class GritLockAccessibilityService : AccessibilityService() {
                         )
                     )
 
+                    val primaryStat = matchingGroup.rewardStat ?: StatType.INT
                     val stats = db.dao().getUserStats().first() ?: UserStats()
-                    val updatedInt = if (exerciseType == "FRENCH_STUDY" || exerciseType == "FLASHCARDS" || matchingGroup.rewardStat == StatType.INT) stats.intXp + 10 else stats.intXp
-                    db.dao().updateUserStats(stats.copy(totalXp = stats.totalXp + 10, intXp = updatedInt))
+                    
+                    var updatedStats = stats.addStatXp(primaryStat, 10L)
+                    matchingGroup.secondaryStats.forEach { secStat ->
+                        updatedStats = updatedStats.addStatXp(secStat, 5L)
+                    }
+                    
+                    db.dao().updateUserStats(updatedStats)
                     
                     handler.post {
-                        Toast.makeText(applicationContext, "[SYSTEM: +10 XP / +10 ${matchingGroup.rewardStat ?: "INT"} earned for ${matchingGroup.name}]", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(applicationContext, "[SYSTEM: +10 XP / +10 ${primaryStat.name} earned for ${matchingGroup.name}]", Toast.LENGTH_SHORT).show()
                     }
 
                     WidgetUpdater.updateAllWidgets(applicationContext)

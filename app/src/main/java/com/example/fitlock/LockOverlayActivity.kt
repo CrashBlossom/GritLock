@@ -13,6 +13,7 @@ import androidx.room.Room
 import com.example.fitlock.data.GritLockDatabase
 import com.example.fitlock.data.DailyLogNote
 import com.example.fitlock.data.UserStats
+import com.example.fitlock.data.StatType
 import com.example.fitlock.data.WorkoutHistory
 import com.example.fitlock.data.LockStatusManager
 import com.example.fitlock.data.SessionProgressManager
@@ -28,6 +29,10 @@ import kotlinx.coroutines.launch
 
 class LockOverlayActivity : ComponentActivity() {
     
+    companion object {
+        var isOverlayActive = false
+    }
+
     private lateinit var db: GritLockDatabase
     private lateinit var exerciseManager: ExerciseTrackerManager
     private var currentAnalyzer: Any? = null
@@ -40,6 +45,7 @@ class LockOverlayActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        isOverlayActive = true
         db = GritLockDatabase.getDatabase(applicationContext)
         
         handleIntent(intent)
@@ -347,70 +353,39 @@ class LockOverlayActivity : ComponentActivity() {
 
     private suspend fun updateUserStats(xpGained: Int, exerciseType: String, extraReps: Int) {
         val currentStats = db.dao().getUserStats().first() ?: UserStats()
-        var newXp = currentStats.totalXp + xpGained
-        var newLevel = currentStats.level
-        val xpNeeded = newLevel * 100
-        while (newXp >= xpNeeded) {
-            newXp -= xpNeeded
-            newLevel++
-        }
         val newBankedReps = currentStats.bankedReps.toMutableMap()
         if (extraReps > 0) {
             newBankedReps[exerciseType] = (newBankedReps[exerciseType] ?: 0) + extraReps
         }
 
-        val now = System.currentTimeMillis()
-        val statDates = currentStats.statLastTrainedDates.toMutableMap()
-        var strXp = currentStats.strXp
-        var dexXp = currentStats.dexXp
-        var conXp = currentStats.conXp
-        var intXp = currentStats.intXp
-        var sanXp = currentStats.sanXp
-        var willpowerXp = currentStats.willpowerXp
-
-        when (exerciseType.uppercase()) {
-            "PUSHUP", "PULLUP", "DIP", "ROW" -> {
-                strXp += xpGained
-                statDates["STR"] = now
-            }
-            "SQUAT", "HINGE", "SITUP" -> {
-                dexXp += xpGained
-                statDates["DEX"] = now
-            }
-            "PLANK" -> {
-                conXp += xpGained
-                statDates["CON"] = now
-            }
-            "BREATHWORK" -> {
-                intXp += xpGained
-                statDates["INT"] = now
-            }
-            else -> {
-                sanXp += xpGained
-                statDates["SAN"] = now
-            }
+        val primaryStat = when (exerciseType.uppercase()) {
+            "PUSHUP", "PULLUP", "DIP", "ROW" -> StatType.STR
+            "SQUAT", "HINGE", "SITUP" -> StatType.DEX
+            "PLANK" -> StatType.CON
+            "STEPS" -> StatType.MOV
+            "BREATHWORK" -> StatType.SAN
+            "WRITE_WORDS", "JOURNAL", "PLEDGE" -> StatType.WIS
+            "FRENCH_STUDY", "FLASHCARDS", "ANKI", "DUOLINGO" -> StatType.INT
+            "WATER", "HYDRATION", "CALORIES" -> StatType.CON
+            "CHA", "CHARM", "CHARISMA" -> StatType.CHA
+            "WTH", "WEALTH" -> StatType.WTH
+            "TEC", "TECH", "TECHNIQUE" -> StatType.TEC
+            else -> StatType.WIL
         }
 
+        val updatedStats = currentStats.addStatXp(primaryStat, xpGained.toLong())
         db.dao().updateUserStats(
-            currentStats.copy(
-                totalXp = newXp,
-                level = newLevel,
+            updatedStats.copy(
                 bankedReps = newBankedReps,
-                lastWorkoutDate = now,
-                floorTargetMetToday = true,
-                statLastTrainedDates = statDates,
-                strXp = strXp,
-                dexXp = dexXp,
-                conXp = conXp,
-                intXp = intXp,
-                sanXp = sanXp,
-                willpowerXp = willpowerXp
+                lastWorkoutDate = System.currentTimeMillis(),
+                floorTargetMetToday = true
             )
         )
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        isOverlayActive = false
         if (::exerciseManager.isInitialized) {
             exerciseManager.shutdown()
         }

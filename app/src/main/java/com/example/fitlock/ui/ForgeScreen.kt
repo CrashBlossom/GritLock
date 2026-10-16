@@ -17,6 +17,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
 import com.example.fitlock.data.*
 import com.example.fitlock.exercise.ExerciseType
 import androidx.compose.foundation.horizontalScroll
@@ -93,6 +95,15 @@ fun ProtocolGatesContent(
     var selectedFilter by remember { mutableStateOf("🌟 All") }
     val filters = listOf("🌟 All", "📜 Routines", "⚔️ Challenges", "🔒 App Blocks", "🟢 Positive Portals", "🔑 Secret Vaults")
 
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
+    val masterPasswordEnabled = remember { prefs.getBoolean("master_password_enabled", false) }
+    val masterPassword = remember { prefs.getString("master_password", "") ?: "" }
+
+    var pendingEditGate by remember { mutableStateOf<AppGroup?>(null) }
+    var pendingDeleteGate by remember { mutableStateOf<AppGroup?>(null) }
+    var showMasterPasswordDialog by remember { mutableStateOf(false) }
+
     val challengeAsGroups = remember(challenges) {
         challenges.map { ch ->
             val isMorning = ch.title.contains("Morning", ignoreCase = true)
@@ -165,7 +176,14 @@ fun ProtocolGatesContent(
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
                     items(filteredGroups) { group ->
                         Card(
-                            modifier = Modifier.fillMaxWidth().clickable { onEditGate(group) },
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                if (masterPasswordEnabled) {
+                                    pendingEditGate = group
+                                    showMasterPasswordDialog = true
+                                } else {
+                                    onEditGate(group)
+                                }
+                            },
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                             shape = RoundedCornerShape(12.dp)
                         ) {
@@ -191,7 +209,14 @@ fun ProtocolGatesContent(
                                         Text("🔑 Secret Vault Attached", color = Color(0xFFFFB74D), fontSize = 10.sp)
                                     }
                                 }
-                                IconButton(onClick = { onDeleteGate(group) }) {
+                                IconButton(onClick = {
+                                    if (masterPasswordEnabled) {
+                                        pendingDeleteGate = group
+                                        showMasterPasswordDialog = true
+                                    } else {
+                                        onDeleteGate(group)
+                                    }
+                                }) {
                                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.7f))
                                 }
                             }
@@ -200,6 +225,22 @@ fun ProtocolGatesContent(
                     item { Spacer(modifier = Modifier.height(80.dp)) }
                 }
             }
+        }
+
+        if (showMasterPasswordDialog) {
+            MasterPasswordDialog(
+                correctPassword = masterPassword,
+                onDismiss = {
+                    showMasterPasswordDialog = false
+                    pendingEditGate = null
+                    pendingDeleteGate = null
+                },
+                onSuccess = {
+                    showMasterPasswordDialog = false
+                    pendingEditGate?.let { onEditGate(it); pendingEditGate = null }
+                    pendingDeleteGate?.let { onDeleteGate(it); pendingDeleteGate = null }
+                }
+            )
         }
 
         FloatingActionButton(

@@ -85,11 +85,15 @@ fun SettingsScreen(
     // HP Drain Mode state
     var useHpDrainMode by remember { mutableStateOf(prefs.getBoolean("use_hp_drain_mode", false)) }
     
-    // Master Password state
+    // Master Password & Extreme Shield state
     var masterPasswordEnabled by remember { mutableStateOf(prefs.getBoolean("master_password_enabled", false)) }
+    var extremeAutoShieldEnabled by remember { mutableStateOf(prefs.getBoolean("extreme_autoshield_enabled", true)) }
     val masterPassword = remember { prefs.getString("master_password", "") ?: "" }
     var showSetPasswordDialog by remember { mutableStateOf(false) }
     var showVerifyPasswordDialog by remember { mutableStateOf(false) }
+    var showVerifyPasswordForStrictMode by remember { mutableStateOf(false) }
+    var showVerifyPasswordForLockout by remember { mutableStateOf(false) }
+    var pendingLockoutVal by remember { mutableStateOf<Int?>(null) }
 
     // Refresh permissions
     LaunchedEffect(Unit) {
@@ -278,9 +282,14 @@ fun SettingsScreen(
                     Text("Lockout Countdown Seconds: $lockoutSeconds", color = Color.Gray, fontSize = 12.sp)
                     Slider(
                         value = lockoutSeconds.toFloat(),
-                        onValueChange = { 
-                            lockoutSeconds = it.toInt()
-                            prefs.edit().putInt("lockout_seconds", it.toInt()).apply()
+                        onValueChange = { newVal ->
+                            if (masterPasswordEnabled) {
+                                pendingLockoutVal = newVal.toInt()
+                                showVerifyPasswordForLockout = true
+                            } else {
+                                lockoutSeconds = newVal.toInt()
+                                prefs.edit().putInt("lockout_seconds", newVal.toInt()).apply()
+                            }
                         },
                         valueRange = 0f..30f,
                         steps = 29,
@@ -306,9 +315,13 @@ fun SettingsScreen(
                     }
                     Switch(
                         checked = strictMode,
-                        onCheckedChange = {
-                            strictMode = it
-                            prefs.edit().putBoolean("strict_mode", it).apply()
+                        onCheckedChange = { isTogglingOn ->
+                            if (!isTogglingOn && masterPasswordEnabled) {
+                                showVerifyPasswordForStrictMode = true
+                            } else {
+                                strictMode = isTogglingOn
+                                prefs.edit().putBoolean("strict_mode", isTogglingOn).apply()
+                            }
                         }
                     )
                 }
@@ -348,6 +361,24 @@ fun SettingsScreen(
                             } else {
                                 showVerifyPasswordDialog = true
                             }
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("🛡️ Extreme Auto-Shield (New Apps, VPNs & AI)", color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Auto-seals new alternative browsers, Layla AI, and VPNs (Windscribe) behind a 100-Rep Gate with BorrowBox reminders.", color = Color.Gray, fontSize = 11.sp)
+                    }
+                    Switch(
+                        checked = extremeAutoShieldEnabled,
+                        onCheckedChange = {
+                            extremeAutoShieldEnabled = it
+                            prefs.edit().putBoolean("extreme_autoshield_enabled", it).apply()
                         }
                     )
                 }
@@ -405,6 +436,35 @@ fun SettingsScreen(
                 masterPasswordEnabled = false
                 showVerifyPasswordDialog = false
                 Toast.makeText(context, "Protection Disabled", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (showVerifyPasswordForStrictMode) {
+        MasterPasswordDialog(
+            correctPassword = masterPassword,
+            onDismiss = { showVerifyPasswordForStrictMode = false },
+            onSuccess = {
+                strictMode = false
+                prefs.edit().putBoolean("strict_mode", false).apply()
+                showVerifyPasswordForStrictMode = false
+                Toast.makeText(context, "Strict Mode Disabled", Toast.LENGTH_SHORT).show()
+            }
+        )
+    }
+
+    if (showVerifyPasswordForLockout) {
+        MasterPasswordDialog(
+            correctPassword = masterPassword,
+            onDismiss = { showVerifyPasswordForLockout = false; pendingLockoutVal = null },
+            onSuccess = {
+                pendingLockoutVal?.let { valToSet ->
+                    lockoutSeconds = valToSet
+                    prefs.edit().putInt("lockout_seconds", valToSet).apply()
+                    Toast.makeText(context, "Lockout Duration Updated", Toast.LENGTH_SHORT).show()
+                }
+                showVerifyPasswordForLockout = false
+                pendingLockoutVal = null
             }
         )
     }

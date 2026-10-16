@@ -393,6 +393,33 @@ data class UserStats(
         val range = (nextXpNeeded - prevXpNeeded).coerceAtLeast(1.0)
         return ((xp - prevXpNeeded) / range).toFloat().coerceIn(0f, 1f)
     }
+
+    fun addStatXp(statType: StatType, xpAmount: Long): UserStats {
+        val now = System.currentTimeMillis()
+        val updatedDates = statLastTrainedDates + (statType.name to now)
+        var newTotal = totalXp + xpAmount.toInt()
+        var newLevel = level
+        var xpNeeded = newLevel * 100
+        while (newTotal >= xpNeeded) {
+            newTotal -= xpNeeded
+            newLevel++
+        }
+        return when (statType) {
+            StatType.STR -> copy(strXp = strXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.DEX -> copy(dexXp = dexXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.CON -> copy(conXp = conXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.MOV -> copy(movXp = movXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.INT -> copy(intXp = intXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.WIS -> copy(wisXp = wisXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.WIL -> copy(wilXp = wilXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.SAN -> copy(sanXp = sanXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.CHA -> copy(chaXp = chaXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.WTH -> copy(wthXp = wthXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.TEC -> copy(tecXp = tecXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            StatType.LCK -> copy(lckXp = lckXp + xpAmount, totalXp = newTotal, level = newLevel, statLastTrainedDates = updatedDates)
+            else -> copy(totalXp = newTotal, level = newLevel)
+        }
+    }
 }
 
 @Entity(tableName = "urge_events")

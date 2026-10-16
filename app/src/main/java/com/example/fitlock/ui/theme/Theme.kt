@@ -2,6 +2,8 @@ package com.example.fitlock.ui.theme
 
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -130,9 +132,17 @@ fun GritLockTheme(
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
-    )
+    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = Typography,
+            content = content
+        )
+
+        val activeThemeKey = if (activeArchetype != "DEFAULT") activeArchetype else themeName
+        when (activeThemeKey) {
+            "WINTER_ARC", "Winter Arc" -> FallingSnowEffect()
+            "COZY", "Cozy Adventurer" -> GlowingFirefliesEffect()
+        }
+    }
 }

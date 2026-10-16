@@ -1218,6 +1218,8 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         onSave = { updated, blocks, ideas ->
                                             lifecycleScope.launch {
                                                 repository.upsertPledge(updated)
+                                                val currentS = db.dao().getUserStats().first() ?: UserStats()
+                                                db.dao().updateUserStats(currentS.addStatXp(StatType.WIS, 50L))
                                                 repository.upsertQuestBlocks(blocks)
                                                 
                                                 // Sync COMPLETED tasks back to Atlas
@@ -2012,23 +2014,29 @@ class MainActivity : ComponentActivity(), SensorEventListener {
      */
     private suspend fun updateUserStats(xpGained: Int, exerciseType: String, repsToBank: Int) {
         val currentStats = db.dao().getUserStats().first() ?: UserStats()
-        
-        var newXp = currentStats.totalXp + xpGained
-        var newLevel = currentStats.level
-        val xpNeeded = newLevel * 100
-        
-        while (newXp >= xpNeeded) {
-            newXp -= xpNeeded
-            newLevel++
+        val newBankedReps = currentStats.bankedReps.toMutableMap()
+        if (repsToBank > 0) {
+            newBankedReps[exerciseType] = (newBankedReps[exerciseType] ?: 0) + repsToBank
         }
 
-        val newBankedReps = currentStats.bankedReps.toMutableMap()
-        newBankedReps[exerciseType] = (newBankedReps[exerciseType] ?: 0) + repsToBank
-        
+        val primaryStat = when (exerciseType.uppercase()) {
+            "PUSHUP", "PULLUP", "DIP", "ROW" -> StatType.STR
+            "SQUAT", "HINGE", "SITUP" -> StatType.DEX
+            "PLANK" -> StatType.CON
+            "STEPS" -> StatType.MOV
+            "BREATHWORK" -> StatType.SAN
+            "WRITE_WORDS", "JOURNAL", "PLEDGE" -> StatType.WIS
+            "FRENCH_STUDY", "FLASHCARDS", "ANKI", "DUOLINGO" -> StatType.INT
+            "WATER", "HYDRATION", "CALORIES" -> StatType.CON
+            "CHA", "CHARM", "CHARISMA" -> StatType.CHA
+            "WTH", "WEALTH" -> StatType.WTH
+            "TEC", "TECH", "TECHNIQUE" -> StatType.TEC
+            else -> StatType.WIL
+        }
+
+        val updatedStats = currentStats.addStatXp(primaryStat, xpGained.toLong())
         db.dao().updateUserStats(
-            currentStats.copy(
-                totalXp = newXp,
-                level = newLevel,
+            updatedStats.copy(
                 bankedReps = newBankedReps,
                 lastWorkoutDate = System.currentTimeMillis()
             )

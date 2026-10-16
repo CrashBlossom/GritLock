@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -743,6 +744,15 @@ fun SoloPortalsTab(
         mutableStateOf(prefs.getStringSet("hidden_apps", emptySet()) ?: emptySet()) 
     }
 
+    var favoriteApps by remember {
+        mutableStateOf(prefs.getStringSet("favorite_apps", emptySet()) ?: emptySet())
+    }
+    var selectedStatFilter by remember { mutableStateOf("🌟 All") }
+
+    val statFilterChips = listOf(
+        "🌟 All", "⭐ Favorites", "💪 STR", "🎯 DEX", "❤️ CON", "🏃 MOV", "🧠 INT", "📜 WIS", "🛡️ WIL", "🧘 SAN", "✨ CHA", "💰 WTH", "⚙️ TEC", "🎲 LCK"
+    )
+
     val allApps = remember { AppInfoFetcher.getInstalledApps(context) }
     val filteredApps = allApps
         .filter { !hiddenApps.contains(it.packageName) }
@@ -751,14 +761,44 @@ fun SoloPortalsTab(
             it.packageName.contains(searchQuery, ignoreCase = true) 
         }
 
-    val sortedApps = filteredApps.sortedWith(compareBy({ app ->
-        val group = appGroups.find { g -> g.isEnabled && g.packageNames.contains(app.packageName) }
+    val filteredByStat = remember(filteredApps, selectedStatFilter, favoriteApps, appGroups) {
         when {
-            group?.isProductive == true -> 0
-            group == null -> 1
-            else -> 2
+            selectedStatFilter == "⭐ Favorites" -> filteredApps.filter { favoriteApps.contains(it.packageName) }
+            selectedStatFilter != "🌟 All" -> {
+                val filterStat = when {
+                    selectedStatFilter.contains("STR") -> "STR"
+                    selectedStatFilter.contains("DEX") -> "DEX"
+                    selectedStatFilter.contains("CON") -> "CON"
+                    selectedStatFilter.contains("MOV") -> "MOV"
+                    selectedStatFilter.contains("INT") -> "INT"
+                    selectedStatFilter.contains("WIS") -> "WIS"
+                    selectedStatFilter.contains("WIL") -> "WIL"
+                    selectedStatFilter.contains("SAN") -> "SAN"
+                    selectedStatFilter.contains("CHA") -> "CHA"
+                    selectedStatFilter.contains("WTH") -> "WTH"
+                    selectedStatFilter.contains("TEC") -> "TEC"
+                    selectedStatFilter.contains("LCK") -> "LCK"
+                    else -> ""
+                }
+                filteredApps.filter { app ->
+                    val group = appGroups.find { g -> g.isEnabled && g.packageNames.contains(app.packageName) }
+                    group?.rewardStat?.name == filterStat || group?.secondaryStats?.any { it.name == filterStat } == true
+                }
+            }
+            else -> filteredApps
         }
-    }, { it.name }))
+    }
+
+    val sortedApps = remember(filteredByStat, favoriteApps, appGroups) {
+        filteredByStat.sortedWith(compareByDescending<AppInfo> { favoriteApps.contains(it.packageName) }.thenBy { app ->
+            val group = appGroups.find { g -> g.isEnabled && g.packageNames.contains(app.packageName) }
+            when {
+                group?.isProductive == true -> 0
+                group == null -> 1
+                else -> 2
+            }
+        }.thenBy { it.name })
+    }
 
     Column(
         modifier = Modifier
@@ -789,6 +829,24 @@ fun SoloPortalsTab(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        // Stat & Favorites Filter Chips
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            statFilterChips.forEach { chip ->
+                FilterChip(
+                    selected = selectedStatFilter == chip,
+                    onClick = { selectedStatFilter = chip },
+                    label = { Text(chip, fontSize = 10.sp) }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxSize()
@@ -808,11 +866,33 @@ fun SoloPortalsTab(
                     }
                 } ?: false
 
+                val isTemporarilyUnlocked = matchingGroup?.let { group ->
+                    if (group.isProductive || group.keywords.any { it.isNotBlank() }) false
+                    else {
+                        val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                        val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                        val timeSinceUnlock = System.currentTimeMillis() - lastUnlocked
+                        timeSinceUnlock < unlockDurationMs && lastUnlocked > 0L
+                    }
+                } ?: false
+
+                val remainingUnlockMins = matchingGroup?.let { group ->
+                    val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                    val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                    val remainingMs = unlockDurationMs - (System.currentTimeMillis() - lastUnlocked)
+                    (remainingMs / 60000L).coerceAtLeast(1)
+                } ?: 0L
+
+                val isFavorite = favoriteApps.contains(app.packageName)
+
                 DungeonGateCard(
                     app = app,
                     matchingGroup = matchingGroup,
                     isLocked = isLocked,
                     isProductive = isProductive,
+                    isTemporarilyUnlocked = isTemporarilyUnlocked,
+                    remainingUnlockMins = remainingUnlockMins,
+                    isFavorite = isFavorite,
                     onClick = {
                         if (isLocked && matchingGroup != null) {
                             val intent = Intent(context, LockOverlayActivity::class.java).apply {
@@ -831,6 +911,12 @@ fun SoloPortalsTab(
                     },
                     onLongClick = {
                         selectedAppForAction = app
+                    },
+                    onToggleFavorite = {
+                        val newFavs = favoriteApps.toMutableSet()
+                        if (isFavorite) newFavs.remove(app.packageName) else newFavs.add(app.packageName)
+                        favoriteApps = newFavs
+                        prefs.edit().putStringSet("favorite_apps", newFavs).apply()
                     }
                 )
             }
@@ -902,19 +988,25 @@ fun DungeonGateCard(
     matchingGroup: AppGroup?,
     isLocked: Boolean,
     isProductive: Boolean,
+    isTemporarilyUnlocked: Boolean = false,
+    remainingUnlockMins: Long = 0,
+    isFavorite: Boolean = false,
     onClick: () -> Unit,
-    onLongClick: () -> Unit = {}
+    onLongClick: () -> Unit = {},
+    onToggleFavorite: () -> Unit = {}
 ) {
     val hasKeywordCombo = matchingGroup?.keywords?.any { it.isNotBlank() } == true
 
     val rankColor = when {
         isProductive -> Color(0xFF81C784)
+        isTemporarilyUnlocked -> Color(0xFF66BB6A)
         hasKeywordCombo -> Color(0xFFFF9800)
         isLocked -> Color(0xFFEF5350)
         else -> Color(0xFF64B5F6)
     }
     val rankLetter = when {
         isProductive -> "P"
+        isTemporarilyUnlocked -> "U"
         hasKeywordCombo -> "K"
         isLocked -> "S"
         else -> "E"
@@ -930,105 +1022,158 @@ fun DungeonGateCard(
         colors = CardDefaults.cardColors(
             containerColor = when {
                 isProductive -> Color(0xFF14221A)
+                isTemporarilyUnlocked -> Color(0xFF132A1C)
                 hasKeywordCombo -> Color(0xFF2B1D12)
                 isLocked -> Color(0xFF1C1215)
                 else -> MaterialTheme.colorScheme.surface
             }
         ),
         shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, rankColor.copy(alpha = 0.5f))
+        border = BorderStroke(1.dp, rankColor.copy(alpha = 0.6f))
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = app.name,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .background(
-                                when {
-                                    isProductive -> Color(0xFF1A3522)
-                                    hasKeywordCombo -> Color(0xFF422817)
-                                    isLocked -> Color(0xFF3B1D22)
-                                    else -> Color(0xFF1E2235)
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = app.name,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        if (isFavorite) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("⭐", fontSize = 12.sp)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(
+                                    when {
+                                        isProductive -> Color(0xFF1A3522)
+                                        isTemporarilyUnlocked -> Color(0xFF1E4627)
+                                        hasKeywordCombo -> Color(0xFF422817)
+                                        isLocked -> Color(0xFF3B1D22)
+                                        else -> Color(0xFF1E2235)
+                                    },
+                                    RoundedCornerShape(8.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    ImageView(ctx).apply {
+                                        try {
+                                            setImageDrawable(ctx.packageManager.getApplicationIcon(app.packageName))
+                                        } catch (_: Exception) {}
+                                    }
                                 },
-                                RoundedCornerShape(8.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AndroidView(
-                            factory = { ctx ->
-                                ImageView(ctx).apply {
-                                    try {
-                                        setImageDrawable(ctx.packageManager.getApplicationIcon(app.packageName))
-                                    } catch (_: Exception) {}
-                                }
-                            },
-                            modifier = Modifier.size(22.dp)
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        if (isProductive && matchingGroup != null) {
+                            Text(
+                                text = "+${matchingGroup.rewardStat} XP / min",
+                                color = Color(0xFF81C784),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else if (isTemporarilyUnlocked) {
+                            Text(
+                                text = "🔓 Unrestricted (${remainingUnlockMins}m remaining)",
+                                color = Color(0xFF81C784),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else if (hasKeywordCombo && matchingGroup != null) {
+                            val kwList = matchingGroup.keywords.filter { it.isNotBlank() }.joinToString(", ")
+                            Text(
+                                text = "🔑 Keyword Filter: $kwList",
+                                color = Color(0xFFFFB74D),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        } else if (isLocked && matchingGroup != null) {
+                            val reqsText = matchingGroup.exercises.joinToString(", ") { "${it.count} ${it.type.lowercase()}" }
+                            Text(
+                                text = "Reqs: $reqsText",
+                                color = Color.Gray,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        } else {
+                            Text(
+                                text = "Instant Access",
+                                color = Color.Gray,
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
+                }
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onToggleFavorite, modifier = Modifier.size(28.dp)) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Default.Star else Icons.Default.StarBorder,
+                            contentDescription = "Favorite",
+                            tint = if (isFavorite) Color(0xFFFFD700) else Color.Gray,
+                            modifier = Modifier.size(18.dp)
                         )
                     }
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    if (isProductive && matchingGroup != null) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Surface(
+                        color = rankColor.copy(alpha = 0.2f),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
                         Text(
-                            text = "+${matchingGroup.rewardStat} XP / min",
-                            color = Color(0xFF81C784),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    } else if (hasKeywordCombo && matchingGroup != null) {
-                        val kwList = matchingGroup.keywords.filter { it.isNotBlank() }.joinToString(", ")
-                        Text(
-                            text = "🔑 Keyword Filter: $kwList",
-                            color = Color(0xFFFFB74D),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    } else if (isLocked && matchingGroup != null) {
-                        val reqsText = matchingGroup.exercises.joinToString(", ") { "${it.count} ${it.type.lowercase()}" }
-                        Text(
-                            text = "Reqs: $reqsText",
-                            color = Color.Gray,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    } else {
-                        Text(
-                            text = "Instant Access",
-                            color = Color.Gray,
-                            fontSize = 10.sp
+                            text = rankLetter,
+                            color = rankColor,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         )
                     }
                 }
             }
 
-            Surface(
-                color = rankColor.copy(alpha = 0.2f),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(
-                    text = rankLetter,
-                    color = rankColor,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                )
+            // If Temporarily Unlocked & Has Secret Reward, display the secret reward note card!
+            if (isTemporarilyUnlocked && matchingGroup != null && (!matchingGroup.secretPassword.isNullOrBlank() || !matchingGroup.secretLink.isNullOrBlank())) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF2E2211)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.Key, contentDescription = null, tint = Color(0xFFFFB74D), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("🔑 Unlocked Secret Reward", color = Color(0xFFFFB74D), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+                            if (!matchingGroup.secretPassword.isNullOrBlank()) {
+                                Text("Password / Note: ${matchingGroup.secretPassword}", color = Color.White, fontSize = 10.sp)
+                            }
+                            if (!matchingGroup.secretLink.isNullOrBlank()) {
+                                Text("Link: ${matchingGroup.secretLink}", color = Color(0xFF64B5F6), fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
