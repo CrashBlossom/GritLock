@@ -234,6 +234,13 @@ fun EmergencyReminderSettingsScreen(
                                 val updatedGoals = config.matrixGoals.toMutableList().apply { set(index, updatedGoal) }
                                 updateConfig(config.copy(matrixGoals = updatedGoals))
                             },
+                            onIconChange = { chosenEmoji ->
+                                val updatedIcons = config.customIcons.toMutableMap().apply { put(goal.exerciseTypeOrKey, chosenEmoji) }
+                                val textPart = goal.label.substringAfter(" ").ifBlank { goal.label }
+                                val updatedLabel = "$chosenEmoji $textPart"
+                                val updatedGoals = config.matrixGoals.toMutableList().apply { set(index, goal.copy(label = updatedLabel)) }
+                                updateConfig(config.copy(customIcons = updatedIcons, matrixGoals = updatedGoals))
+                            },
                             onDelete = {
                                 val updatedGoals = config.matrixGoals.toMutableList().apply { removeAt(index) }
                                 updateConfig(config.copy(matrixGoals = updatedGoals))
@@ -350,8 +357,11 @@ fun EmergencyReminderSettingsScreen(
 private fun DualThresholdGoalItem(
     goal: MatrixGoalConfig,
     onUpdate: (MatrixGoalConfig) -> Unit,
+    onIconChange: (String) -> Unit,
     onDelete: () -> Unit
 ) {
+    var showIconPicker by remember { mutableStateOf(false) }
+
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -359,7 +369,15 @@ private fun DualThresholdGoalItem(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(goal.label, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    text = goal.label,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { showIconPicker = true }
+                )
+                IconButton(onClick = { showIconPicker = true }, modifier = Modifier.size(20.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = "Edit Icon", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                }
                 Spacer(modifier = Modifier.width(6.dp))
                 Surface(
                     color = when (goal.category) {
@@ -415,7 +433,95 @@ private fun DualThresholdGoalItem(
             onValueChange = { onUpdate(goal.copy(goldTarget = it.toInt().coerceAtLeast(goal.minTarget))) },
             valueRange = 1f..150f
         )
+
+        if (showIconPicker) {
+            EmojiPickerDialog(
+                currentLabel = goal.label,
+                onDismiss = { showIconPicker = false },
+                onEmojiSelected = { chosenEmoji ->
+                    onIconChange(chosenEmoji)
+                    showIconPicker = false
+                }
+            )
+        }
     }
+}
+
+@Composable
+private fun EmojiPickerDialog(
+    currentLabel: String,
+    onDismiss: () -> Unit,
+    onEmojiSelected: (String) -> Unit
+) {
+    val quickEmojis = listOf(
+        "💪", "🦵", "🏋️", "🏃", "🚴", "🏊", "🤸", "🧘", "⏱️", "🫁", "🚣", "🦾",
+        "🦉", "🎴", "🧠", "📚", "💻", "⏱️", "📝", "💡", "🎯", "⭐", "⚡",
+        "☀️", "🌙", "🔥", "💧", "👟", "🏆", "💎", "🍎", "☕", "🌿", "📖", "🎮", "📱", "🚀"
+    )
+    var customEmojiInput by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose Goal Icon / Emoji", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Type any emoji or select from popular icons below for $currentLabel:", fontSize = 12.sp, color = Color.Gray)
+
+                OutlinedTextField(
+                    value = customEmojiInput,
+                    onValueChange = { customEmojiInput = it },
+                    label = { Text("Type custom emoji/symbol") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (customEmojiInput.isNotBlank()) {
+                    Button(
+                        onClick = { onEmojiSelected(customEmojiInput.trim()) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Use '${customEmojiInput.trim()}'")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Popular Emojis:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.Gray)
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    quickEmojis.chunked(6).forEach { rowEmojis ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            rowEmojis.forEach { emoji ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF2C2C35),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .clickable { onEmojiSelected(emoji) },
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(emoji, fontSize = 20.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
 }
 
 @Composable

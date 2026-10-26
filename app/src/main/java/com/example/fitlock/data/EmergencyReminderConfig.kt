@@ -57,9 +57,31 @@ data class MatrixGoalConfig(
     val unit: String = "reps"
 )
 
+fun getExerciseEmoji(type: String): String {
+    return when (type.uppercase()) {
+        "PUSHUP" -> "💪"
+        "SQUAT" -> "🦵"
+        "SITUP" -> "🧘"
+        "PLANK" -> "⏱️"
+        "BREATHWORK" -> "🫁"
+        "ROWING", "ERG" -> "🚣"
+        "PULLUP" -> "🏋️"
+        "DIP" -> "🦾"
+        "HINGE" -> "🍑"
+        "STEPS" -> "👟"
+        "WATER" -> "💧"
+        "MORNING_JOURNAL" -> "☀️"
+        "EVENING_REVIEW" -> "🌙"
+        "DAILY_PLEDGE" -> "🔥"
+        "COM.ICHI2.ANKI", "NET.ANKIWEB.ANKI", "ANKI" -> "🎴"
+        "COM.DUOLINGO", "DUOLINGO" -> "🦉"
+        else -> "🎯"
+    }
+}
+
 val defaultMonitoredApps = listOf(
     MonitoredAppTarget("com.duolingo", "Duolingo", 15),
-    MonitoredAppTarget("net.ankiweb.anki", "AnkiDroid", 10)
+    MonitoredAppTarget("com.ichi2.anki", "AnkiDroid", 10)
 )
 
 val defaultMatrixGoals = listOf(
@@ -68,7 +90,7 @@ val defaultMatrixGoals = listOf(
     MatrixGoalConfig(id = "situps", label = "🧘 Situps", category = MatrixGoalCategory.EXERCISE, exerciseTypeOrKey = "SITUP", minTarget = 20, goldTarget = 40, unit = "reps"),
     MatrixGoalConfig(id = "plank", label = "⏱️ Plank", category = MatrixGoalCategory.EXERCISE, exerciseTypeOrKey = "PLANK", minTarget = 60, goldTarget = 120, unit = "seconds"),
     MatrixGoalConfig(id = "duolingo", label = "🦉 Duolingo", category = MatrixGoalCategory.APP_USAGE, exerciseTypeOrKey = "com.duolingo", minTarget = 15, goldTarget = 30, unit = "minutes"),
-    MatrixGoalConfig(id = "anki", label = "🎴 AnkiDroid", category = MatrixGoalCategory.APP_USAGE, exerciseTypeOrKey = "net.ankiweb.anki", minTarget = 10, goldTarget = 20, unit = "minutes"),
+    MatrixGoalConfig(id = "anki", label = "🎴 AnkiDroid", category = MatrixGoalCategory.APP_USAGE, exerciseTypeOrKey = "com.ichi2.anki", minTarget = 10, goldTarget = 20, unit = "minutes"),
     MatrixGoalConfig(id = "morn_journal", label = "☀️ Morn. Journal", category = MatrixGoalCategory.HABIT_ROUTINE, exerciseTypeOrKey = "MORNING_JOURNAL", minTarget = 1, goldTarget = 1, unit = "done"),
     MatrixGoalConfig(id = "eve_review", label = "🌙 Eve. Review", category = MatrixGoalCategory.HABIT_ROUTINE, exerciseTypeOrKey = "EVENING_REVIEW", minTarget = 1, goldTarget = 1, unit = "done")
 )
@@ -77,8 +99,9 @@ data class EmergencyReminderConfig(
     val isEnabled: Boolean = true,
     val monitoredApps: List<MonitoredAppTarget> = defaultMonitoredApps,
     val matrixGoals: List<MatrixGoalConfig> = defaultMatrixGoals,
+    val customIcons: Map<String, String> = emptyMap(),
     val selectedExercises: List<String> = listOf("PUSHUP", "SQUAT", "SITUP", "PLANK"),
-    val selectedAppPackages: List<String> = listOf("com.duolingo", "net.ankiweb.anki"),
+    val selectedAppPackages: List<String> = listOf("com.duolingo", "com.ichi2.anki", "net.ankiweb.anki"),
     val exerciseTargets: Map<String, Int> = mapOf(
         "PUSHUP" to 15,
         "SQUAT" to 20,
@@ -87,7 +110,7 @@ data class EmergencyReminderConfig(
     ),
     val appTargetsMinutes: Map<String, Int> = mapOf(
         "com.duolingo" to 15,
-        "net.ankiweb.anki" to 10
+        "com.ichi2.anki" to 10
     ),
     val ankiCardsTarget: Int = 10,
     val lastNotificationHourSentToday: Int = -1,

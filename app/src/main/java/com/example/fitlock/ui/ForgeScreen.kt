@@ -197,14 +197,16 @@ fun ProtocolGatesContent(
                                         group.gateMode == GateMode.BACKGROUND_RAID -> "⚔️"
                                         else -> "🔒"
                                     }
-                                    val reqSummary = if (group.exercises.isEmpty()) "None" else group.exercises.joinToString(", ") { "${it.count} ${it.type}" }
+                                    val reqSummary = if (group.exercises.isEmpty()) "None" else group.exercises.joinToString(", ") { "${it.count} ${com.example.fitlock.data.getExerciseEmoji(it.type)}" }
                                     val constraintsSummary = buildList {
                                         if (group.restrictedWifiSsids.isNotEmpty()) add("WiFi: ${group.restrictedWifiSsids.joinToString(",")}")
                                         if (!group.triggerTime.isNullOrBlank()) add("Time: ${group.triggerTime}")
                                     }.ifEmpty { listOf("Anytime") }.joinToString(" • ")
 
                                     Text("$catEmoji Trigger: ${group.triggerType} • Constraints: $constraintsSummary", color = Color.Gray, fontSize = 11.sp)
-                                    Text("Requirements: $reqSummary", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    if (!group.isProductive) {
+                                        Text("Req.: $reqSummary", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    }
                                     if (!group.secretPassword.isNullOrBlank() || !group.secretLink.isNullOrBlank()) {
                                         Text("🔑 Secret Vault Attached", color = Color(0xFFFFB74D), fontSize = 10.sp)
                                     }

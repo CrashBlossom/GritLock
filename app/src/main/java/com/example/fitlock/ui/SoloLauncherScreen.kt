@@ -393,10 +393,7 @@ fun SoloMainHabitsTab(
                         else -> if (goal.category == MatrixGoalCategory.APP_USAGE) getAppUsageMinutesToday(context, goal.exerciseTypeOrKey) else 0
                     }
                     DailyGoalProgressRow(goal.label, currentProgress, goal.minTarget, goal.unit) {
-                        val matchingExerciseType = try { ExerciseType.valueOf(goal.exerciseTypeOrKey.uppercase()) } catch (e: Exception) { null }
-                        if (matchingExerciseType != null) {
-                            onQuickExerciseClick(matchingExerciseType, goal.minTarget)
-                        }
+                        handleGoalLaunch(context, goal, onQuickExerciseClick)
                     }
                 }
                 DailyGoalProgressRow("💧 Water Drink", vitalityMetrics.waterLiters.toInt(), targetWater.toInt(), "L")
@@ -1299,8 +1296,11 @@ fun SoloWeeklyMatrixTab(
                         }
                         Pair(count, state)
                     }
+                    val emojiIcon = emergencyConfig.customIcons[goal.exerciseTypeOrKey] ?: getExerciseEmoji(goal.exerciseTypeOrKey)
+                    val compactLabel = "$emojiIcon (${goal.minTarget}/${goal.goldTarget})"
+
                     WeeklyMatrixRow(
-                        label = "${goal.label} (${goal.minTarget}/${goal.goldTarget})",
+                        label = compactLabel,
                         counts = counts,
                         onClick = {
                             handleGoalLaunch(context, goal, onQuickExerciseClick)
@@ -1332,16 +1332,23 @@ fun handleGoalLaunch(
             }
         }
         MatrixGoalCategory.APP_USAGE -> {
-            val launchIntent = context.packageManager.getLaunchIntentForPackage(goal.exerciseTypeOrKey)
+            val targetPackage = if (goal.exerciseTypeOrKey.contains("anki", ignoreCase = true)) {
+                listOf("com.ichi2.anki", "net.ankiweb.anki", goal.exerciseTypeOrKey).firstOrNull { pkg ->
+                    context.packageManager.getLaunchIntentForPackage(pkg) != null
+                } ?: "com.ichi2.anki"
+            } else {
+                goal.exerciseTypeOrKey
+            }
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(targetPackage)
             if (launchIntent != null) {
                 launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(launchIntent)
             } else {
-                Toast.makeText(context, "App ${goal.label} (${goal.exerciseTypeOrKey}) is not installed on this device.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "App ${goal.label} ($targetPackage) is not installed on this device.", Toast.LENGTH_SHORT).show()
             }
         }
         MatrixGoalCategory.HABIT_ROUTINE -> {
-            Toast.makeText(context, "Habit Routine: ${goal.label}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "Routine Habit: ${goal.label}", Toast.LENGTH_SHORT).show()
         }
     }
 }
@@ -1374,7 +1381,15 @@ fun WeeklyMatrixRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(2.2f))
+        Text(
+            text = label,
+            color = Color.White,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(2.2f)
+        )
         counts.forEach { (count, state) ->
             Box(
                 modifier = Modifier
