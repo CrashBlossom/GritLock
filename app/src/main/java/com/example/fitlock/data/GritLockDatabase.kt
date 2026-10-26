@@ -487,10 +487,60 @@ abstract class GritLockDatabase : RoomDatabase() {
                     "gresslock-db"
                 )
                 .addMigrations(MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29, MIGRATION_29_30, MIGRATION_30_31, MIGRATION_31_32, MIGRATION_32_33, MIGRATION_33_34, MIGRATION_34_35, MIGRATION_35_36, MIGRATION_36_37, MIGRATION_37_38, MIGRATION_38_39, MIGRATION_39_40, MIGRATION_40_41, MIGRATION_41_42, MIGRATION_42_43, MIGRATION_43_44, MIGRATION_44_45)
+                .addCallback(object : RoomDatabase.Callback() {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        super.onCreate(db)
+                        populateFamilies(db)
+                    }
+                    override fun onOpen(db: SupportSQLiteDatabase) {
+                        super.onOpen(db)
+                        populateFamilies(db)
+                    }
+                })
                 .fallbackToDestructiveMigration(true)
                 .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        private fun populateFamilies(db: SupportSQLiteDatabase) {
+            try {
+                // Pushup Family
+                db.execSQL("INSERT OR IGNORE INTO exercise_families (id, name, description) VALUES ('family_pushup', 'Pushup Family', 'Master the art of the floor press.')")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_pushup_1', 'family_pushup', 1, 'Standard Pushup', 'PUSHUP', '3-1-1-1', 15, 100)")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_pushup_2', 'family_pushup', 2, 'Diamond Pushup', 'PUSHUP', '3-1-1-1', 12, 150)")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_pushup_3', 'family_pushup', 3, 'Archer Pushup', 'PUSHUP', '3-1-1-1', 8, 200)")
+
+                // Squat Family
+                db.execSQL("INSERT OR IGNORE INTO exercise_families (id, name, description) VALUES ('family_squat', 'Squat Family', 'Build lower body power.')")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_squat_1', 'family_squat', 1, 'Standard Squat', 'SQUAT', '3-1-1-1', 20, 100)")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_squat_2', 'family_squat', 2, 'Cossack Squat', 'SQUAT', '3-1-1-1', 15, 150)")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_squat_3', 'family_squat', 3, 'Pistol Squat', 'SQUAT', '3-1-1-1', 5, 200)")
+
+                // Pullup Family
+                db.execSQL("INSERT OR IGNORE INTO exercise_families (id, name, description) VALUES ('family_pullup', 'Pullup Family', 'Master vertical pulling.')")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_pullup_1', 'family_pullup', 1, 'Scapular Pulls', 'PULLUP', '3-1-1-1', 15, 100)")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_pullup_2', 'family_pullup', 2, 'Negative Pullups', 'PULLUP', '3-1-1-1', 8, 150)")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_pullup_3', 'family_pullup', 3, 'Standard Pullup', 'PULLUP', '3-1-1-1', 5, 200)")
+
+                // Dip Family
+                db.execSQL("INSERT OR IGNORE INTO exercise_families (id, name, description) VALUES ('family_dip', 'Dip Family', 'Master vertical pushing.')")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_dip_1', 'family_dip', 1, 'Support Hold', 'DIP', '1-30-1-1', 30, 100)")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_dip_2', 'family_dip', 2, 'Negative Dips', 'DIP', '3-1-1-1', 8, 150)")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_dip_3', 'family_dip', 3, 'Standard Dip', 'DIP', '3-1-1-1', 5, 200)")
+
+                // Row Family
+                db.execSQL("INSERT OR IGNORE INTO exercise_families (id, name, description) VALUES ('family_row', 'Row Family', 'Horizontal pulling for a thick back.')")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_row_1', 'family_row', 1, 'Horizontal Row', 'ROW', '3-1-1-1', 12, 100)")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_row_2', 'family_row', 2, 'Wide Row', 'ROW', '3-1-1-1', 10, 150)")
+
+                // Hinge Family
+                db.execSQL("INSERT OR IGNORE INTO exercise_families (id, name, description) VALUES ('family_hinge', 'Hinge Family', 'Posterior chain development.')")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_hinge_1', 'family_hinge', 1, 'Romanian Deadlift', 'HINGE', '3-1-1-1', 15, 100)")
+                db.execSQL("INSERT OR IGNORE INTO progression_levels (id, familyId, level, variantName, exerciseType, tempo, unlockRequirementReps, xpReward) VALUES ('lvl_hinge_2', 'family_hinge', 2, 'Single Leg RDL', 'HINGE', '3-1-1-1', 10, 150)")
+            } catch (e: Exception) {
+                // Ignore if tables are not yet created during migrations
             }
         }
     }

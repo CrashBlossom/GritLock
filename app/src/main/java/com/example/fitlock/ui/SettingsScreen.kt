@@ -57,6 +57,8 @@ fun SettingsScreen(
     onUpdateUserStats: (UserStats) -> Unit,
     onNavigateToCalibration: (ExerciseType) -> Unit,
     onNavigateToQuotes: () -> Unit,
+    onNavigateToEmergencyReminders: () -> Unit = {},
+    onNavigateToBeaminder: () -> Unit = {},
     groups: List<com.example.fitlock.data.AppGroup> = emptyList()
 ) {
     val context = LocalContext.current
@@ -223,15 +225,81 @@ fun SettingsScreen(
             }
         }
 
-        // 4. Daily Goals Section
-        ExpandableSection("Daily Goals", initialExpanded = false) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                ExerciseType.entries.forEach { type ->
-                    DailyGoalItem(type, prefs)
-                    if (type != ExerciseType.entries.last()) {
-                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.1f))
-                    }
+
+
+        // Emergency Reminders & Streak Shield
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+                .clickable { onNavigateToEmergencyReminders() }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "🚨 Emergency Reminders & Streak Shield",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Duolingo-style escalating notifications to protect daily habits & apps.",
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
                 }
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = "Open Emergency Reminders",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        // Beeminder Auto-Sync
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+                .clickable { onNavigateToBeaminder() }
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "🐝 Beeminder Auto-Sync",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 14.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Configure multiple goal mappings to push reps, app usage & journal notes.",
+                        fontSize = 11.sp,
+                        color = Color.Gray
+                    )
+                }
+                Icon(
+                    Icons.Default.ChevronRight,
+                    contentDescription = "Open Beeminder Settings",
+                    tint = MaterialTheme.colorScheme.primary
+                )
             }
         }
 

@@ -216,8 +216,9 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             movementRequest
         )
 
-        // Schedule Daily Reset
+        // Schedule Daily Reset & Emergency Reminders
         com.example.fitlock.service.DailyResetWorker.schedule(this)
+        com.example.fitlock.service.EmergencyReminderWorker.schedule(this)
 
         /**
          * setContent defines the UI of the app using Composable functions.
@@ -364,11 +365,24 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 LaunchedEffect(history, challenges) {
                     val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
                     val todayStart = cal.timeInMillis
-                    val todayHistory = history.filter { it.timestamp >= todayStart }
 
                     challenges.forEach { challenge ->
+                        val isMorningChallenge = challenge.title.contains("Morning", ignoreCase = true)
+                        val isEveningChallenge = challenge.title.contains("Evening", ignoreCase = true) || challenge.title.contains("Night", ignoreCase = true)
+
+                        val validHistory = history.filter { workout ->
+                            if (workout.timestamp < todayStart) return@filter false
+                            val workoutCal = Calendar.getInstance().apply { timeInMillis = workout.timestamp }
+                            val wHour = workoutCal.get(Calendar.HOUR_OF_DAY)
+                            when {
+                                isMorningChallenge -> wHour in 4..11
+                                isEveningChallenge -> wHour >= 17 || wHour < 4
+                                else -> true // Anytime challenges
+                            }
+                        }
+
                         val allRequirementsMet = challenge.requirements.all { req ->
-                            val totalDone = todayHistory
+                            val totalDone = validHistory
                                 .filter { 
                                     it.exerciseType.equals(req.type, ignoreCase = true) || 
                                     (req.type.equals("FLASHCARDS", ignoreCase = true) && (it.exerciseType.contains("ANKI", ignoreCase = true) || it.exerciseType.equals("FLASHCARDS", ignoreCase = true))) ||
@@ -733,6 +747,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     onNavigateToVault = { currentScreen = "vault" },
                                     onNavigateToAnalytics = { currentScreen = "analytics" },
                                     onNavigateToLeaderboard = { currentScreen = "leaderboard" },
+                                    onProgressionClick = { currentScreen = "progression" },
                                     onQuestClick = { quest ->
                                         selectedQuestId = quest.quest.id
                                         currentScreen = "quest_execution"
@@ -1269,7 +1284,19 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                         currentScreen = "calibrate"
                                     },
                                     onNavigateToQuotes = { currentScreen = "quotes" },
+                                    onNavigateToEmergencyReminders = { currentScreen = "emergency_reminders" },
+                                    onNavigateToBeaminder = { currentScreen = "beeminder_settings" },
                                     groups = groups
+                                )
+                            }
+                            "emergency_reminders" -> {
+                                com.example.fitlock.ui.EmergencyReminderSettingsScreen(
+                                    onBack = { currentScreen = "settings" }
+                                )
+                            }
+                            "beeminder_settings" -> {
+                                com.example.fitlock.ui.BeeminderSettingsScreen(
+                                    onBack = { currentScreen = "settings" }
                                 )
                             }
                             "quotes" -> {

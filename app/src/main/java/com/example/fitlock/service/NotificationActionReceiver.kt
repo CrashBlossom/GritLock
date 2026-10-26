@@ -45,12 +45,24 @@ class NotificationActionReceiver : BroadcastReceiver() {
                 }
                 Toast.makeText(context, "💧 Logged 0.25L Water to Health Connect", Toast.LENGTH_SHORT).show()
             }
+            ACTION_LAUNCH_APP -> {
+                val packageName = intent.getStringExtra(EXTRA_PACKAGE_NAME) ?: "com.duolingo"
+                val launchIntent = context.packageManager.getLaunchIntentForPackage(packageName)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(launchIntent)
+                } else {
+                    Toast.makeText(context, "Target app $packageName not installed.", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
     }
 
     companion object {
         const val ACTION_POST_NOTE = "com.example.fitlock.ACTION_POST_NOTE"
         const val ACTION_LOG_WATER = "com.example.fitlock.ACTION_LOG_WATER"
+        const val ACTION_LAUNCH_APP = "com.example.fitlock.ACTION_LAUNCH_APP"
+        const val EXTRA_PACKAGE_NAME = "extra_package_name"
         const val KEY_TEXT_REPLY = "key_text_reply"
     }
 }

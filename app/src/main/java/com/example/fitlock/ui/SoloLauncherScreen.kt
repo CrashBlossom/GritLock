@@ -38,6 +38,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.fitlock.data.EmergencyReminderPreferences
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.fitlock.LockOverlayActivity
 import com.example.fitlock.data.*
@@ -98,7 +99,8 @@ fun SoloLauncherScreen(
     onQuestClick: (QuestWithBlocks) -> Unit,
     onChallengeClick: (Challenge) -> Unit,
     onSettingsClick: () -> Unit,
-    onForgeClick: () -> Unit
+    onForgeClick: () -> Unit,
+    onProgressionClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
@@ -156,7 +158,8 @@ fun SoloLauncherScreen(
                         onQuickExerciseClick = onQuickExerciseClick,
                         onQuestClick = onQuestClick,
                         onSettingsClick = onSettingsClick,
-                        onForgeClick = onForgeClick
+                        onForgeClick = onForgeClick,
+                        onProgressionClick = onProgressionClick
                     )
 
                     1 -> ProtocolGatesContent(
@@ -176,7 +179,8 @@ fun SoloLauncherScreen(
 
                     3 -> SoloWeeklyMatrixTab(
                         history = history,
-                        pledges = pledges
+                        pledges = pledges,
+                        onQuickExerciseClick = onQuickExerciseClick
                     )
 
                     4 -> SoloStatsVitalityTab(
@@ -267,7 +271,8 @@ fun SoloMainHabitsTab(
     onQuickExerciseClick: (ExerciseType, Int) -> Unit,
     onQuestClick: (QuestWithBlocks) -> Unit,
     onSettingsClick: () -> Unit,
-    onForgeClick: () -> Unit
+    onForgeClick: () -> Unit,
+    onProgressionClick: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
@@ -351,7 +356,22 @@ fun SoloMainHabitsTab(
 
         Spacer(modifier = Modifier.height(10.dp))
 
+        Button(
+            onClick = onProgressionClick,
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Default.AccountTree, null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(8.dp))
+            Text("🌳 Open Overcoming Gravity Skill Tree", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
         // Daily Target Goals Progress Card
+        val emergencyConfig = remember { EmergencyReminderPreferences(context).getConfig() }
+
         Card(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             shape = RoundedCornerShape(12.dp),
@@ -361,22 +381,24 @@ fun SoloMainHabitsTab(
                 Text("TODAY'S AIM & TARGET GOALS", color = MaterialTheme.colorScheme.primary, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Spacer(modifier = Modifier.height(8.dp))
 
-                DailyGoalProgressRow("💪 Pushups", todayPushups, targetPushups, "reps") {
-                    onQuickExerciseClick(ExerciseType.PUSHUP, targetPushups)
+                emergencyConfig.matrixGoals.forEach { goal ->
+                    val currentProgress = when (goal.exerciseTypeOrKey.uppercase()) {
+                        "PUSHUP" -> todayPushups
+                        "SQUAT" -> todaySquats
+                        "PLANK" -> todayPlanks
+                        "SITUP" -> todaySitups
+                        "BREATHWORK" -> todayBreathwork
+                        "ROWING", "ERG" -> vitalityMetrics.rowingMinutes.toInt()
+                        "MORNING_JOURNAL", "EVENING_REVIEW" -> 0
+                        else -> if (goal.category == MatrixGoalCategory.APP_USAGE) getAppUsageMinutesToday(context, goal.exerciseTypeOrKey) else 0
+                    }
+                    DailyGoalProgressRow(goal.label, currentProgress, goal.minTarget, goal.unit) {
+                        val matchingExerciseType = try { ExerciseType.valueOf(goal.exerciseTypeOrKey.uppercase()) } catch (e: Exception) { null }
+                        if (matchingExerciseType != null) {
+                            onQuickExerciseClick(matchingExerciseType, goal.minTarget)
+                        }
+                    }
                 }
-                DailyGoalProgressRow("🦵 Squats", todaySquats, targetSquats, "reps") {
-                    onQuickExerciseClick(ExerciseType.SQUAT, targetSquats)
-                }
-                DailyGoalProgressRow("🛹 Planks", todayPlanks, targetPlanks, "secs") {
-                    onQuickExerciseClick(ExerciseType.PLANK, targetPlanks)
-                }
-                DailyGoalProgressRow("🧘 Situps", todaySitups, targetSitups, "reps") {
-                    onQuickExerciseClick(ExerciseType.SITUP, targetSitups)
-                }
-                DailyGoalProgressRow("🫁 Breathwork", todayBreathwork, targetBreathwork, "secs") {
-                    onQuickExerciseClick(ExerciseType.BREATHWORK, targetBreathwork)
-                }
-                DailyGoalProgressRow("🚣 Rowing", vitalityMetrics.rowingMinutes.toInt(), 20, "mins")
                 DailyGoalProgressRow("💧 Water Drink", vitalityMetrics.waterLiters.toInt(), targetWater.toInt(), "L")
                 DailyGoalProgressRow("👟 Steps", vitalityMetrics.steps.toInt(), targetSteps.toInt(), "steps")
             }
@@ -1185,7 +1207,8 @@ fun DungeonGateCard(
 @Composable
 fun SoloWeeklyMatrixTab(
     history: List<WorkoutHistory>,
-    pledges: List<DailyPledge>
+    pledges: List<DailyPledge>,
+    onQuickExerciseClick: (ExerciseType, Int) -> Unit = { _, _ -> }
 ) {
     val last7Days = remember(history, pledges) {
         (0..6).map { daysAgo ->
@@ -1221,9 +1244,12 @@ fun SoloWeeklyMatrixTab(
                 else -> ""
             }
 
-            WeeklyDayStats(dayName, pushups, squats, flashcards, rowingMinutes, morningDone, eveningDone)
+            WeeklyDayStats(dayName, startTime, endTime, pushups, squats, flashcards, rowingMinutes, morningDone, eveningDone)
         }.reversed()
     }
+
+    val context = LocalContext.current
+    val emergencyConfig = remember { EmergencyReminderPreferences(context).getConfig() }
 
     Column(
         modifier = Modifier
@@ -1253,19 +1279,77 @@ fun SoloWeeklyMatrixTab(
 
                 HorizontalDivider(color = Color(0xFF2C2C35), modifier = Modifier.padding(vertical = 8.dp))
 
-                WeeklyMatrixRow("💪 Pushups (15)", last7Days.map { Pair(it.pushups, if (it.pushups >= 15) MatrixCellState.GOLD else if (it.pushups > 0) MatrixCellState.GREEN else MatrixCellState.MISSED) })
-                WeeklyMatrixRow("🦵 Squats (20)", last7Days.map { Pair(it.squats, if (it.squats >= 20) MatrixCellState.GOLD else if (it.squats > 0) MatrixCellState.GREEN else MatrixCellState.MISSED) })
-                WeeklyMatrixRow("🧠 Anki Cards", last7Days.map { Pair(it.flashcards, if (it.flashcards >= 10) MatrixCellState.GOLD else if (it.flashcards > 0) MatrixCellState.GREEN else MatrixCellState.MISSED) })
-                WeeklyMatrixRow("🚣 Rowing (20m)", last7Days.map { Pair(it.rowingMinutes, if (it.rowingMinutes >= 20) MatrixCellState.GOLD else if (it.rowingMinutes >= 5) MatrixCellState.GREEN else MatrixCellState.MISSED) })
-                WeeklyMatrixRow("☀️ Morn. Journal", last7Days.map { Pair(if (it.morningDone) 1 else 0, if (it.morningDone) MatrixCellState.GREEN else MatrixCellState.MISSED) })
-                WeeklyMatrixRow("🌙 Eve. Review", last7Days.map { Pair(if (it.eveningDone) 1 else 0, if (it.eveningDone) MatrixCellState.GREEN else MatrixCellState.MISSED) })
+                emergencyConfig.matrixGoals.forEach { goal ->
+                    val counts = last7Days.map { day ->
+                        val count = when (goal.exerciseTypeOrKey.uppercase()) {
+                            "PUSHUP" -> day.pushups
+                            "SQUAT" -> day.squats
+                            "FLASHCARDS", "ANKI" -> day.flashcards
+                            "ROWING", "ERG" -> day.rowingMinutes
+                            "MORNING_JOURNAL" -> if (day.morningDone) 1 else 0
+                            "EVENING_REVIEW" -> if (day.eveningDone) 1 else 0
+                            else -> if (goal.category == MatrixGoalCategory.APP_USAGE) {
+                                getAppUsageMinutesForRange(context, goal.exerciseTypeOrKey, day.startTime, day.endTime)
+                            } else 0
+                        }
+                        val state = when {
+                            count >= goal.goldTarget -> MatrixCellState.GOLD
+                            count >= goal.minTarget -> MatrixCellState.GREEN
+                            else -> MatrixCellState.MISSED
+                        }
+                        Pair(count, state)
+                    }
+                    WeeklyMatrixRow(
+                        label = "${goal.label} (${goal.minTarget}/${goal.goldTarget})",
+                        counts = counts,
+                        onClick = {
+                            handleGoalLaunch(context, goal, onQuickExerciseClick)
+                        }
+                    )
+                }
             }
+        }
+    }
+}
+
+fun handleGoalLaunch(
+    context: Context,
+    goal: MatrixGoalConfig,
+    onQuickExerciseClick: (ExerciseType, Int) -> Unit
+) {
+    when (goal.category) {
+        MatrixGoalCategory.EXERCISE -> {
+            val matchingType = try {
+                ExerciseType.valueOf(goal.exerciseTypeOrKey.uppercase())
+            } catch (e: Exception) {
+                null
+            }
+            if (matchingType != null) {
+                onQuickExerciseClick(matchingType, goal.minTarget)
+            } else {
+                Toast.makeText(context, "Launching Exercise: ${goal.label}", Toast.LENGTH_SHORT).show()
+                onQuickExerciseClick(ExerciseType.PUSHUP, goal.minTarget)
+            }
+        }
+        MatrixGoalCategory.APP_USAGE -> {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(goal.exerciseTypeOrKey)
+            if (launchIntent != null) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(launchIntent)
+            } else {
+                Toast.makeText(context, "App ${goal.label} (${goal.exerciseTypeOrKey}) is not installed on this device.", Toast.LENGTH_SHORT).show()
+            }
+        }
+        MatrixGoalCategory.HABIT_ROUTINE -> {
+            Toast.makeText(context, "Habit Routine: ${goal.label}", Toast.LENGTH_SHORT).show()
         }
     }
 }
 
 data class WeeklyDayStats(
     val dayName: String,
+    val startTime: Long,
+    val endTime: Long,
     val pushups: Int,
     val squats: Int,
     val flashcards: Int,
@@ -1277,11 +1361,16 @@ data class WeeklyDayStats(
 enum class MatrixCellState { GOLD, GREEN, MISSED }
 
 @Composable
-fun WeeklyMatrixRow(label: String, counts: List<Pair<Int, MatrixCellState>>) {
+fun WeeklyMatrixRow(
+    label: String,
+    counts: List<Pair<Int, MatrixCellState>>,
+    onClick: (() -> Unit)? = null
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 3.dp),
+            .padding(vertical = 3.dp)
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {

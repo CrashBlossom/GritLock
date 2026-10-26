@@ -780,6 +780,10 @@ fun RequirementRow(
     deckNames: List<String>,
     habitDefinitions: List<HabitDefinition>
 ) {
+    val context = LocalContext.current
+    val allApps = remember { AppInfoFetcher.getInstalledApps(context) }
+    var showAppPicker by remember { mutableStateOf(false) }
+
     var expanded by remember { mutableStateOf(false) }
     val standardTypes = listOf(
         "PUSHUP" to "Pushups (Reps)",
@@ -844,10 +848,78 @@ fun RequirementRow(
             OutlinedTextField(
                 value = req.count.toString(),
                 onValueChange = { onUpdate(req.copy(count = it.toIntOrNull() ?: 10)) },
-                label = { Text(if (req.type == "PLANK" || req.type == "BREATHWORK") "Target Seconds" else if (req.type == "WRITE_WORDS") "Minimum Words" else "Target Reps / Value") },
+                label = { Text(if (req.type == "PLANK" || req.type == "BREATHWORK" || req.type == "APP_USAGE") "Target Seconds" else if (req.type == "WRITE_WORDS") "Minimum Words" else "Target Reps / Value") },
                 modifier = Modifier.fillMaxWidth(),
                 colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
             )
+
+            if (req.type == "APP_USAGE") {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { showAppPicker = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    val appCount = req.targetPackageNames.size
+                    Text(
+                        text = if (appCount == 0) "Select Apps to Use" else "$appCount Apps Selected",
+                        color = Color.White,
+                        fontSize = 11.sp
+                    )
+                }
+            }
         }
+    }
+
+    if (showAppPicker) {
+        AlertDialog(
+            onDismissRequest = { showAppPicker = false },
+            title = { Text("Select Apps", color = Color.White) },
+            text = {
+                var appSearch by remember { mutableStateOf("") }
+                val filtered = allApps.filter { it.name.contains(appSearch, ignoreCase = true) }
+                
+                Column {
+                    OutlinedTextField(
+                        value = appSearch,
+                        onValueChange = { appSearch = it },
+                        placeholder = { Text("Search...") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LazyColumn(modifier = Modifier.height(300.dp)) {
+                        items(filtered) { app ->
+                            val isSelected = req.targetPackageNames.contains(app.packageName)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        val newList = if (isSelected) {
+                                            req.targetPackageNames - app.packageName
+                                        } else {
+                                            req.targetPackageNames + app.packageName
+                                        }
+                                        onUpdate(req.copy(targetPackageNames = newList))
+                                    }
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = isSelected,
+                                    onCheckedChange = null
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(app.name, color = Color.White)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showAppPicker = false }) {
+                    Text("Done")
+                }
+            }
+        )
     }
 }
