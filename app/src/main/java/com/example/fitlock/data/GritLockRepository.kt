@@ -42,6 +42,37 @@ class GritLockRepository(private val dao: GritLockDao, private val context: Cont
             }
         }
     }
+
+    suspend fun initGroupsIfMissing() {
+        val existing = dao.getAllGroups().first()
+        if (existing.isEmpty()) {
+            val defaultGroups = listOf(
+                AppGroup(
+                    name = "Learning & Language (Positive Portal)",
+                    packageNames = listOf("com.duolingo", "com.ichi2.anki", "net.ankiweb.anki"),
+                    exercises = listOf(ExerciseRequirement("APP_USAGE", 15)),
+                    unlockDurationMinutes = 60,
+                    isEnabled = true,
+                    isProductive = true,
+                    rewardStat = StatType.INT,
+                    icon = "🦉"
+                ),
+                AppGroup(
+                    name = "Social Media Lockdown",
+                    packageNames = listOf("com.instagram.android", "com.zhiliaoapp.musically", "com.facebook.katana"),
+                    exercises = listOf(ExerciseRequirement("PUSHUP", 15)),
+                    unlockDurationMinutes = 30,
+                    isEnabled = true,
+                    isProductive = false,
+                    gateMode = GateMode.BLOCK_SCREEN,
+                    icon = "🛡️"
+                )
+            )
+            for (g in defaultGroups) {
+                dao.insertGroup(g)
+            }
+        }
+    }
     suspend fun insertUrgeEvent(event: UrgeEvent) = dao.insertUrgeEvent(event)
     suspend fun insertLogNote(note: DailyLogNote) = dao.insertLogNote(note)
     

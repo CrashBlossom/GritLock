@@ -33,6 +33,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -107,8 +109,8 @@ fun SoloLauncherScreen(
     val initialPage = remember { prefs.getInt("launcher_default_page", 0) }
     val isWinterArc = remember { prefs.getBoolean("winter_arc_enabled", false) }
 
-    // 10 Swipable Launcher Pages
-    val pagerState = rememberPagerState(initialPage = initialPage) { 10 }
+    // 12 Swipable Launcher Pages
+    val pagerState = rememberPagerState(initialPage = initialPage) { 12 }
 
     Box(
         modifier = Modifier
@@ -129,7 +131,7 @@ fun SoloLauncherScreen(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                for (i in 0 until 10) {
+                for (i in 0 until 12) {
                     val isSelected = pagerState.currentPage == i
                     Box(
                         modifier = Modifier
@@ -153,6 +155,7 @@ fun SoloLauncherScreen(
                         userStats = userStats,
                         quests = quests,
                         history = history,
+                        pledges = pledges,
                         vitalityMetrics = vitalityMetrics,
                         isWinterArc = isWinterArc,
                         onQuickExerciseClick = onQuickExerciseClick,
@@ -234,6 +237,151 @@ fun SoloLauncherScreen(
                         onClaimReward = onClaimAchievement,
                         onBack = {}
                     )
+
+                    10 -> WidgetsScreen(
+                        userStats = userStats,
+                        quotes = quotes,
+                        onQuickExerciseClick = onQuickExerciseClick,
+                        onBack = {}
+                    )
+
+                    11 -> SoloCalendarGridTab()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SoloCalendarGridTab() {
+    val context = LocalContext.current
+    var selectedCal by remember { mutableStateOf(Calendar.getInstance()) }
+    val dateStrFormat = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    val displayFormat = remember { SimpleDateFormat("EEEE, MMM d, yyyy", Locale.getDefault()) }
+    val currentDateStr = dateStrFormat.format(selectedCal.time)
+
+    val prefs = remember(currentDateStr) { context.getSharedPreferences("fitlock_timeblocks", Context.MODE_PRIVATE) }
+    val timeblocksJson = prefs.getString(currentDateStr, "[]") ?: "[]"
+    val gson = remember { Gson() }
+    val customTimeblocks = remember(timeblocksJson) {
+        try {
+            val type = object : TypeToken<List<CustomTimeblock>>() {}.type
+            gson.fromJson<List<CustomTimeblock>>(timeblocksJson, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    val dayEvents = remember(selectedCal) {
+        getCalendarEventsForDay(context, selectedCal)
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .padding(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = {
+                selectedCal = (selectedCal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, -1) }
+            }) {
+                Icon(Icons.Default.ChevronLeft, contentDescription = "Previous Day", tint = MaterialTheme.colorScheme.primary)
+            }
+
+            Text(
+                text = displayFormat.format(selectedCal.time),
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                color = Color.White
+            )
+
+            IconButton(onClick = {
+                selectedCal = (selectedCal.clone() as Calendar).apply { add(Calendar.DAY_OF_YEAR, 1) }
+            }) {
+                Icon(Icons.Default.ChevronRight, contentDescription = "Next Day", tint = MaterialTheme.colorScheme.primary)
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                .verticalScroll(rememberScrollState())
+                .padding(vertical = 8.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                for (hour in 0..23) {
+                    val hourStr = String.format(Locale.getDefault(), "%02d:00", hour)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(60.dp)
+                            .border(width = 0.5.dp, color = Color.Gray.copy(alpha = 0.15f)),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Text(
+                            text = hourStr,
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            modifier = Modifier.width(50.dp).padding(start = 8.dp, top = 4.dp)
+                        )
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                            val hourStartMs = (selectedCal.clone() as Calendar).apply {
+                                set(Calendar.HOUR_OF_DAY, hour)
+                                set(Calendar.MINUTE, 0)
+                                set(Calendar.SECOND, 0)
+                                set(Calendar.MILLISECOND, 0)
+                            }.timeInMillis
+
+                            val matchingEvents = dayEvents.filter { it.startTimeMs in hourStartMs until (hourStartMs + 3600000L) }
+                            matchingEvents.forEach { ev ->
+                                Surface(
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(6.dp)) {
+                                        Text(ev.title, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White, maxLines = 1)
+                                        val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                                        Text("${timeFormat.format(Date(ev.startTimeMs))} - ${timeFormat.format(Date(ev.endTimeMs))}", fontSize = 10.sp, color = Color.LightGray)
+                                    }
+                                }
+                            }
+
+                            val matchingTimeblocks = customTimeblocks.filter { tb ->
+                                val parts = tb.startTime.split(":")
+                                val tbHour = parts.getOrNull(0)?.toIntOrNull() ?: 0
+                                tbHour == hour
+                            }
+                            matchingTimeblocks.forEach { tb ->
+                                Surface(
+                                    color = Color(0xFF1B3822),
+                                    shape = RoundedCornerShape(6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(6.dp)) {
+                                        Text(tb.title, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White, maxLines = 1)
+                                        Text("${tb.startTime} - ${tb.endTime}", fontSize = 10.sp, color = Color.LightGray)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -266,6 +414,7 @@ fun SoloMainHabitsTab(
     userStats: UserStats?,
     quests: List<QuestWithBlocks>,
     history: List<WorkoutHistory>,
+    pledges: List<DailyPledge> = emptyList(),
     vitalityMetrics: VitalityMetrics,
     isWinterArc: Boolean,
     onQuickExerciseClick: (ExerciseType, Int) -> Unit,
@@ -382,6 +531,7 @@ fun SoloMainHabitsTab(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 emergencyConfig.matrixGoals.forEach { goal ->
+                    val streak = remember(goal, history, pledges) { calculateGoalStreak(context, goal, history, pledges) }
                     val currentProgress = when (goal.exerciseTypeOrKey.uppercase()) {
                         "PUSHUP" -> todayPushups
                         "SQUAT" -> todaySquats
@@ -392,7 +542,9 @@ fun SoloMainHabitsTab(
                         "MORNING_JOURNAL", "EVENING_REVIEW" -> 0
                         else -> if (goal.category == MatrixGoalCategory.APP_USAGE) getAppUsageMinutesToday(context, goal.exerciseTypeOrKey) else 0
                     }
-                    DailyGoalProgressRow(goal.label, currentProgress, goal.minTarget, goal.unit) {
+                    val streakStr = if (streak > 0) " (🔥${streak}d)" else ""
+                    val displayLabel = "${goal.label}$streakStr"
+                    DailyGoalProgressRow(displayLabel, currentProgress, goal.minTarget, goal.unit) {
                         handleGoalLaunch(context, goal, onQuickExerciseClick)
                     }
                 }
@@ -1241,7 +1393,7 @@ fun SoloWeeklyMatrixTab(
                 else -> ""
             }
 
-            WeeklyDayStats(dayName, startTime, endTime, pushups, squats, flashcards, rowingMinutes, morningDone, eveningDone)
+            WeeklyDayStats(dayName, startTime, endTime, pushups, squats, flashcards, rowingMinutes, morningDone, eveningDone, dayHistory)
         }.reversed()
     }
 
@@ -1277,6 +1429,7 @@ fun SoloWeeklyMatrixTab(
                 HorizontalDivider(color = Color(0xFF2C2C35), modifier = Modifier.padding(vertical = 8.dp))
 
                 emergencyConfig.matrixGoals.forEach { goal ->
+                    val streak = remember(goal, history, pledges) { calculateGoalStreak(context, goal, history, pledges) }
                     val counts = last7Days.map { day ->
                         val count = when (goal.exerciseTypeOrKey.uppercase()) {
                             "PUSHUP" -> day.pushups
@@ -1285,9 +1438,13 @@ fun SoloWeeklyMatrixTab(
                             "ROWING", "ERG" -> day.rowingMinutes
                             "MORNING_JOURNAL" -> if (day.morningDone) 1 else 0
                             "EVENING_REVIEW" -> if (day.eveningDone) 1 else 0
-                            else -> if (goal.category == MatrixGoalCategory.APP_USAGE) {
-                                getAppUsageMinutesForRange(context, goal.exerciseTypeOrKey, day.startTime, day.endTime)
-                            } else 0
+                            else -> {
+                                if (goal.category == MatrixGoalCategory.APP_USAGE) {
+                                    getAppUsageMinutesForRange(context, goal.exerciseTypeOrKey, day.startTime, day.endTime)
+                                } else {
+                                    day.dayHistory.filter { it.exerciseType.equals(goal.exerciseTypeOrKey, ignoreCase = true) }.sumOf { it.repsCompleted }
+                                }
+                            }
                         }
                         val state = when {
                             count >= goal.goldTarget -> MatrixCellState.GOLD
@@ -1296,8 +1453,9 @@ fun SoloWeeklyMatrixTab(
                         }
                         Pair(count, state)
                     }
-                    val emojiIcon = emergencyConfig.customIcons[goal.exerciseTypeOrKey] ?: getExerciseEmoji(goal.exerciseTypeOrKey)
-                    val compactLabel = "$emojiIcon (${goal.minTarget}/${goal.goldTarget})"
+                    val emojiIcon = getExerciseEmoji(goal.exerciseTypeOrKey, emergencyConfig.customIcons)
+                    val streakStr = if (streak > 0) " 🔥${streak}d" else ""
+                    val compactLabel = "$emojiIcon (${goal.minTarget}/${goal.goldTarget})$streakStr"
 
                     WeeklyMatrixRow(
                         label = compactLabel,
@@ -1362,7 +1520,8 @@ data class WeeklyDayStats(
     val flashcards: Int,
     val rowingMinutes: Int,
     val morningDone: Boolean,
-    val eveningDone: Boolean
+    val eveningDone: Boolean,
+    val dayHistory: List<WorkoutHistory>
 )
 
 enum class MatrixCellState { GOLD, GREEN, MISSED }

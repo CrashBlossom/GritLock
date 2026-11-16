@@ -12,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
@@ -102,6 +103,7 @@ fun ProtocolGatesContent(
 
     var pendingEditGate by remember { mutableStateOf<AppGroup?>(null) }
     var pendingDeleteGate by remember { mutableStateOf<AppGroup?>(null) }
+    var pendingToggleOffGate by remember { mutableStateOf<AppGroup?>(null) }
     var showMasterPasswordDialog by remember { mutableStateOf(false) }
 
     val challengeAsGroups = remember(challenges) {
@@ -134,7 +136,7 @@ fun ProtocolGatesContent(
     val filteredGroups = remember(combinedGroups, selectedFilter) {
         when {
             selectedFilter.contains("Routines") -> combinedGroups.filter { it.isRoutine }
-            selectedFilter.contains("Challenges") -> combinedGroups.filter { it.gateMode == GateMode.BACKGROUND_RAID }
+            selectedFilter.contains("Challenges") -> combinedGroups.filter { it.gateMode == GateMode.BACKGROUND_RAID && !it.isProductive }
             selectedFilter.contains("App Blocks") -> combinedGroups.filter { !it.isRoutine && !it.isProductive && it.gateMode != GateMode.BACKGROUND_RAID }
             selectedFilter.contains("Positive Portals") -> combinedGroups.filter { it.isProductive }
             selectedFilter.contains("Secret Vaults") -> combinedGroups.filter { !it.secretPassword.isNullOrBlank() || !it.secretLink.isNullOrBlank() }
@@ -211,15 +213,30 @@ fun ProtocolGatesContent(
                                         Text("🔑 Secret Vault Attached", color = Color(0xFFFFB74D), fontSize = 10.sp)
                                     }
                                 }
-                                IconButton(onClick = {
-                                    if (masterPasswordEnabled) {
-                                        pendingDeleteGate = group
-                                        showMasterPasswordDialog = true
-                                    } else {
-                                        onDeleteGate(group)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Switch(
+                                        checked = group.isEnabled,
+                                        onCheckedChange = { isChecked ->
+                                            if (!isChecked && masterPasswordEnabled) {
+                                                pendingToggleOffGate = group
+                                                showMasterPasswordDialog = true
+                                            } else {
+                                                onEditGate(group.copy(isEnabled = isChecked))
+                                            }
+                                        },
+                                        modifier = Modifier.scale(0.85f)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    IconButton(onClick = {
+                                        if (masterPasswordEnabled) {
+                                            pendingDeleteGate = group
+                                            showMasterPasswordDialog = true
+                                        } else {
+                                            onDeleteGate(group)
+                                        }
+                                    }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.7f))
                                     }
-                                }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.7f))
                                 }
                             }
                         }
@@ -236,11 +253,13 @@ fun ProtocolGatesContent(
                     showMasterPasswordDialog = false
                     pendingEditGate = null
                     pendingDeleteGate = null
+                    pendingToggleOffGate = null
                 },
                 onSuccess = {
                     showMasterPasswordDialog = false
                     pendingEditGate?.let { onEditGate(it); pendingEditGate = null }
                     pendingDeleteGate?.let { onDeleteGate(it); pendingDeleteGate = null }
+                    pendingToggleOffGate?.let { onEditGate(it.copy(isEnabled = false)); pendingToggleOffGate = null }
                 }
             )
         }

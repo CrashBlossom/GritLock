@@ -41,11 +41,18 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -216,9 +223,10 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             movementRequest
         )
 
-        // Schedule Daily Reset & Emergency Reminders
+        // Schedule Daily Reset, Emergency Reminders & Midday/Midnight Checkpoints
         com.example.fitlock.service.DailyResetWorker.schedule(this)
         com.example.fitlock.service.EmergencyReminderWorker.schedule(this)
+        com.example.fitlock.service.MiddayAndMidnightCheckWorker.schedule(this)
 
         /**
          * setContent defines the UI of the app using Composable functions.
@@ -296,12 +304,45 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 )
             }
 
-            // Wrap the whole UI in our custom Theme
-            GritLockTheme(
-                themeName = appTheme, 
-                darkModeSetting = darkModeSetting,
-                activeArchetype = appTheme
+            val penaltyPrefs = remember { getSharedPreferences("fitlock_penalty_prefs", Context.MODE_PRIVATE) }
+            var penaltyDelaySeconds by remember { mutableIntStateOf(penaltyPrefs.getInt("penalty_delay_seconds", 0)) }
+            var extremePenaltyEnabled by remember { mutableStateOf(penaltyPrefs.getBoolean("extreme_penalty_gate_enabled", false)) }
+            LaunchedEffect(Unit) {
+                while (true) {
+                    penaltyDelaySeconds = penaltyPrefs.getInt("penalty_delay_seconds", 0)
+                    extremePenaltyEnabled = penaltyPrefs.getBoolean("extreme_penalty_gate_enabled", false)
+                    kotlinx.coroutines.delay(1000)
+                }
+            }
+            val isDungeonBreak = extremePenaltyEnabled && penaltyDelaySeconds > 0
+
+            val historyForGauntlet by db.dao().getHistory().collectAsState(initial = emptyList())
+            LaunchedEffect(historyForGauntlet) {
+                val cal = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
+                val todayStart = cal.timeInMillis
+                val todayHistory = historyForGauntlet.filter { it.timestamp >= todayStart }
+                val pushups = todayHistory.filter { it.exerciseType.equals("PUSHUP", ignoreCase = true) }.sumOf { it.repsCompleted }
+                val squats = todayHistory.filter { it.exerciseType.equals("SQUAT", ignoreCase = true) }.sumOf { it.repsCompleted }
+                val situps = todayHistory.filter { it.exerciseType.equals("SITUP", ignoreCase = true) }.sumOf { it.repsCompleted }
+                val plank = todayHistory.filter { it.exerciseType.equals("PLANK", ignoreCase = true) }.sumOf { it.repsCompleted }
+
+                if (pushups >= 100 && squats >= 100 && situps >= 100 && plank >= 600) {
+                    penaltyPrefs.edit()
+                        .putInt("penalty_delay_seconds", 0)
+                        .putBoolean("grayscale_active", false)
+                        .apply()
+                }
+            }
+
+            Box(
+                modifier = Modifier.fillMaxSize()
             ) {
+                GritLockTheme(
+                    themeName = appTheme, 
+                    darkModeSetting = darkModeSetting,
+                    activeArchetype = appTheme,
+                    isDungeonBreak = isDungeonBreak
+                ) {
                 val locksViewModel: LocksViewModel = hiltViewModel()
                 val userViewModel: UserViewModel = hiltViewModel()
 
@@ -326,6 +367,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                 val achievements by repository.allAchievements.collectAsState(initial = emptyList())
                 LaunchedEffect(Unit) {
                     repository.initAchievementsIfMissing()
+                    repository.initGroupsIfMissing()
                 }
                 
                 val todayDate = remember { java.time.LocalDate.now().toString() }
@@ -556,7 +598,44 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                  * Scaffold is a layout helper that provides slots for common UI parts
                  * like a TopBar, BottomBar, or FloatingActionButton.
                  */
-                Scaffold { innerPadding ->
+                Scaffold(
+                    topBar = {
+                        if (isDungeonBreak) {
+                            Surface(
+                                color = Color(0xFFD50000),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.Warning, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    val formattedDuration = remember(penaltyDelaySeconds) {
+                                        val hours = penaltyDelaySeconds / 3600
+                                        val minutes = (penaltyDelaySeconds % 3600) / 60
+                                        val secs = penaltyDelaySeconds % 60
+                                        when {
+                                            hours > 0 && minutes > 0 -> "${hours}h ${minutes}m"
+                                            hours > 0 -> "${hours}h"
+                                            minutes > 0 -> "${minutes}m"
+                                            else -> "${secs}s"
+                                        }
+                                    }
+                                    Text(
+                                        "🚨 RED DUNGEON BREAK: DISCIPLINE QUOTA FAILED (Penalty Delay: $formattedDuration)",
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                    }
+                ) { innerPadding ->
                     // Padding is provided by Scaffold to avoid overlapping with bars
                     Box(modifier = Modifier.padding(innerPadding)) {
                         /**
@@ -1299,6 +1378,29 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                     onBack = { currentScreen = "settings" }
                                 )
                             }
+                            "calendar_schedule" -> {
+                                val allQuestsWithBlocks by repository.allQuests.collectAsState(initial = emptyList())
+                                com.example.fitlock.ui.CalendarScheduleScreen(
+                                    quests = allQuestsWithBlocks,
+                                    onBack = { currentScreen = "settings" }
+                                )
+                            }
+                            "widgets_dashboard" -> {
+                                com.example.fitlock.ui.WidgetsScreen(
+                                    userStats = userStats,
+                                    quotes = quotes,
+                                    onQuickExerciseClick = { type, count ->
+                                        activeRequirements = listOf(ExerciseRequirement(type.name, count))
+                                        currentRequirementIndex = 0
+                                        unlockingVaultItem = null
+                                        currentScreen = "track"
+                                        val calibrationKey = "${type.name}_${trackingMode.name}"
+                                        val calibration = userStats?.calibrations?.get(calibrationKey)
+                                        exerciseManager.startTracking(type, trackingMode, count, calibration)
+                                    },
+                                    onBack = { currentScreen = "settings" }
+                                )
+                            }
                             "quotes" -> {
                                 QuotesEditor(
                                     quotes = quotes,
@@ -1529,19 +1631,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                 if (physicalReps > 0) {
                                                     val xpGained = physicalReps * 2
                                                     
+                                                    val now = java.time.Instant.now()
+                                                    val duration = exerciseManager.getDurationSeconds()
+
                                                     db.dao().insertWorkout(
                                                         WorkoutHistory(
                                                             exerciseType = currentExerciseType!!.name,
                                                             repsCompleted = physicalReps,
                                                             appGroupId = 0,
-                                                            xpGained = xpGained
+                                                            xpGained = xpGained,
+                                                            durationSeconds = duration.toInt()
                                                         )
                                                     )
-                                                    WidgetUpdater.updateAllWidgets(this@MainActivity)
-                                                    updateUserStats(xpGained, currentExerciseType!!.name, physicalReps)
-                                                    
-                                                    val now = java.time.Instant.now()
-                                                    val duration = exerciseManager.getDurationSeconds()
                                                     healthConnectManager.writeExerciseSession(
                                                         currentExerciseType!!.name,
                                                         physicalReps,
@@ -1576,19 +1677,18 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                                                 if (physicalReps > 0 && totalReps < currentGoal) {
                                                     val xpGained = physicalReps * 2
                                                     
+                                                    val now = java.time.Instant.now()
+                                                    val duration = exerciseManager.getDurationSeconds()
+
                                                     db.dao().insertWorkout(
                                                         WorkoutHistory(
                                                             exerciseType = currentExerciseType!!.name,
                                                             repsCompleted = physicalReps,
                                                             appGroupId = 0,
-                                                            xpGained = xpGained
+                                                            xpGained = xpGained,
+                                                            durationSeconds = duration.toInt()
                                                         )
                                                     )
-                                                    WidgetUpdater.updateAllWidgets(this@MainActivity)
-                                                    updateUserStats(xpGained, currentExerciseType!!.name, physicalReps)
-                                                    
-                                                    val now = java.time.Instant.now()
-                                                    val duration = exerciseManager.getDurationSeconds()
                                                     healthConnectManager.writeExerciseSession(
                                                         currentExerciseType!!.name,
                                                         physicalReps,
@@ -1720,6 +1820,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
                         )
                     }
                 }
+              }
             }
         }
     }
@@ -2105,6 +2206,12 @@ class MainActivity : ComponentActivity(), SensorEventListener {
         
         // Ensure Daily Log Service is running
         startService(Intent(this, com.example.fitlock.service.DailyLogService::class.java))
+
+        // Evaluate penalties and daily reset catch-up on resume (handles phone-off scenarios at midnight/1300/2400)
+        lifecycleScope.launch {
+            com.example.fitlock.service.DailyResetWorker.evaluateDailyResetCatchUp(this@MainActivity)
+            com.example.fitlock.service.MiddayAndMidnightCheckWorker.evaluatePenaltiesNow(this@MainActivity)
+        }
     }
 
     override fun onDestroy() {

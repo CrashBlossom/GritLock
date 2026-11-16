@@ -57,7 +57,11 @@ data class MatrixGoalConfig(
     val unit: String = "reps"
 )
 
-fun getExerciseEmoji(type: String): String {
+fun getExerciseEmoji(type: String, customIcons: Map<String, String>? = null): String {
+    if (customIcons != null) {
+        customIcons[type]?.let { if (it.isNotBlank()) return it }
+        customIcons[type.uppercase()]?.let { if (it.isNotBlank()) return it }
+    }
     return when (type.uppercase()) {
         "PUSHUP" -> "💪"
         "SQUAT" -> "🦵"
@@ -100,6 +104,7 @@ data class EmergencyReminderConfig(
     val monitoredApps: List<MonitoredAppTarget> = defaultMonitoredApps,
     val matrixGoals: List<MatrixGoalConfig> = defaultMatrixGoals,
     val customIcons: Map<String, String> = emptyMap(),
+    val hostedWidgetIds: List<Int> = emptyList(),
     val selectedExercises: List<String> = listOf("PUSHUP", "SQUAT", "SITUP", "PLANK"),
     val selectedAppPackages: List<String> = listOf("com.duolingo", "com.ichi2.anki", "net.ankiweb.anki"),
     val exerciseTargets: Map<String, Int> = mapOf(
@@ -175,11 +180,101 @@ fun getAppUsageMinutesToday(context: Context, packageName: String): Int {
 fun getAppUsageMinutesForRange(context: Context, packageName: String, startTime: Long, endTime: Long): Int {
     return try {
         val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
-        val stats = usageStatsManager.queryUsageStats(android.app.usage.UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
-        val stat = stats.find { it.packageName == packageName }
-        if (stat != null) (stat.totalTimeInForeground / (1000 * 60)).toInt() else 0
+        
+        // 1. Try queryUsageStats (INTERVAL_DAILY)
+        var foregroundMinutes = 0
+        try {
+            val stats = usageStatsManager.queryUsageStats(android.app.usage.UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
+            val match = stats.find { it.packageName.equals(packageName, ignoreCase = true) }
+            if (match != null && match.totalTimeInForeground > 0) {
+                foregroundMinutes = (match.totalTimeInForeground / (1000 * 60)).toInt()
+            }
+        } catch (e: Exception) {}
+
+        // 2. Query Events
+        val events = usageStatsManager.queryEvents(startTime, endTime)
+        val event = android.app.usage.UsageEvents.Event()
+
+        var totalTimeMs = 0L
+        var lastResumedTime = 0L
+
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            if (event.packageName.equals(packageName, ignoreCase = true)) {
+                when (event.eventType) {
+                    android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> {
+                        lastResumedTime = event.timeStamp
+                    }
+                    android.app.usage.UsageEvents.Event.ACTIVITY_PAUSED,
+                    android.app.usage.UsageEvents.Event.ACTIVITY_STOPPED -> {
+                        if (lastResumedTime > 0L) {
+                            totalTimeMs += (event.timeStamp - lastResumedTime)
+                            lastResumedTime = 0L
+                        }
+                    }
+                }
+            }
+        }
+        if (lastResumedTime > 0L) {
+            totalTimeMs += (endTime - lastResumedTime)
+        }
+        val eventMinutes = (totalTimeMs / (1000 * 60)).toInt()
+        maxOf(foregroundMinutes, eventMinutes)
     } catch (e: Exception) {
         0
     }
 }
+
+fun calculateGoalStreak(
+    context: Context,
+    goal: MatrixGoalConfig,
+    history: List<WorkoutHistory>,
+    pledges: List<DailyPledge>
+): Int {
+    var streak = 0
+    for (daysAgo in 0..365) {
+        val dayCal = Calendar.getInstance().apply {
+            add(Calendar.DAY_OF_YEAR, -daysAgo)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val startTime = dayCal.timeInMillis
+        val endTime = startTime + 24 * 60 * 60 * 1000L
+        val dateStr = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(dayCal.time)
+
+        val dayHistory = history.filter { it.timestamp in startTime until endTime }
+        val dayPledge = pledges.find { it.date == dateStr }
+
+        val count = when (goal.exerciseTypeOrKey.uppercase()) {
+            "PUSHUP" -> dayHistory.filter { it.exerciseType.equals("PUSHUP", ignoreCase = true) }.sumOf { it.repsCompleted }
+            "SQUAT" -> dayHistory.filter { it.exerciseType.equals("SQUAT", ignoreCase = true) }.sumOf { it.repsCompleted }
+            "FLASHCARDS", "ANKI" -> dayHistory.filter { it.exerciseType.equals("FLASHCARDS", ignoreCase = true) || it.exerciseType.contains("ANKI", ignoreCase = true) }.sumOf { it.repsCompleted }
+            "ROWING", "ERG" -> dayHistory.filter { it.exerciseType.equals("ROWING", ignoreCase = true) || it.exerciseType.contains("ERG", ignoreCase = true) }.sumOf { it.repsCompleted }
+            "MORNING_JOURNAL" -> if (dayPledge?.pledgeTimestamp != null || dayPledge?.status == "COMMITTED" || dayPledge?.status == "SUCCESS") 1 else 0
+            "EVENING_REVIEW" -> if (dayPledge?.reviewTimestamp != null || dayPledge?.eveningReflection?.isNotBlank() == true || dayPledge?.status == "SUCCESS") 1 else 0
+            else -> {
+                if (goal.category == MatrixGoalCategory.APP_USAGE) {
+                    getAppUsageMinutesForRange(context, goal.exerciseTypeOrKey, startTime, endTime)
+                } else {
+                    dayHistory.filter { it.exerciseType.equals(goal.exerciseTypeOrKey, ignoreCase = true) }.sumOf { it.repsCompleted }
+                }
+            }
+        }
+
+        if (count >= goal.minTarget) {
+            streak++
+        } else {
+            if (daysAgo == 0) {
+                // Today not met yet, continue checking past days
+                continue
+            } else {
+                break
+            }
+        }
+    }
+    return streak
+}
+
 

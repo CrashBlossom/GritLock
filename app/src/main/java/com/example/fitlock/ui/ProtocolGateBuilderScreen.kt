@@ -1,5 +1,6 @@
 package com.example.fitlock.ui
 
+import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -110,6 +112,8 @@ fun ProtocolGateBuilderScreen(
     
     var secretPassword by remember(editingGate) { mutableStateOf(editingGate?.secretPassword ?: "") }
     var secretLink by remember(editingGate) { mutableStateOf(editingGate?.secretLink ?: "") }
+
+    var isRandomRequirement by remember(editingGate) { mutableStateOf(editingGate?.isRandomRequirement ?: false) }
 
     val allApps = remember { AppInfoFetcher.getInstalledApps(context) }
     val filteredApps = allApps.filter { 
@@ -476,6 +480,23 @@ fun ProtocolGateBuilderScreen(
                     Icon(Icons.Default.Add, contentDescription = "Add Requirement", tint = gateThemeColor)
                 }
             }
+            Spacer(modifier = Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("🔀 Randomize Requirement", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
+                    Text(if (isRandomRequirement) "Picks 1 random requirement (OR mode)" else "Requires all requirements (AND mode)", fontSize = 10.sp, color = Color.Gray)
+                }
+                Switch(
+                    checked = isRandomRequirement,
+                    onCheckedChange = { isRandomRequirement = it },
+                    modifier = Modifier.scale(0.8f)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
 
             exerciseRequirements.forEachIndexed { index, req ->
                 RequirementRow(
@@ -600,6 +621,7 @@ fun ProtocolGateBuilderScreen(
                         restrictedWifiSsids = restrictedWifiSsids,
                         keywords = keywords,
                         isEnabled = editingGate?.isEnabled ?: true,
+                        isRandomRequirement = isRandomRequirement,
                         isProductive = isProd,
                         rewardStat = primaryRewardStat,
                         secondaryStats = secondaryStats.toList(),
@@ -796,6 +818,7 @@ fun RequirementRow(
         "ROW" to "Row (Reps)",
         "HINGE" to "Hinge (Reps)",
         "APP_USAGE" to "App Usage Duration (Seconds)",
+        "PENALTY_DELAY" to "🚨 Penalty Delay (Dynamic Seconds)",
         "WATER" to "Water (Glasses/Liters)",
         "CALORIES" to "Calories (Kcal)",
         "WRITE_WORDS" to "Writing Words (Min Words)",
@@ -845,13 +868,42 @@ fun RequirementRow(
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = req.count.toString(),
-                onValueChange = { onUpdate(req.copy(count = it.toIntOrNull() ?: 10)) },
-                label = { Text(if (req.type == "PLANK" || req.type == "BREATHWORK" || req.type == "APP_USAGE") "Target Seconds" else if (req.type == "WRITE_WORDS") "Minimum Words" else "Target Reps / Value") },
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
-            )
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = if (req.usePenaltyDelayAsCount) if (req.isTimeBased) "%Penalty (Seconds)" else "%Penalty (Reps)" else req.count.toString(),
+                    onValueChange = { if (!req.usePenaltyDelayAsCount) onUpdate(req.copy(count = it.toIntOrNull() ?: 10)) },
+                    readOnly = req.usePenaltyDelayAsCount,
+                    label = { Text(if (req.usePenaltyDelayAsCount) "Dynamic Penalty Value" else if (req.isTimeBased) "Time (Sec)" else "Reps") },
+                    modifier = Modifier.weight(1f),
+                    colors = TextFieldDefaults.colors(focusedTextColor = Color.White, unfocusedTextColor = Color.White)
+                )
+
+                Row(
+                    modifier = Modifier.background(Color(0xFF2C2C35), RoundedCornerShape(8.dp)).padding(2.dp),
+                    horizontalArrangement = Arrangement.spacedBy(2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterChip(
+                        selected = !req.isTimeBased,
+                        onClick = { onUpdate(req.copy(isTimeBased = false)) },
+                        label = { Text("🔢", fontSize = 13.sp) }
+                    )
+                    FilterChip(
+                        selected = req.isTimeBased,
+                        onClick = { onUpdate(req.copy(isTimeBased = true)) },
+                        label = { Text("⏱️", fontSize = 13.sp) }
+                    )
+                    FilterChip(
+                        selected = req.usePenaltyDelayAsCount,
+                        onClick = { onUpdate(req.copy(usePenaltyDelayAsCount = !req.usePenaltyDelayAsCount)) },
+                        label = { Text("🚨", fontSize = 13.sp) }
+                    )
+                }
+            }
 
             if (req.type == "APP_USAGE") {
                 Spacer(modifier = Modifier.height(8.dp))

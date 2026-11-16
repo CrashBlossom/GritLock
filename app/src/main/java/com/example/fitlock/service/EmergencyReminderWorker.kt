@@ -186,6 +186,21 @@ class EmergencyReminderWorker(context: Context, params: WorkerParameters) : Coro
                 .addAction(R.drawable.ic_launcher_foreground, "SNOOZE 30M", snoozePendingIntent)
 
             notificationManager.notify(5001, builder.build())
+
+            // Launch on-screen popup warning activity overlay
+            val warningActivityIntent = Intent(context, com.example.fitlock.ui.EmergencyWarningActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("EXTRA_TITLE", title)
+                putExtra("EXTRA_MESSAGE", bodyText)
+                putExtra("EXTRA_EXERCISE_TYPE", firstExercise)
+                putExtra("EXTRA_EXERCISE_COUNT", config.exerciseTargets[firstExercise] ?: 15)
+                putExtra("EXTRA_TARGET_PACKAGE", targetAppPackage)
+            }
+            try {
+                context.startActivity(warningActivityIntent)
+            } catch (e: Exception) {
+                // Fallback if background start restricted
+            }
         }
 
         private fun sendEscalatingNotification(

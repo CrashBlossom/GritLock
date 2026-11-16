@@ -219,7 +219,25 @@ class GritLockAccessibilityService : AccessibilityService() {
         val activeApp = currentCountdownApp ?: rootNode?.packageName?.toString()
         
         if (activeApp != null) {
-            if (activeApp == this.packageName || 
+            // Check penalty delay enforcement as ABSOLUTE TOP PRIORITY before whitelist or any other blocks
+            val penaltyPrefs = getSharedPreferences("fitlock_penalty_prefs", Context.MODE_PRIVATE)
+            val penaltyDelaySeconds = penaltyPrefs.getInt("penalty_delay_seconds", 0)
+
+            val whitelistedPackages = setOf(
+                this.packageName,
+                "com.smarterdroid.sleepAsAndroid",
+                "com.urbandroid.sleep",
+                "com.google.android.deskclock",
+                "com.android.deskclock",
+                "com.google.android.apps.walletnfcrel",
+                "com.google.android.dialer",
+                "com.android.dialer",
+                "com.android.contacts",
+                "com.google.android.apps.maps",
+                "com.whatsapp"
+            )
+
+            val isWhitelisted = activeApp == this.packageName || 
                 activeApp == "com.android.systemui" || 
                 activeApp.contains("launcher") ||
                 activeApp.contains("inputmethod") ||
@@ -227,7 +245,23 @@ class GritLockAccessibilityService : AccessibilityService() {
                 activeApp.contains("honeyboard") ||
                 activeApp.contains("clock") ||
                 activeApp.contains("alarm") ||
-                activeApp == "com.urbandroid.sleep") {
+                activeApp.contains("authenticator") ||
+                activeApp.contains("knox") ||
+                activeApp.contains("securefolder") ||
+                activeApp.contains("camera") ||
+                activeApp.contains("firstdirect") ||
+                activeApp.contains("samsung") ||
+                activeApp.contains("biometric") ||
+                activeApp.contains("fingerprint") ||
+                activeApp.contains("whatsapp") ||
+                activeApp.contains("wallet") ||
+                activeApp.contains("gmail") ||
+                activeApp.contains("email") ||
+                activeApp.contains("mail") ||
+                activeApp.contains("outlook") ||
+                whitelistedPackages.contains(activeApp)
+
+            if (isWhitelisted) {
                 if (currentCountdownApp != null) removeCountdown()
                 return
             }
@@ -347,21 +381,34 @@ class GritLockAccessibilityService : AccessibilityService() {
         if (packageName == this.packageName || 
             packageName == "com.android.systemui" || 
             packageName == "com.android.launcher" ||
+            packageName == "com.android.settings" ||
             packageName.contains("launcher") ||
             packageName.contains("inputmethod") ||
             packageName.contains("keyboard") ||
             packageName.contains("honeyboard") ||
             packageName.contains("clock") ||
             packageName.contains("alarm") ||
+            packageName.contains("authenticator") ||
+            packageName.contains("knox") ||
+            packageName.contains("securefolder") ||
+            packageName.contains("camera") ||
+            packageName.contains("firstdirect") ||
+            packageName.contains("samsung") ||
+            packageName.contains("biometric") ||
+            packageName.contains("fingerprint") ||
+            packageName.contains("whatsapp") ||
+            packageName.contains("wallet") ||
+            packageName.contains("gmail") ||
+            packageName.contains("email") ||
+            packageName.contains("mail") ||
+            packageName.contains("outlook") ||
             packageName == "com.urbandroid.sleep" ||
-            packageName == "com.google.android.permissioncontroller") return
+            packageName == "com.google.android.permissioncontroller") {
+            lastTriggeredApp = null
+            return
+        }
 
         Log.d("GritLockService", "Event: ${AccessibilityEvent.eventTypeToString(event.eventType)} from $packageName")
-
-        // Settings Protection / Anti-Bypass
-        if (packageName == "com.android.settings") {
-            checkSettingsProtection(packageName, rootInActiveWindow ?: event.source)
-        }
 
         // 1. Morning Gate enforcement
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
@@ -693,8 +740,8 @@ class GritLockAccessibilityService : AccessibilityService() {
         }
 
         if (lockoutSeconds <= 0) {
-            val firstReq = group.exercises.firstOrNull()
-            if (firstReq != null) triggerOverlay(packageName, firstReq.count, firstReq.type, group.id, isKeyword)
+            val req = if (group.isRandomRequirement && group.exercises.isNotEmpty()) group.exercises.random() else group.exercises.firstOrNull()
+            if (req != null) triggerOverlay(packageName, req.count, req.type, group.id, isKeyword)
             return
         }
         if (showPopups) handler.post { showCountdownOverlay(packageName, group, isKeyword) }
@@ -736,7 +783,13 @@ class GritLockAccessibilityService : AccessibilityService() {
                         updateNotification("GressLock: Block Warning", "Blocking in $persistentSecondsLeft seconds!")
                         if (!smartCountdown || persistentSecondsLeft <= 30) {
                             if (countdownView?.visibility != View.VISIBLE) countdownView?.visibility = View.VISIBLE
-                            tvMessage?.text = "GressLock: Exercise required in ${persistentSecondsLeft}s"
+                            val req = group.exercises.firstOrNull()
+                            if (group.id == -99) {
+                                tvMessage?.text = "🚨 PENALTY GATE: Wait ${persistentSecondsLeft}s OR DO ${req?.count} ${req?.type} NOW!"
+                                btnDismiss?.text = "DO ${req?.type} NOW"
+                            } else {
+                                tvMessage?.text = "GressLock: Exercise required in ${persistentSecondsLeft}s"
+                            }
                             pbCountdown?.progress = persistentSecondsLeft
                         } else countdownView?.visibility = View.GONE
                         handler.postDelayed(this, 1000)
@@ -753,7 +806,19 @@ class GritLockAccessibilityService : AccessibilityService() {
                     }
                 }
             }
-            btnDismiss?.setOnClickListener { removeCountdown(); performGlobalAction(GLOBAL_ACTION_BACK) }
+            btnDismiss?.setOnClickListener {
+                if (group.id == -99) {
+                    val target = targetPackage
+                    val req = group.exercises.firstOrNull()
+                    val reps = req?.count ?: 10
+                    val type = req?.type ?: "PUSHUP"
+                    removeCountdown()
+                    triggerOverlay(target, reps, type, -99, isKeyword)
+                } else {
+                    removeCountdown()
+                    performGlobalAction(GLOBAL_ACTION_BACK)
+                }
+            }
             windowManager?.addView(countdownView, params)
             handler.postDelayed(countdownRunnable!!, 1000)
             isCountdownShowing = true

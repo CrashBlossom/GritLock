@@ -22,6 +22,7 @@ data class AppGroup(
     val unlockDurationMinutes: Int,
     val lastUnlockedTimestamp: Long = 0L,
     val isEnabled: Boolean = true,
+    val isRandomRequirement: Boolean = false,
     val schedule: List<ScheduleInterval> = emptyList(),
     val restrictedWifiSsids: List<String> = emptyList(),
     val keywords: List<String> = emptyList(),
@@ -202,7 +203,9 @@ data class ExerciseRequirement(
     val deckName: String? = null, // For FLASHCARDS requirement: "ALL" or specific deck
     val variantName: String? = null,
     val familyId: String? = null,
-    val floorCount: Int? = null
+    val floorCount: Int? = null,
+    val isTimeBased: Boolean = false,
+    val usePenaltyDelayAsCount: Boolean = false
 ) {
     fun getEffectiveFloorCount(): Int {
         return floorCount ?: (count * 0.25).toInt().coerceAtLeast(1)
@@ -297,7 +300,8 @@ data class WorkoutHistory(
     val repsCompleted: Int,
     val appGroupId: Int,
     val xpGained: Int = 0,
-    val statType: StatType = StatType.STR
+    val statType: StatType = StatType.STR,
+    val durationSeconds: Int = 0
 )
 
 @Entity(tableName = "user_stats")

@@ -43,6 +43,15 @@ import com.example.fitlock.ai.SystemEventContext
 import com.example.fitlock.ai.SystemPromptEngine
 import com.example.fitlock.ai.SystemVoiceSynthesizer
 import com.example.fitlock.data.UserStats
+import com.example.fitlock.data.EmergencyReminderConfig
+import com.example.fitlock.data.EmergencyReminderPreferences
+import com.example.fitlock.data.MatrixGoalCategory
+import com.example.fitlock.data.MatrixGoalConfig
+import com.example.fitlock.data.MonitoredAppTarget
+import com.example.fitlock.data.getExerciseEmoji
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import com.example.fitlock.data.ExerciseCalibration
 import com.example.fitlock.exercise.ExerciseType
 import com.example.fitlock.exercise.TrackingMode
@@ -223,6 +232,11 @@ fun SettingsScreen(
                     Text("Check All Status")
                 }
             }
+        }
+
+        // Consistency Matrix & Monitored Apps Section
+        ExpandableSection("🎯 Consistency Matrix & Monitored Apps", initialExpanded = false) {
+            ConsistencyMatrixMonitoredAppsCard(context)
         }
 
 
@@ -1267,4 +1281,525 @@ fun checkAndNotifyAccessibilityService(context: Context) {
     } else {
         notificationManager.cancel(warningNotificationId)
     }
+}
+
+@Composable
+fun ConsistencyMatrixMonitoredAppsCard(context: Context) {
+    val prefsManager = remember { EmergencyReminderPreferences(context) }
+    var config by remember { mutableStateOf(prefsManager.getConfig()) }
+    var showAppPickerModal by remember { mutableStateOf(false) }
+    var showAddGoalModal by remember { mutableStateOf(false) }
+
+    fun updateConfig(newConfig: EmergencyReminderConfig) {
+        config = newConfig
+        prefsManager.saveConfig(newConfig)
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        // Consistency Matrix Goals Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.FitnessCenter, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Consistency Matrix Goals", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                    IconButton(onClick = { showAddGoalModal = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "Add Goal", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+
+                Text("Configure Minimum (GREEN) and Gold Standard (GOLD) targets:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                config.matrixGoals.forEachIndexed { index, goal ->
+                    DualThresholdGoalItem(
+                        goal = goal,
+                        onUpdate = { updatedGoal ->
+                            val updatedGoals = config.matrixGoals.toMutableList().apply { set(index, updatedGoal) }
+                            updateConfig(config.copy(matrixGoals = updatedGoals))
+                        },
+                        onIconChange = { chosenEmoji ->
+                            val updatedIcons = config.customIcons.toMutableMap().apply { put(goal.exerciseTypeOrKey, chosenEmoji) }
+                            val textPart = goal.label.substringAfter(" ").ifBlank { goal.label }
+                            val updatedLabel = "$chosenEmoji $textPart"
+                            val updatedGoals = config.matrixGoals.toMutableList().apply { set(index, goal.copy(label = updatedLabel)) }
+                            updateConfig(config.copy(customIcons = updatedIcons, matrixGoals = updatedGoals))
+                        },
+                        onDelete = {
+                            val updatedGoals = config.matrixGoals.toMutableList().apply { removeAt(index) }
+                            updateConfig(config.copy(matrixGoals = updatedGoals))
+                        }
+                    )
+                    if (index < config.matrixGoals.size - 1) {
+                        HorizontalDivider(color = Color(0xFF2C2C35), modifier = Modifier.padding(vertical = 12.dp))
+                    }
+                }
+            }
+        }
+
+        // Monitored External Apps Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Apps, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Monitored External Apps", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    }
+                    IconButton(onClick = { showAppPickerModal = true }) {
+                        Icon(Icons.Default.Add, contentDescription = "Add App", tint = MaterialTheme.colorScheme.primary)
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Select external learning/habit apps to monitor for daily usage:", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                config.monitoredApps.forEachIndexed { idx, app ->
+                    var showAppEmojiPicker by remember { mutableStateOf(false) }
+                    val appEmoji = config.customIcons[app.packageName] ?: getExerciseEmoji(app.packageName, config.customIcons)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { showAppEmojiPicker = true },
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(appEmoji, fontSize = 18.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(app.appName, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                                Text("${app.packageName} • Target: ${app.targetMinutes} mins", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+                            }
+                        }
+                        IconButton(onClick = { showAppEmojiPicker = true }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Edit, contentDescription = "Edit App Emoji", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp))
+                        }
+                        IconButton(onClick = {
+                            val updatedApps = config.monitoredApps.toMutableList().apply { removeAt(idx) }
+                            updateConfig(config.copy(monitoredApps = updatedApps))
+                        }) {
+                            Icon(Icons.Default.Delete, contentDescription = "Remove App", tint = Color.Gray, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                    if (showAppEmojiPicker) {
+                        EmojiPickerDialog(
+                            currentLabel = app.appName,
+                            onDismiss = { showAppEmojiPicker = false },
+                            onEmojiSelected = { chosenEmoji ->
+                                val updatedIcons = config.customIcons.toMutableMap().apply { put(app.packageName, chosenEmoji) }
+                                val updatedGoals = config.matrixGoals.map { goal ->
+                                    if (goal.exerciseTypeOrKey.equals(app.packageName, ignoreCase = true)) {
+                                        val textPart = goal.label.substringAfter(" ").ifBlank { goal.label }
+                                        goal.copy(label = "$chosenEmoji $textPart")
+                                    } else goal
+                                }
+                                updateConfig(config.copy(customIcons = updatedIcons, matrixGoals = updatedGoals))
+                                showAppEmojiPicker = false
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showAddGoalModal) {
+        AddMatrixGoalDialog(
+            onDismiss = { showAddGoalModal = false },
+            onGoalCreated = { newGoal ->
+                val updatedGoals = config.matrixGoals.toMutableList().apply { add(newGoal) }
+                updateConfig(config.copy(matrixGoals = updatedGoals))
+                showAddGoalModal = false
+            }
+        )
+    }
+
+    if (showAppPickerModal) {
+        InstalledAppPickerDialog(
+            onDismiss = { showAppPickerModal = false },
+            onAppSelected = { selected ->
+                val updatedApps = config.monitoredApps.toMutableList().apply {
+                    if (none { it.packageName == selected.packageName }) add(selected)
+                }
+                val updatedGoals = config.matrixGoals.toMutableList().apply {
+                    if (none { it.exerciseTypeOrKey == selected.packageName }) {
+                        add(
+                            MatrixGoalConfig(
+                                label = "📱 ${selected.appName}",
+                                category = MatrixGoalCategory.APP_USAGE,
+                                exerciseTypeOrKey = selected.packageName,
+                                minTarget = selected.targetMinutes,
+                                goldTarget = selected.targetMinutes * 2,
+                                unit = "minutes"
+                            )
+                        )
+                    }
+                }
+                updateConfig(config.copy(monitoredApps = updatedApps, matrixGoals = updatedGoals))
+                showAppPickerModal = false
+            }
+        )
+    }
+}
+
+@Composable
+private fun DualThresholdGoalItem(
+    goal: MatrixGoalConfig,
+    onUpdate: (MatrixGoalConfig) -> Unit,
+    onIconChange: (String) -> Unit,
+    onDelete: () -> Unit
+) {
+    var showIconPicker by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = goal.label,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clickable { showIconPicker = true }
+                )
+                IconButton(onClick = { showIconPicker = true }, modifier = Modifier.size(20.dp)) {
+                    Icon(Icons.Default.Edit, contentDescription = "Edit Icon", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                }
+                Spacer(modifier = Modifier.width(6.dp))
+                Surface(
+                    color = when (goal.category) {
+                        MatrixGoalCategory.EXERCISE -> Color(0xFF81C784).copy(alpha = 0.2f)
+                        MatrixGoalCategory.APP_USAGE -> Color(0xFF64B5F6).copy(alpha = 0.2f)
+                        MatrixGoalCategory.HABIT_ROUTINE -> Color(0xFFFFB74D).copy(alpha = 0.2f)
+                    },
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = goal.category.name,
+                        fontSize = 9.sp,
+                        color = when (goal.category) {
+                            MatrixGoalCategory.EXERCISE -> Color(0xFF81C784)
+                            MatrixGoalCategory.APP_USAGE -> Color(0xFF64B5F6)
+                            MatrixGoalCategory.HABIT_ROUTINE -> Color(0xFFFFB74D)
+                        },
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                }
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(24.dp)) {
+                Icon(Icons.Default.Close, contentDescription = "Delete", tint = Color.Gray, modifier = Modifier.size(16.dp))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(6.dp))
+
+        // GREEN Min Threshold
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("🟢 Min (GREEN)", fontSize = 12.sp, color = Color(0xFF81C784), fontWeight = FontWeight.Bold)
+            Text("${goal.minTarget} ${goal.unit}", fontSize = 12.sp, color = Color(0xFF81C784), fontWeight = FontWeight.Bold)
+        }
+        Slider(
+            value = goal.minTarget.toFloat(),
+            onValueChange = { onUpdate(goal.copy(minTarget = it.toInt().coerceAtMost(goal.goldTarget))) },
+            valueRange = 1f..100f
+        )
+
+        // GOLD Standard Threshold
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("🟡 Gold Standard (GOLD)", fontSize = 12.sp, color = Color(0xFFFFD700), fontWeight = FontWeight.Bold)
+            Text("${goal.goldTarget} ${goal.unit}", fontSize = 12.sp, color = Color(0xFFFFD700), fontWeight = FontWeight.Bold)
+        }
+        Slider(
+            value = goal.goldTarget.toFloat(),
+            onValueChange = { onUpdate(goal.copy(goldTarget = it.toInt().coerceAtLeast(goal.minTarget))) },
+            valueRange = 1f..150f
+        )
+
+        if (showIconPicker) {
+            EmojiPickerDialog(
+                currentLabel = goal.label,
+                onDismiss = { showIconPicker = false },
+                onEmojiSelected = { chosenEmoji ->
+                    onIconChange(chosenEmoji)
+                    showIconPicker = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun EmojiPickerDialog(
+    currentLabel: String,
+    onDismiss: () -> Unit,
+    onEmojiSelected: (String) -> Unit
+) {
+    val quickEmojis = listOf(
+        "💪", "🦵", "🏋️", "🏃", "🚴", "🏊", "🤸", "🧘", "⏱️", "🫁", "🚣", "🦾",
+        "🦉", "🎴", "🧠", "📚", "💻", "⏱️", "📝", "💡", "🎯", "⭐", "⚡",
+        "☀️", "🌙", "🔥", "💧", "👟", "🏆", "💎", "🍎", "☕", "🌿", "📖", "🎮", "📱", "🚀"
+    )
+    var customEmojiInput by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Choose Goal Icon / Emoji", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Type any emoji or select from popular icons below for $currentLabel:", fontSize = 12.sp, color = Color.Gray)
+
+                OutlinedTextField(
+                    value = customEmojiInput,
+                    onValueChange = { customEmojiInput = it },
+                    label = { Text("Type custom emoji/symbol") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (customEmojiInput.isNotBlank()) {
+                    Button(
+                        onClick = { onEmojiSelected(customEmojiInput.trim()) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Use '${customEmojiInput.trim()}'")
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("Popular Emojis:", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color.Gray)
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    quickEmojis.chunked(6).forEach { rowEmojis ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            rowEmojis.forEach { emoji ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = Color(0xFF2C2C35),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .aspectRatio(1f)
+                                        .clickable { onEmojiSelected(emoji) },
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(emoji, fontSize = 20.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        }
+    )
+}
+
+@Composable
+private fun AddMatrixGoalDialog(
+    onDismiss: () -> Unit,
+    onGoalCreated: (MatrixGoalConfig) -> Unit
+) {
+    var label by remember { mutableStateOf("") }
+    var key by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf(MatrixGoalCategory.EXERCISE) }
+    var minTarget by remember { mutableIntStateOf(15) }
+    var goldTarget by remember { mutableIntStateOf(30) }
+
+    val presets = listOf(
+        Triple("💪 Pushups", "PUSHUP", MatrixGoalCategory.EXERCISE),
+        Triple("🦵 Squats", "SQUAT", MatrixGoalCategory.EXERCISE),
+        Triple("🧘 Situps", "SITUP", MatrixGoalCategory.EXERCISE),
+        Triple("⏱️ Plank", "PLANK", MatrixGoalCategory.EXERCISE),
+        Triple("🚣 Rowing", "ROWING", MatrixGoalCategory.EXERCISE),
+        Triple("🏋️ Pullups", "PULLUP", MatrixGoalCategory.EXERCISE),
+        Triple("🦾 Dips", "DIP", MatrixGoalCategory.EXERCISE),
+        Triple("🫁 Breathwork", "BREATHWORK", MatrixGoalCategory.EXERCISE),
+        Triple("☀️ Morning Journal", "MORNING_JOURNAL", MatrixGoalCategory.HABIT_ROUTINE),
+        Triple("🌙 Evening Review", "EVENING_REVIEW", MatrixGoalCategory.HABIT_ROUTINE),
+        Triple("🔥 Daily Pledge", "DAILY_PLEDGE", MatrixGoalCategory.HABIT_ROUTINE)
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Add Matrix Goal Preset", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("Select from app presets or enter custom below:", fontSize = 12.sp, color = Color.Gray)
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    presets.forEach { preset ->
+                        OutlinedButton(
+                            onClick = {
+                                label = preset.first
+                                key = preset.second
+                                category = preset.third
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(preset.first, fontSize = 12.sp)
+                        }
+                    }
+                }
+
+                HorizontalDivider(color = Color(0xFF2C2C35), modifier = Modifier.padding(vertical = 4.dp))
+
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("Goal Label") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = key,
+                    onValueChange = { key = it },
+                    label = { Text("Key / Type (e.g., PUSHUP)") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    MatrixGoalCategory.entries.forEach { cat ->
+                        FilterChip(
+                            selected = category == cat,
+                            onClick = { category = cat },
+                            label = { Text(cat.name, fontSize = 11.sp) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (label.isNotBlank() && key.isNotBlank()) {
+                        onGoalCreated(
+                            MatrixGoalConfig(
+                                label = label,
+                                category = category,
+                                exerciseTypeOrKey = key.uppercase(),
+                                minTarget = minTarget,
+                                goldTarget = goldTarget,
+                                unit = if (category == MatrixGoalCategory.APP_USAGE) "minutes" else if (category == MatrixGoalCategory.EXERCISE) "reps" else "done"
+                            )
+                        )
+                    }
+                }
+            ) {
+                Text("Add Goal")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun InstalledAppPickerDialog(
+    onDismiss: () -> Unit,
+    onAppSelected: (MonitoredAppTarget) -> Unit
+) {
+    val context = LocalContext.current
+    val packageManager = context.packageManager
+
+    val installedApps = remember {
+        val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
+            addCategory(Intent.CATEGORY_LAUNCHER)
+        }
+        packageManager.queryIntentActivities(mainIntent, 0).mapNotNull { resolveInfo: android.content.pm.ResolveInfo ->
+            val appName = resolveInfo.loadLabel(packageManager).toString()
+            val packageName = resolveInfo.activityInfo.packageName
+            if (packageName != context.packageName) MonitoredAppTarget(packageName, appName, 15) else null
+        }.distinctBy { it.packageName }.sortedBy { it.appName }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Select App to Monitor", fontWeight = FontWeight.Bold) },
+        text = {
+            Box(modifier = Modifier.height(300.dp)) {
+                LazyColumn {
+                    items(installedApps) { app ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onAppSelected(app) }
+                                .padding(vertical = 10.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(app.appName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text(app.packageName, fontSize = 11.sp, color = Color.Gray)
+                            }
+                        }
+                        HorizontalDivider(color = Color(0xFF2C2C35))
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
 }

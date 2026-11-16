@@ -128,7 +128,28 @@ fun LockOverlayScreen(
 
     val currentReq = exerciseRequirements.getOrNull(currentExerciseIndex) ?: return
     val currentBanked = bankedReps[currentReq.type] ?: 0
-    val isComplete = repCount >= currentReq.count
+
+    val penaltyPrefs = context.getSharedPreferences("fitlock_penalty_prefs", Context.MODE_PRIVATE)
+    val penaltyDelaySeconds = penaltyPrefs.getInt("penalty_delay_seconds", 120)
+    val effectiveTargetCount = if (currentReq.type == "PENALTY_DELAY" || currentReq.usePenaltyDelayAsCount) penaltyDelaySeconds else currentReq.count
+
+    var elapsedSeconds by remember(currentExerciseIndex) { mutableIntStateOf(0) }
+    LaunchedEffect(currentExerciseIndex) {
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            elapsedSeconds++
+        }
+    }
+
+    val isComplete = if (currentReq.isTimeBased || currentReq.type == "PENALTY_DELAY") {
+        elapsedSeconds >= effectiveTargetCount
+    } else {
+        repCount >= effectiveTargetCount
+    }
+
+    val minutes = elapsedSeconds / 60
+    val secs = elapsedSeconds % 60
+    val timeFormatted = String.format(java.util.Locale.US, "%02d:%02d", minutes, secs)
 
     // Voice feedback on rep increments
     LaunchedEffect(repCount) {
@@ -409,9 +430,13 @@ fun LockOverlayScreen(
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "$repCount / ${currentReq.count}",
+                                text = if (currentReq.isTimeBased) {
+                                    timeFormatted
+                                } else {
+                                    "$repCount / ${currentReq.count} • $timeFormatted"
+                                },
                                 style = MaterialTheme.typography.displayMedium,
-                                color = if (isComplete) Color.Green else Color.White
+                                color = if (isComplete) Color(0xFF81C784) else Color.White
                             )
                         }
                     }

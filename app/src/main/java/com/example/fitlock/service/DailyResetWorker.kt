@@ -47,6 +47,18 @@ class DailyResetWorker(context: Context, params: WorkerParameters) : CoroutineWo
             val updatedSan = if (now - (stats.statLastTrainedDates["SAN"] ?: 0L) > threeDaysMs) (stats.sanXp * 0.99).toLong() else stats.sanXp
             val updatedCha = if (now - (stats.statLastTrainedDates["CHA"] ?: 0L) > threeDaysMs) (stats.chaXp * 0.99).toLong() else stats.chaXp
 
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = now }
+            val isSunday = cal.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.SUNDAY
+            val isFirstDayOfMonth = cal.get(java.util.Calendar.DAY_OF_MONTH) == 1
+
+            val shouldResetBank = when (stats.bankResetFrequency.lowercase()) {
+                "daily" -> true
+                "weekly" -> isSunday
+                "monthly" -> isFirstDayOfMonth
+                else -> false
+            }
+            val updatedBankedReps = if (shouldResetBank) emptyMap() else stats.bankedReps
+
             dao.updateUserStats(
                 stats.copy(
                     currentHp = newHp,
@@ -59,7 +71,9 @@ class DailyResetWorker(context: Context, params: WorkerParameters) : CoroutineWo
                     conXp = updatedCon,
                     intXp = updatedInt,
                     sanXp = updatedSan,
-                    chaXp = updatedCha
+                    chaXp = updatedCha,
+                    bankedReps = updatedBankedReps,
+                    lastBankReset = if (shouldResetBank) now else stats.lastBankReset
                 )
             )
         }
@@ -82,6 +96,49 @@ class DailyResetWorker(context: Context, params: WorkerParameters) : CoroutineWo
     }
 
     companion object {
+        suspend fun evaluateDailyResetCatchUp(context: Context) {
+            val db = GritLockDatabase.getDatabase(context)
+            val dao = db.dao()
+            val stats = dao.getUserStats().first() ?: return
+            val today = LocalDate.now().toString()
+
+            if (stats.lastFloorResetDate != today) {
+                dao.resetQuestCompletionStatus()
+                dao.resetRecurringQuestBlocks()
+
+                val now = System.currentTimeMillis()
+                val isShieldActive = stats.floorTargetMetToday
+                val hpGainOrLoss = if (isShieldActive) 10 else -25
+                val newHp = (stats.currentHp + hpGainOrLoss).coerceIn(0, stats.maxHp)
+                val isBrokenShield = newHp == 0
+                val updatedStreak = if (isBrokenShield) 0 else stats.currentStreak
+
+                val cal = java.util.Calendar.getInstance().apply { timeInMillis = now }
+                val isSunday = cal.get(java.util.Calendar.DAY_OF_WEEK) == java.util.Calendar.SUNDAY
+                val isFirstDayOfMonth = cal.get(java.util.Calendar.DAY_OF_MONTH) == 1
+
+                val shouldResetBank = when (stats.bankResetFrequency.lowercase()) {
+                    "daily" -> true
+                    "weekly" -> isSunday
+                    "monthly" -> isFirstDayOfMonth
+                    else -> false
+                }
+                val updatedBankedReps = if (shouldResetBank) emptyMap() else stats.bankedReps
+
+                dao.updateUserStats(
+                    stats.copy(
+                        currentHp = newHp,
+                        currentStreak = updatedStreak,
+                        penaltyStateActive = isBrokenShield,
+                        floorTargetMetToday = false,
+                        lastFloorResetDate = today,
+                        bankedReps = updatedBankedReps,
+                        lastBankReset = if (shouldResetBank) now else stats.lastBankReset
+                    )
+                )
+            }
+        }
+
         fun schedule(context: Context) {
             val resetRequest = PeriodicWorkRequestBuilder<DailyResetWorker>(1, TimeUnit.DAYS)
                 .setInitialDelay(calculateDelayToMidnight(), TimeUnit.MILLISECONDS)

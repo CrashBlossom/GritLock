@@ -126,9 +126,12 @@ fun ExerciseHistoryList(history: List<WorkoutHistory>) {
         com.example.fitlock.data.StatType.entries.map { it.name.uppercase() }.toSet() + setOf("GENERAL", "NONE")
     }
     
+    val cognitiveTypes = remember { setOf("FLASHCARDS", "ANKI", "LANGUAGE_STUDY", "FRENCH_STUDY", "DUOLINGO") }
+    
     val filteredExercises = remember(history) {
         history.filter { workout ->
-            !statNames.contains(workout.exerciseType.trim().uppercase())
+            val type = workout.exerciseType.trim().uppercase()
+            !statNames.contains(type) && !cognitiveTypes.contains(type)
         }
     }
 
@@ -232,8 +235,12 @@ fun AppUsageList(usageStats: List<AppUsageInfo>) {
 
 @Composable
 fun DailyTotalsLeaderboard(history: List<WorkoutHistory>) {
-    val dailyTotals = remember(history) {
-        history.groupBy { 
+    val cognitiveTypes = remember { setOf("FLASHCARDS", "ANKI", "LANGUAGE_STUDY", "FRENCH_STUDY", "DUOLINGO") }
+    val physicalHistory = remember(history) {
+        history.filter { !cognitiveTypes.contains(it.exerciseType.trim().uppercase()) }
+    }
+    val dailyTotals = remember(physicalHistory) {
+        physicalHistory.groupBy { 
             SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date(it.timestamp))
         }.mapValues { entry ->
             entry.value.sumOf { it.repsCompleted }

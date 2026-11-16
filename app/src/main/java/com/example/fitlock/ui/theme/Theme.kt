@@ -10,8 +10,14 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.animation.animateColor
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.border
+import androidx.compose.ui.unit.dp
 
 private val DarkColorScheme = darkColorScheme(
     primary = Purple80,
@@ -65,11 +71,24 @@ private val LightOcean = lightColorScheme(
     surface = Color(0xFFFFFFFF)
 )
 
+// Red Dungeon Break / Danger Alert Palette
+private val DungeonBreakColorScheme = darkColorScheme(
+    primary = Color(0xFFFF1744), // Fiery Crimson
+    secondary = Color(0xFFFF5252),
+    tertiary = Color(0xFFFF9100),
+    background = Color(0xFF140303), // Blood Charcoal
+    surface = Color(0xFF260808),     // Dark Red Surface
+    surfaceVariant = Color(0xFF3D0C0C),
+    onBackground = Color(0xFFFFCDD2),
+    onSurface = Color(0xFFFFCDD2)
+)
+
 @Composable
 fun GritLockTheme(
     themeName: String = "Default",
     darkModeSetting: String = "System", // "System", "Light", "Dark"
     activeArchetype: String = "DEFAULT",
+    isDungeonBreak: Boolean = false,
     dynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
@@ -81,7 +100,10 @@ fun GritLockTheme(
 
     val archetype = getThemeData(activeArchetype)
 
-    val colorScheme = when (activeArchetype) {
+    val colorScheme = if (isDungeonBreak) {
+        DungeonBreakColorScheme
+    } else {
+        when (activeArchetype) {
         "SUPERHERO" -> if (isDarkMode) {
             darkColorScheme(primary = archetype.primaryColor, background = Color(0xFF000000), surface = Color(0xFF0A0A0A))
         } else {
@@ -131,8 +153,39 @@ fun GritLockTheme(
             else -> if (isDarkMode) DarkColorScheme else LightColorScheme
         }
     }
+}
 
-    androidx.compose.foundation.layout.Box(modifier = androidx.compose.ui.Modifier.fillMaxSize()) {
+    val infiniteTransition = rememberInfiniteTransition(label = "dungeon_border")
+    val borderWidth by infiniteTransition.animateFloat(
+        initialValue = 3f,
+        targetValue = 8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "border_width"
+    )
+    val borderColor by infiniteTransition.animateColor(
+        initialValue = Color(0xFFFF1744),
+        targetValue = Color(0xFFFF9100),
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "border_color"
+    )
+
+    androidx.compose.foundation.layout.Box(
+        modifier = androidx.compose.ui.Modifier
+            .fillMaxSize()
+            .then(
+                if (isDungeonBreak) {
+                    androidx.compose.ui.Modifier.border(borderWidth.dp, borderColor)
+                } else {
+                    androidx.compose.ui.Modifier
+                }
+            )
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = Typography,
