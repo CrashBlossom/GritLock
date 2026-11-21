@@ -222,30 +222,33 @@ fun LauncherPortalScreen(
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
+                            androidx.compose.ui.viewinterop.AndroidView(
+                                factory = { ctx ->
+                                    android.widget.ImageView(ctx).apply {
+                                        try {
+                                            setImageDrawable(ctx.packageManager.getApplicationIcon(app.packageName))
+                                        } catch (_: Exception) {}
+                                    }
+                                },
+                                modifier = Modifier.size(36.dp)
+                            )
                             if (isLocked) {
-                                Icon(
-                                    Icons.Default.Lock,
-                                    contentDescription = "Locked",
-                                    tint = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                            } else if (isTemporarilyUnlocked) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(
-                                        Icons.Default.LockOpen,
-                                        contentDescription = "Unlocked",
-                                        tint = Color(0xFF81C784),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Text("${remainingMins}m", fontSize = 9.sp, color = Color(0xFF81C784), fontWeight = FontWeight.Bold)
+                                Box(
+                                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.4f), RoundedCornerShape(16.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(20.dp))
                                 }
-                            } else {
-                                Text(
-                                    text = app.name.take(1).uppercase(),
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 20.sp,
-                                    color = if (hasKeywordCombo) Color(0xFFFF9800) else MaterialTheme.colorScheme.primary
-                                )
+                            } else if (isTemporarilyUnlocked) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.3f), RoundedCornerShape(16.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(Icons.Default.LockOpen, contentDescription = "Unlocked", tint = Color(0xFF81C784), modifier = Modifier.size(16.dp))
+                                        Text("${remainingMins}m", fontSize = 8.sp, color = Color(0xFF81C784), fontWeight = FontWeight.Bold)
+                                    }
+                                }
                             }
                         }
                         Spacer(modifier = Modifier.height(4.dp))

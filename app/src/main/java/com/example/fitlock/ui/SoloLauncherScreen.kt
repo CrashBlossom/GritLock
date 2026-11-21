@@ -2,6 +2,7 @@ package com.example.fitlock.ui
 
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.net.Uri
 import android.widget.ImageView
 import android.widget.Toast
@@ -16,6 +17,9 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -898,9 +902,32 @@ fun SoloChallengesTab(
     }
 }
 
+fun getAppPriorities(prefs: SharedPreferences): Map<String, Int> {
+    val json = prefs.getString("app_priorities_map", "{}") ?: "{}"
+    return try {
+        val gson = Gson()
+        val type = object : TypeToken<Map<String, Int>>() {}.type
+        gson.fromJson<Map<String, Int>>(json, type) ?: emptyMap()
+    } catch (e: Exception) {
+        emptyMap()
+    }
+}
+
+fun saveAppPriority(prefs: SharedPreferences, packageName: String, priority: Int) {
+    val current = getAppPriorities(prefs).toMutableMap()
+    if (priority <= 0) {
+        current.remove(packageName)
+    } else {
+        current[packageName] = priority
+    }
+    val json = Gson().toJson(current)
+    prefs.edit().putString("app_priorities_map", json).apply()
+}
+
 // ---------------------------------------------------------------------------
 // PAGE 1: APP PORTALS / DUNGEON GATES
 // ---------------------------------------------------------------------------
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SoloPortalsTab(
     appGroups: List<AppGroup>,
@@ -911,6 +938,8 @@ fun SoloPortalsTab(
     val prefs = remember { context.getSharedPreferences("fitlock_prefs", Context.MODE_PRIVATE) }
     var searchQuery by remember { mutableStateOf("") }
     var selectedAppForAction by remember { mutableStateOf<AppInfo?>(null) }
+    var priorityAppForDialog by remember { mutableStateOf<AppInfo?>(null) }
+    var priorityInputValue by remember { mutableStateOf("") }
     var hiddenApps by remember { 
         mutableStateOf(prefs.getStringSet("hidden_apps", emptySet()) ?: emptySet()) 
     }
@@ -918,6 +947,8 @@ fun SoloPortalsTab(
     var favoriteApps by remember {
         mutableStateOf(prefs.getStringSet("favorite_apps", emptySet()) ?: emptySet())
     }
+    var appPriorities by remember { mutableStateOf(getAppPriorities(prefs)) }
+    var isGridView by remember { mutableStateOf(prefs.getBoolean("portal_grid_view", true)) }
     var selectedStatFilter by remember { mutableStateOf("🌟 All") }
 
     val statFilterChips = listOf(
@@ -960,15 +991,20 @@ fun SoloPortalsTab(
         }
     }
 
-    val sortedApps = remember(filteredByStat, favoriteApps, appGroups) {
-        filteredByStat.sortedWith(compareByDescending<AppInfo> { favoriteApps.contains(it.packageName) }.thenBy { app ->
-            val group = appGroups.find { g -> g.isEnabled && g.packageNames.contains(app.packageName) }
-            when {
-                group?.isProductive == true -> 0
-                group == null -> 1
-                else -> 2
-            }
-        }.thenBy { it.name })
+    val sortedApps = remember(filteredByStat, favoriteApps, appPriorities, appGroups) {
+        filteredByStat.sortedWith(
+            compareByDescending<AppInfo> { appPriorities[it.packageName] ?: 0 }
+                .thenByDescending { favoriteApps.contains(it.packageName) }
+                .thenBy { app ->
+                    val group = appGroups.find { g -> g.isEnabled && g.packageNames.contains(app.packageName) }
+                    when {
+                        group?.isProductive == true -> 0
+                        group == null -> 1
+                        else -> 2
+                    }
+                }
+                .thenBy { it.name }
+        )
     }
 
     Column(
@@ -977,7 +1013,27 @@ fun SoloPortalsTab(
             .background(MaterialTheme.colorScheme.background)
             .padding(12.dp)
     ) {
-        Text("DUNGEON GATES (APP PORTALS)", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("DUNGEON GATES (APP PORTALS)", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            IconButton(
+                onClick = {
+                    isGridView = !isGridView
+                    prefs.edit().putBoolean("portal_grid_view", isGridView).apply()
+                },
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    if (isGridView) Icons.Default.ViewList else Icons.Default.GridView,
+                    contentDescription = "Toggle Grid/List View",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(8.dp))
 
         Row(
@@ -1018,78 +1074,206 @@ fun SoloPortalsTab(
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        LazyColumn(
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxSize()
-        ) {
-            items(sortedApps) { app ->
-                val matchingGroup = appGroups.find { group ->
-                    group.isEnabled && group.packageNames.contains(app.packageName)
-                }
-                val isProductive = matchingGroup?.isProductive == true
-                val isLocked = matchingGroup?.let { group ->
-                    if (group.isProductive) false
-                    else if (group.keywords.any { it.isNotBlank() }) false
-                    else {
+        if (isGridView) {
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(4),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(sortedApps) { app ->
+                    val matchingGroup = appGroups.find { group ->
+                        group.isEnabled && group.packageNames.contains(app.packageName)
+                    }
+                    val isProductive = matchingGroup?.isProductive == true
+                    val isLocked = matchingGroup?.let { group ->
+                        if (group.isProductive) false
+                        else if (group.keywords.any { it.isNotBlank() }) false
+                        else {
+                            val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                            val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                            (System.currentTimeMillis() - lastUnlocked) >= unlockDurationMs
+                        }
+                    } ?: false
+
+                    val isTemporarilyUnlocked = matchingGroup?.let { group ->
+                        if (group.isProductive || group.keywords.any { it.isNotBlank() }) false
+                        else {
+                            val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                            val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                            val timeSinceUnlock = System.currentTimeMillis() - lastUnlocked
+                            timeSinceUnlock < unlockDurationMs && lastUnlocked > 0L
+                        }
+                    } ?: false
+
+                    val remainingUnlockMins = matchingGroup?.let { group ->
                         val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
                         val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
-                        (System.currentTimeMillis() - lastUnlocked) >= unlockDurationMs
-                    }
-                } ?: false
+                        val remainingMs = unlockDurationMs - (System.currentTimeMillis() - lastUnlocked)
+                        (remainingMs / 60000L).coerceAtLeast(1)
+                    } ?: 0L
 
-                val isTemporarilyUnlocked = matchingGroup?.let { group ->
-                    if (group.isProductive || group.keywords.any { it.isNotBlank() }) false
-                    else {
-                        val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
-                        val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
-                        val timeSinceUnlock = System.currentTimeMillis() - lastUnlocked
-                        timeSinceUnlock < unlockDurationMs && lastUnlocked > 0L
-                    }
-                } ?: false
+                    val isFavorite = favoriteApps.contains(app.packageName)
+                    val priority = appPriorities[app.packageName] ?: 0
 
-                val remainingUnlockMins = matchingGroup?.let { group ->
-                    val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
-                    val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
-                    val remainingMs = unlockDurationMs - (System.currentTimeMillis() - lastUnlocked)
-                    (remainingMs / 60000L).coerceAtLeast(1)
-                } ?: 0L
-
-                val isFavorite = favoriteApps.contains(app.packageName)
-
-                DungeonGateCard(
-                    app = app,
-                    matchingGroup = matchingGroup,
-                    isLocked = isLocked,
-                    isProductive = isProductive,
-                    isTemporarilyUnlocked = isTemporarilyUnlocked,
-                    remainingUnlockMins = remainingUnlockMins,
-                    isFavorite = isFavorite,
-                    onClick = {
-                        if (isLocked && matchingGroup != null) {
-                            val intent = Intent(context, LockOverlayActivity::class.java).apply {
-                                putExtra("group_id", matchingGroup.id)
-                                putExtra("target_app", app.packageName)
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            }
-                            context.startActivity(intent)
-                        } else {
-                            val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
-                            if (launchIntent != null) {
-                                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(launchIntent)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .combinedClickable(
+                                onClick = {
+                                    if (isLocked && matchingGroup != null) {
+                                        val intent = Intent(context, LockOverlayActivity::class.java).apply {
+                                            putExtra("group_id", matchingGroup.id)
+                                            putExtra("target_app", app.packageName)
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        context.startActivity(intent)
+                                    } else {
+                                        val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+                                        if (launchIntent != null) {
+                                            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            context.startActivity(launchIntent)
+                                        }
+                                    }
+                                },
+                                onLongClick = { selectedAppForAction = app }
+                            )
+                            .padding(2.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .background(
+                                    when {
+                                        isProductive -> Color(0xFF14221A)
+                                        isTemporarilyUnlocked -> Color(0xFF132A1C)
+                                        isLocked -> Color(0xFF2B1215)
+                                        else -> MaterialTheme.colorScheme.surface
+                                    },
+                                    RoundedCornerShape(14.dp)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            AndroidView(
+                                factory = { ctx ->
+                                    ImageView(ctx).apply {
+                                        try {
+                                            setImageDrawable(ctx.packageManager.getApplicationIcon(app.packageName))
+                                        } catch (_: Exception) {}
+                                    }
+                                },
+                                modifier = Modifier.size(36.dp)
+                            )
+                            if (isLocked) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.45f), RoundedCornerShape(14.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(Icons.Default.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                                }
+                            } else if (isTemporarilyUnlocked) {
+                                Box(
+                                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(14.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text("${remainingUnlockMins}m", fontSize = 9.sp, color = Color(0xFF81C784), fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
-                    },
-                    onLongClick = {
-                        selectedAppForAction = app
-                    },
-                    onToggleFavorite = {
-                        val newFavs = favoriteApps.toMutableSet()
-                        if (isFavorite) newFavs.remove(app.packageName) else newFavs.add(app.packageName)
-                        favoriteApps = newFavs
-                        prefs.edit().putStringSet("favorite_apps", newFavs).apply()
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isFavorite) {
+                                Text("⭐", fontSize = 8.sp)
+                            }
+                            if (priority > 0) {
+                                Text("#$priority ", fontSize = 8.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            }
+                            Text(
+                                text = app.name,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                color = if (isTemporarilyUnlocked) Color(0xFF81C784) else Color.White
+                            )
+                        }
                     }
-                )
+                }
+            }
+        } else {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                items(sortedApps) { app ->
+                    val matchingGroup = appGroups.find { group ->
+                        group.isEnabled && group.packageNames.contains(app.packageName)
+                    }
+                    val isProductive = matchingGroup?.isProductive == true
+                    val isLocked = matchingGroup?.let { group ->
+                        if (group.isProductive) false
+                        else if (group.keywords.any { it.isNotBlank() }) false
+                        else {
+                            val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                            val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                            (System.currentTimeMillis() - lastUnlocked) >= unlockDurationMs
+                        }
+                    } ?: false
+
+                    val isTemporarilyUnlocked = matchingGroup?.let { group ->
+                        if (group.isProductive || group.keywords.any { it.isNotBlank() }) false
+                        else {
+                            val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                            val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                            val timeSinceUnlock = System.currentTimeMillis() - lastUnlocked
+                            timeSinceUnlock < unlockDurationMs && lastUnlocked > 0L
+                        }
+                    } ?: false
+
+                    val remainingUnlockMins = matchingGroup?.let { group ->
+                        val lastUnlocked = LockStatusManager.getLastUnlocked(group.id, group.lastUnlockedTimestamp)
+                        val unlockDurationMs = group.unlockDurationMinutes * 60 * 1000L
+                        val remainingMs = unlockDurationMs - (System.currentTimeMillis() - lastUnlocked)
+                        (remainingMs / 60000L).coerceAtLeast(1)
+                    } ?: 0L
+
+                    val isFavorite = favoriteApps.contains(app.packageName)
+
+                    DungeonGateCard(
+                        app = app,
+                        matchingGroup = matchingGroup,
+                        isLocked = isLocked,
+                        isProductive = isProductive,
+                        isTemporarilyUnlocked = isTemporarilyUnlocked,
+                        remainingUnlockMins = remainingUnlockMins,
+                        isFavorite = isFavorite,
+                        onClick = {
+                            if (isLocked && matchingGroup != null) {
+                                val intent = Intent(context, LockOverlayActivity::class.java).apply {
+                                    putExtra("group_id", matchingGroup.id)
+                                    putExtra("target_app", app.packageName)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            } else {
+                                val launchIntent = context.packageManager.getLaunchIntentForPackage(app.packageName)
+                                if (launchIntent != null) {
+                                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    context.startActivity(launchIntent)
+                                }
+                            }
+                        },
+                        onLongClick = {
+                            selectedAppForAction = app
+                        },
+                        onToggleFavorite = {
+                            val newFavs = favoriteApps.toMutableSet()
+                            if (isFavorite) newFavs.remove(app.packageName) else newFavs.add(app.packageName)
+                            favoriteApps = newFavs
+                            prefs.edit().putStringSet("favorite_apps", newFavs).apply()
+                        }
+                    )
+                }
             }
         }
     }
@@ -1101,6 +1285,19 @@ fun SoloPortalsTab(
             text = { Text("Choose an action for this app portal:") },
             confirmButton = {
                 Column {
+                    Button(
+                        onClick = {
+                            priorityAppForDialog = app
+                            priorityInputValue = (appPriorities[app.packageName] ?: 0).let { if (it > 0) it.toString() else "" }
+                            selectedAppForAction = null
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Icon(Icons.Default.FormatListNumbered, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Set Priority Rank (#)")
+                    }
                     Button(
                         onClick = {
                             onNavigateToLocks()
@@ -1145,6 +1342,44 @@ fun SoloPortalsTab(
             },
             dismissButton = {
                 TextButton(onClick = { selectedAppForAction = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    priorityAppForDialog?.let { app ->
+        AlertDialog(
+            onDismissRequest = { priorityAppForDialog = null },
+            title = { Text("Set Priority Rank for ${app.name}", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Enter a priority number (higher numbers e.g. 100, 90, 50 will be shown higher at the top of the App Portal):", fontSize = 12.sp, color = Color.Gray)
+                    OutlinedTextField(
+                        value = priorityInputValue,
+                        onValueChange = { priorityInputValue = it.filter { c -> c.isDigit() } },
+                        label = { Text("Priority Number (e.g. 100)") },
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val p = priorityInputValue.toIntOrNull() ?: 0
+                        saveAppPriority(prefs, app.packageName, p)
+                        appPriorities = getAppPriorities(prefs)
+                        priorityAppForDialog = null
+                        Toast.makeText(context, "Priority rank updated to #$p", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Save Priority")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { priorityAppForDialog = null }) {
                     Text("Cancel")
                 }
             }
@@ -1382,14 +1617,14 @@ fun SoloWeeklyMatrixTab(
             val morningDone = dayPledge?.pledgeTimestamp != null || dayPledge?.status == "COMMITTED" || dayPledge?.status == "SUCCESS"
             val eveningDone = dayPledge?.reviewTimestamp != null || dayPledge?.eveningReflection?.isNotBlank() == true || dayPledge?.status == "SUCCESS"
 
-            val dayName = when (cal.get(Calendar.DAY_OF_WEEK)) {
-                Calendar.MONDAY -> "M"
-                Calendar.TUESDAY -> "T"
-                Calendar.WEDNESDAY -> "W"
-                Calendar.THURSDAY -> "T"
-                Calendar.FRIDAY -> "F"
-                Calendar.SATURDAY -> "S"
-                Calendar.SUNDAY -> "S"
+            val dayName = if (daysAgo == 0) "Today" else when (cal.get(Calendar.DAY_OF_WEEK)) {
+                Calendar.MONDAY -> "Mon"
+                Calendar.TUESDAY -> "Tue"
+                Calendar.WEDNESDAY -> "Wed"
+                Calendar.THURSDAY -> "Thu"
+                Calendar.FRIDAY -> "Fri"
+                Calendar.SATURDAY -> "Sat"
+                Calendar.SUNDAY -> "Sun"
                 else -> ""
             }
 
@@ -1421,8 +1656,16 @@ fun SoloWeeklyMatrixTab(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text("HABIT TARGET", color = MaterialTheme.colorScheme.primary, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(2.2f))
-                    last7Days.forEach { day ->
-                        Text(day.dayName, color = Color.Gray, fontSize = 10.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+                    last7Days.forEachIndexed { idx, day ->
+                        val isToday = idx == last7Days.size - 1
+                        Text(
+                            text = if (isToday) "TODAY" else day.dayName,
+                            color = if (isToday) MaterialTheme.colorScheme.primary else Color.Gray,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
 

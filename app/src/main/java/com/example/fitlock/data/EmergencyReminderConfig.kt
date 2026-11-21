@@ -105,6 +105,7 @@ data class EmergencyReminderConfig(
     val matrixGoals: List<MatrixGoalConfig> = defaultMatrixGoals,
     val customIcons: Map<String, String> = emptyMap(),
     val hostedWidgetIds: List<Int> = emptyList(),
+    val widgetHeights: Map<String, Int> = emptyMap(),
     val selectedExercises: List<String> = listOf("PUSHUP", "SQUAT", "SITUP", "PLANK"),
     val selectedAppPackages: List<String> = listOf("com.duolingo", "com.ichi2.anki", "net.ankiweb.anki"),
     val exerciseTargets: Map<String, Int> = mapOf(
@@ -181,17 +182,28 @@ fun getAppUsageMinutesForRange(context: Context, packageName: String, startTime:
     return try {
         val usageStatsManager = context.getSystemService(Context.USAGE_STATS_SERVICE) as android.app.usage.UsageStatsManager
         
-        // 1. Try queryUsageStats (INTERVAL_DAILY)
+        // 1. Try queryAndAggregateUsageStats (Most reliable for active time range)
+        var aggMinutes = 0
+        try {
+            val statsMap = usageStatsManager.queryAndAggregateUsageStats(startTime, endTime)
+            val match = statsMap[packageName]
+                ?: statsMap.entries.find { it.key.equals(packageName, ignoreCase = true) || it.key.contains(packageName, ignoreCase = true) }?.value
+            if (match != null && match.totalTimeInForeground > 0) {
+                aggMinutes = (match.totalTimeInForeground / (1000 * 60)).toInt()
+            }
+        } catch (e: Exception) {}
+
+        // 2. Try queryUsageStats (INTERVAL_DAILY)
         var foregroundMinutes = 0
         try {
             val stats = usageStatsManager.queryUsageStats(android.app.usage.UsageStatsManager.INTERVAL_DAILY, startTime, endTime)
-            val match = stats.find { it.packageName.equals(packageName, ignoreCase = true) }
+            val match = stats.find { it.packageName.equals(packageName, ignoreCase = true) || it.packageName.contains(packageName, ignoreCase = true) }
             if (match != null && match.totalTimeInForeground > 0) {
                 foregroundMinutes = (match.totalTimeInForeground / (1000 * 60)).toInt()
             }
         } catch (e: Exception) {}
 
-        // 2. Query Events
+        // 3. Query Events fallback
         val events = usageStatsManager.queryEvents(startTime, endTime)
         val event = android.app.usage.UsageEvents.Event()
 
@@ -200,7 +212,8 @@ fun getAppUsageMinutesForRange(context: Context, packageName: String, startTime:
 
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
-            if (event.packageName.equals(packageName, ignoreCase = true)) {
+            val pkg = event.packageName ?: ""
+            if (pkg.equals(packageName, ignoreCase = true) || pkg.contains(packageName, ignoreCase = true)) {
                 when (event.eventType) {
                     android.app.usage.UsageEvents.Event.ACTIVITY_RESUMED -> {
                         lastResumedTime = event.timeStamp
@@ -219,7 +232,7 @@ fun getAppUsageMinutesForRange(context: Context, packageName: String, startTime:
             totalTimeMs += (endTime - lastResumedTime)
         }
         val eventMinutes = (totalTimeMs / (1000 * 60)).toInt()
-        maxOf(foregroundMinutes, eventMinutes)
+        maxOf(aggMinutes, foregroundMinutes, eventMinutes)
     } catch (e: Exception) {
         0
     }
