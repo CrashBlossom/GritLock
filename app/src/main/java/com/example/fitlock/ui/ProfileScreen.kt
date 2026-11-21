@@ -18,6 +18,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -367,14 +368,14 @@ fun StatRadarCard(stats: UserStats?) {
         shape = RoundedCornerShape(24.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Text("Ability Scores", color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(modifier = Modifier.height(16.dp))
             
             Box(
                 modifier = Modifier
-                    .size(220.dp)
-                    .padding(8.dp),
+                    .size(240.dp)
+                    .padding(12.dp),
                 contentAlignment = Alignment.Center
             ) {
                 val rawScores = listOf(
@@ -400,21 +401,21 @@ fun StatRadarCard(stats: UserStats?) {
             Spacer(modifier = Modifier.height(16.dp))
             
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StatLabel("STR", "Lv. ${stats?.let { it.getStatLevel(StatType.STR) } ?: 1}")
-                StatLabel("DEX", "Lv. ${stats?.let { it.getStatLevel(StatType.DEX) } ?: 1}")
-                StatLabel("CON", "Lv. ${stats?.let { it.getStatLevel(StatType.CON) } ?: 1}")
-                StatLabel("MOV", "Lv. ${stats?.let { it.getStatLevel(StatType.MOV) } ?: 1}")
-                StatLabel("INT", "Lv. ${stats?.let { it.getStatLevel(StatType.INT) } ?: 1}")
-                StatLabel("WIS", "Lv. ${stats?.let { it.getStatLevel(StatType.WIS) } ?: 1}")
+                StatLabel("💪 STR", "Lv. ${stats?.let { it.getStatLevel(StatType.STR) } ?: 1}")
+                StatLabel("🎯 DEX", "Lv. ${stats?.let { it.getStatLevel(StatType.DEX) } ?: 1}")
+                StatLabel("❤️ CON", "Lv. ${stats?.let { it.getStatLevel(StatType.CON) } ?: 1}")
+                StatLabel("🏃 MOV", "Lv. ${stats?.let { it.getStatLevel(StatType.MOV) } ?: 1}")
+                StatLabel("🧠 INT", "Lv. ${stats?.let { it.getStatLevel(StatType.INT) } ?: 1}")
+                StatLabel("📜 WIS", "Lv. ${stats?.let { it.getStatLevel(StatType.WIS) } ?: 1}")
             }
             Spacer(modifier = Modifier.height(8.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StatLabel("WIL", "Lv. ${stats?.let { it.getStatLevel(StatType.WIL) } ?: 1}")
-                StatLabel("SAN", "Lv. ${stats?.let { it.getStatLevel(StatType.SAN) } ?: 1}")
-                StatLabel("CHA", "Lv. ${stats?.let { it.getStatLevel(StatType.CHA) } ?: 1}")
-                StatLabel("WTH", "Lv. ${stats?.let { it.getStatLevel(StatType.WTH) } ?: 1}")
-                StatLabel("TEC", "Lv. ${stats?.let { it.getStatLevel(StatType.TEC) } ?: 1}")
-                StatLabel("LCK", "Lv. ${stats?.let { it.getStatLevel(StatType.LCK) } ?: 1}")
+                StatLabel("🛡️ WIL", "Lv. ${stats?.let { it.getStatLevel(StatType.WIL) } ?: 1}")
+                StatLabel("🧘 SAN", "Lv. ${stats?.let { it.getStatLevel(StatType.SAN) } ?: 1}")
+                StatLabel("✨ CHA", "Lv. ${stats?.let { it.getStatLevel(StatType.CHA) } ?: 1}")
+                StatLabel("💰 WTH", "Lv. ${stats?.let { it.getStatLevel(StatType.WTH) } ?: 1}")
+                StatLabel("⚙️ TEC", "Lv. ${stats?.let { it.getStatLevel(StatType.TEC) } ?: 1}")
+                StatLabel("🎲 LCK", "Lv. ${stats?.let { it.getStatLevel(StatType.LCK) } ?: 1}")
             }
         }
     }
@@ -423,10 +424,13 @@ fun StatRadarCard(stats: UserStats?) {
 @Composable
 fun AbilityRadarChart(scores: List<Float>) {
     val primaryColor = MaterialTheme.colorScheme.primary
+    val statEmojis = listOf("💪", "🎯", "❤️", "🏃", "🧠", "📜", "🛡️", "🧘", "✨", "💰", "⚙️", "🎲")
+    
     Canvas(modifier = Modifier.fillMaxSize()) {
         val center = Offset(size.width / 2, size.height / 2)
-        val radius = size.width / 2
+        val radius = (size.width / 2) * 0.75f
         val angleStep = (2 * Math.PI / 12).toFloat()
+        
         for (i in 1..4) {
             val r = radius * (i / 4f)
             val path = Path()
@@ -439,6 +443,23 @@ fun AbilityRadarChart(scores: List<Float>) {
             path.close()
             drawPath(path, color = Color.Gray.copy(alpha = 0.2f), style = Stroke(width = 1.dp.toPx()))
         }
+
+        val textPaint = android.graphics.Paint().apply {
+            textSize = 12.sp.toPx()
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        for (j in 0..11) {
+            val angle = j * angleStep - Math.PI.toFloat() / 2
+            val endX = center.x + radius * Math.cos(angle.toDouble()).toFloat()
+            val endY = center.y + radius * Math.sin(angle.toDouble()).toFloat()
+            drawLine(color = Color.Gray.copy(alpha = 0.25f), start = center, end = Offset(endX, endY), strokeWidth = 1.dp.toPx())
+
+            val labelRadius = radius * 1.18f
+            val lx = center.x + labelRadius * Math.cos(angle.toDouble()).toFloat()
+            val ly = center.y + labelRadius * Math.sin(angle.toDouble()).toFloat() + (textPaint.textSize / 3)
+            drawContext.canvas.nativeCanvas.drawText(statEmojis[j], lx, ly, textPaint)
+        }
+
         val statPath = Path()
         scores.forEachIndexed { j, score ->
             val angle = j * angleStep - Math.PI.toFloat() / 2
@@ -448,8 +469,17 @@ fun AbilityRadarChart(scores: List<Float>) {
             if (j == 0) statPath.moveTo(x, y) else statPath.lineTo(x, y)
         }
         statPath.close()
-        drawPath(statPath, color = primaryColor.copy(alpha = 0.4f))
-        drawPath(statPath, color = primaryColor, style = Stroke(width = 2.dp.toPx()))
+        drawPath(statPath, color = primaryColor.copy(alpha = 0.35f))
+        drawPath(statPath, color = primaryColor, style = Stroke(width = 2.5.dp.toPx()))
+
+        scores.forEachIndexed { j, score ->
+            val angle = j * angleStep - Math.PI.toFloat() / 2
+            val r = radius * score
+            val x = center.x + r * Math.cos(angle.toDouble()).toFloat()
+            val y = center.y + r * Math.sin(angle.toDouble()).toFloat()
+            drawCircle(color = primaryColor, radius = 4.dp.toPx(), center = Offset(x, y))
+            drawCircle(color = Color.White, radius = 2.dp.toPx(), center = Offset(x, y))
+        }
     }
 }
 

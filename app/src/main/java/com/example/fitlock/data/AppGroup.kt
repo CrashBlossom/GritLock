@@ -5,6 +5,24 @@ import java.util.concurrent.ConcurrentHashMap
 
 enum class StatType { STR, DEX, CON, MOV, INT, WIS, WIL, SAN, CHA, WTH, TEC, LCK, NONE }
 
+fun getStatEmoji(stat: StatType?): String {
+    return when (stat) {
+        StatType.STR -> "💪"
+        StatType.DEX -> "🎯"
+        StatType.CON -> "❤️"
+        StatType.MOV -> "🏃"
+        StatType.INT -> "🧠"
+        StatType.WIS -> "📜"
+        StatType.WIL -> "🛡️"
+        StatType.SAN -> "🧘"
+        StatType.CHA -> "✨"
+        StatType.WTH -> "💰"
+        StatType.TEC -> "⚙️"
+        StatType.LCK -> "🎲"
+        else -> ""
+    }
+}
+
 enum class GateMode { BLOCK_SCREEN, BACKGROUND_RAID }
 
 enum class GauntletTriggerType { MANUAL, TIME_BASED, WIFI, TIME_AND_WIFI }

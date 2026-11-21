@@ -2,7 +2,9 @@ package com.example.fitlock.ui
 
 import android.content.Context
 import android.content.Intent
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -187,6 +189,15 @@ fun LauncherPortalScreen(
                     val hasKeywordCombo = matchingGroup?.keywords?.any { it.isNotBlank() } == true
                     val isFavorite = favoriteApps.contains(app.packageName)
 
+                    val rankColor = when {
+                        matchingGroup?.isProductive == true -> Color(0xFF81C784)
+                        isTemporarilyUnlocked -> Color(0xFF66BB6A)
+                        hasKeywordCombo -> Color(0xFFFF9800)
+                        isLocked -> Color(0xFFEF5350)
+                        else -> Color(0xFF64B5F6)
+                    }
+                    val rewardStatEmoji = com.example.fitlock.data.getStatEmoji(matchingGroup?.rewardStat)
+
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier
@@ -213,13 +224,15 @@ fun LauncherPortalScreen(
                                 .size(56.dp)
                                 .background(
                                     when {
-                                        isLocked -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
-                                        isTemporarilyUnlocked -> Color(0xFF1B3822)
-                                        hasKeywordCombo -> Color(0xFFFF9800).copy(alpha = 0.25f)
-                                        else -> MaterialTheme.colorScheme.surfaceVariant
+                                        matchingGroup?.isProductive == true -> Color(0xFF14221A)
+                                        isTemporarilyUnlocked -> Color(0xFF132A1C)
+                                        hasKeywordCombo -> Color(0xFF2B1D12)
+                                        isLocked -> Color(0xFF2B1215)
+                                        else -> Color(0xFF161E2E)
                                     },
                                     RoundedCornerShape(16.dp)
-                                ),
+                                )
+                                .border(BorderStroke(1.5.dp, rankColor.copy(alpha = 0.85f)), RoundedCornerShape(16.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             androidx.compose.ui.viewinterop.AndroidView(
@@ -253,17 +266,15 @@ fun LauncherPortalScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (isFavorite) {
-                                Text("⭐", fontSize = 9.sp)
-                                Spacer(modifier = Modifier.width(2.dp))
-                            }
+                            val favStr = if (isFavorite) "⭐" else ""
+                            val statStr = rewardStatEmoji
                             Text(
-                                text = app.name,
+                                text = "$favStr$statStr${app.name}",
                                 fontSize = 11.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.Center,
-                                color = if (isTemporarilyUnlocked) Color(0xFF81C784) else MaterialTheme.colorScheme.onBackground
+                                color = if (isTemporarilyUnlocked || matchingGroup?.isProductive == true) Color(0xFF81C784) else MaterialTheme.colorScheme.onBackground
                             )
                         }
                     }

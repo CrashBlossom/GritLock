@@ -2008,15 +2008,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             )
             exercises.forEach { repository.upsertExerciseDefinition(it) }
             
-            // 5. Task Definitions
-            val tasks = listOf(
-                TaskDefinition(name = "Clean Workspace", category = "General"),
-                TaskDefinition(name = "Review Tomorrow", category = "General"),
-                TaskDefinition(name = "Zero Inbox", category = "Work")
-            )
-            tasks.forEach { repository.upsertTaskDefinition(it) }
-
-            // 6. Routine Templates (Quests)
+            // 5. Routine Templates (Quests)
             val routineQuests = listOf(
                 Quest(id = "routine_sunrise", name = "Sunrise Power", type = QuestType.ROUTINE, icon = "wb_sunny"),
                 Quest(id = "routine_shutdown", name = "Agent Shutdown", type = QuestType.ROUTINE, icon = "power_settings_new")
@@ -2031,9 +2023,7 @@ class MainActivity : ComponentActivity(), SensorEventListener {
             repository.upsertQuestBlocks(sunriseBlocks)
 
             val shutdownBlocks = listOf(
-                QuestBlock(questId = "routine_shutdown", type = BlockType.TASK, orderIndex = 0, name = "Zero Inbox"),
-                QuestBlock(questId = "routine_shutdown", type = BlockType.TASK, orderIndex = 1, name = "Clear Desk"),
-                QuestBlock(questId = "routine_shutdown", type = BlockType.HABIT, orderIndex = 2, name = "Evening Review")
+                QuestBlock(questId = "routine_shutdown", type = BlockType.HABIT, orderIndex = 0, name = "Evening Review", estimatedDurationSeconds = 300)
             )
             repository.upsertQuestBlocks(shutdownBlocks)
         }

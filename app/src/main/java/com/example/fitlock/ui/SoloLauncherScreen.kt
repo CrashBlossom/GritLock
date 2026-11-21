@@ -330,7 +330,7 @@ fun SoloCalendarGridTab() {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(60.dp)
+                            .heightIn(min = 60.dp)
                             .border(width = 0.5.dp, color = Color.Gray.copy(alpha = 0.15f)),
                         verticalAlignment = Alignment.Top
                     ) {
@@ -340,7 +340,12 @@ fun SoloCalendarGridTab() {
                             color = Color.Gray,
                             modifier = Modifier.width(50.dp).padding(start = 8.dp, top = 4.dp)
                         )
-                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 4.dp, vertical = 2.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
                             val hourStartMs = (selectedCal.clone() as Calendar).apply {
                                 set(Calendar.HOUR_OF_DAY, hour)
                                 set(Calendar.MINUTE, 0)
@@ -353,9 +358,7 @@ fun SoloCalendarGridTab() {
                                 Surface(
                                     color = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
                                     shape = RoundedCornerShape(6.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(modifier = Modifier.padding(6.dp)) {
                                         Text(ev.title, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White, maxLines = 1)
@@ -374,9 +377,7 @@ fun SoloCalendarGridTab() {
                                 Surface(
                                     color = Color(0xFF1B3822),
                                     shape = RoundedCornerShape(6.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                                    modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Column(modifier = Modifier.padding(6.dp)) {
                                         Text(tb.title, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White, maxLines = 1)
@@ -1113,8 +1114,18 @@ fun SoloPortalsTab(
                         (remainingMs / 60000L).coerceAtLeast(1)
                     } ?: 0L
 
+                    val hasKeywordCombo = matchingGroup?.keywords?.any { it.isNotBlank() } == true
                     val isFavorite = favoriteApps.contains(app.packageName)
                     val priority = appPriorities[app.packageName] ?: 0
+
+                    val rankColor = when {
+                        isProductive -> Color(0xFF81C784)
+                        isTemporarilyUnlocked -> Color(0xFF66BB6A)
+                        hasKeywordCombo -> Color(0xFFFF9800)
+                        isLocked -> Color(0xFFEF5350)
+                        else -> Color(0xFF64B5F6)
+                    }
+                    val rewardStatEmoji = getStatEmoji(matchingGroup?.rewardStat)
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1147,11 +1158,13 @@ fun SoloPortalsTab(
                                     when {
                                         isProductive -> Color(0xFF14221A)
                                         isTemporarilyUnlocked -> Color(0xFF132A1C)
+                                        hasKeywordCombo -> Color(0xFF2B1D12)
                                         isLocked -> Color(0xFF2B1215)
-                                        else -> MaterialTheme.colorScheme.surface
+                                        else -> Color(0xFF161E2E)
                                     },
                                     RoundedCornerShape(14.dp)
-                                ),
+                                )
+                                .border(BorderStroke(1.5.dp, rankColor.copy(alpha = 0.85f)), RoundedCornerShape(14.dp)),
                             contentAlignment = Alignment.Center
                         ) {
                             AndroidView(
@@ -1182,19 +1195,16 @@ fun SoloPortalsTab(
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (isFavorite) {
-                                Text("⭐", fontSize = 8.sp)
-                            }
-                            if (priority > 0) {
-                                Text("#$priority ", fontSize = 8.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            }
+                            val favStr = if (isFavorite) "⭐" else ""
+                            val prioStr = if (priority > 0) "#$priority " else ""
+                            val statStr = rewardStatEmoji
                             Text(
-                                text = app.name,
+                                text = "$prioStr$favStr$statStr${app.name}",
                                 fontSize = 10.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.Center,
-                                color = if (isTemporarilyUnlocked) Color(0xFF81C784) else Color.White
+                                color = if (isTemporarilyUnlocked || isProductive) Color(0xFF81C784) else Color.White
                             )
                         }
                     }
@@ -1418,6 +1428,8 @@ fun DungeonGateCard(
         else -> "E"
     }
 
+    val rewardStatEmoji = com.example.fitlock.data.getStatEmoji(matchingGroup?.rewardStat)
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1446,15 +1458,11 @@ fun DungeonGateCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = app.name,
+                            text = "${if (isFavorite) "⭐" else ""}$rewardStatEmoji${app.name}",
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
-                        if (isFavorite) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text("⭐", fontSize = 12.sp)
-                        }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
